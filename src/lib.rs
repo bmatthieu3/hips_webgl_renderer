@@ -2,6 +2,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{WebGlProgram, WebGlRenderingContext, WebGlShader};
 use js_sys::WebAssembly;
+use cgmath;
 
 fn request_animation_frame(f: &Closure<FnMut()>) {
     web_sys::window()
@@ -39,8 +40,12 @@ pub fn start() -> Result<(), JsValue> {
         WebGlRenderingContext::VERTEX_SHADER,
         r#"
         attribute vec3 position;
+
+        uniform mat4 model;
+        uniform mat4 projection;
+        uniform mat4 view;
         void main() {
-            gl_Position = vec4(position, 1.0);
+            gl_Position = projection * view *  model * vec4(position, 1.0);
         }
     "#,
     )?;
@@ -49,7 +54,7 @@ pub fn start() -> Result<(), JsValue> {
         WebGlRenderingContext::FRAGMENT_SHADER,
         r#"
         void main() {
-            gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
+            gl_FragColor = vec4(1.0, 0.0, 1.0, 1.0);
         }
     "#,
     )?;
@@ -57,6 +62,19 @@ pub fn start() -> Result<(), JsValue> {
     gl.use_program(Some(&program));
 
     let vertices: [f32; 9] = [-0.7, -0.7, 0.0, 0.7, -0.7, 0.0, 0.0, 0.7, 0.0];
+    let vertices: [f32; 24] = [
+        // Front face
+        -0.5, 0.5, 0.5,
+        -0.5, -0.5, 0.5,
+        0.5, -0.5, 0.5,
+        0.5, 0.5, 0.5,
+
+        // Back face
+        -0.5, 0.5, -0.5,
+        0.5, 0.5, -0.5,
+        0.5, -0.5, -0.5,
+        -0.5, -0.5, -0.5,
+    ];
     let vertices_array = {
         let memory_buffer = wasm_bindgen::memory()
             .dyn_into::<WebAssembly::Memory>()?
@@ -66,7 +84,14 @@ pub fn start() -> Result<(), JsValue> {
             .subarray(vertices_location, vertices_location + vertices.len() as u32)
     };
 
-    let indices: [u16; 3] = [0, 1, 2];
+    //let indices: [u16; 3] = [0, 1, 2];
+    let indices: [u16; 36] = [
+        0, 1, 2, 0, 2, 3,
+        3, 2, 6, 3, 6, 5,
+        4, 6, 5, 4, 6, 7,
+        4, 1, 0, 4, 1, 7,
+        7, 1, 2, 7, 2, 6,
+        4, 0, 5, 4, 5, 3];
     let indices_array = {
         let memory_buffer = wasm_bindgen::memory()
             .dyn_into::<WebAssembly::Memory>()?
@@ -131,8 +156,45 @@ pub fn start() -> Result<(), JsValue> {
     // for all future iterations of the loop
     let f = Rc::new(RefCell::new(None));
     let g = f.clone();
+    let mut i = 0;
+
+    // Get the attribute location of the matrices from the Vertex shader
+    let model_mat_location = gl.get_uniform_location(&program, "model");
+    let view_mat_location = gl.get_uniform_location(&program, "view");
+    let proj_mat_location = gl.get_uniform_location(&program, "projection");
+
+    let fovy = cgmath::Deg(60_f32);
+    let aspect = inner_width as f32 / inner_height as f32;
+    let near = 0.1_f32;
+    let far = 50_f32;
+    let proj_mat: cgmath::Matrix4<f32> = cgmath::perspective(
+        fovy,
+        aspect,
+        near,
+        far
+    );
+
+    let eye = cgmath::Point3::new(5_f32, 5_f32, 5_f32);
+    let center = cgmath::Point3::new(0_f32, 0_f32, 0_f32);
+    let up = cgmath::Vector3::new(0_f32, 1_f32, 0_f32);
+    let mut view_mat = cgmath::Matrix4::<f32>::look_at(eye, center, up);
 
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
+        i = i + 1;
+        // Definition of the model matrix
+        let axis = cgmath::Vector3::new(0_f32, 0_f32, 1_f32);
+        let angle = cgmath::Rad((i as f32)/100_f32);
+        let mut model_mat = cgmath::Matrix4::<f32>::from_axis_angle(axis, angle);
+        model_mat = model_mat * cgmath::Matrix4::<f32>::from_scale(1_f32);
+
+        // Send matrices to the Vertex shader
+        let model_mat_f32_slice: &[f32; 16] = model_mat.as_ref();
+        gl.uniform_matrix4fv_with_f32_array(model_mat_location.as_ref(), false, model_mat_f32_slice);
+        let view_mat_f32_slice: &[f32; 16] = view_mat.as_ref();
+        gl.uniform_matrix4fv_with_f32_array(view_mat_location.as_ref(), false, view_mat_f32_slice);
+        let proj_mat_f32_slice: &[f32; 16] = proj_mat.as_ref();
+        gl.uniform_matrix4fv_with_f32_array(proj_mat_location.as_ref(), false, proj_mat_f32_slice);
+
         // Render the scene
         gl.clear_color(0.0, 0.0, 0.0, 1.0);
         // Clear the color buffer bit
