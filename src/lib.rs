@@ -1,8 +1,10 @@
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use web_sys::{WebGlProgram, WebGlRenderingContext, WebGlShader};
+use web_sys::{WebGlProgram, WebGl2RenderingContext, WebGlShader, console};
 use js_sys::WebAssembly;
 use cgmath;
+use cgmath::{InnerSpace, Angle};
+use healpix;
 
 fn request_animation_frame(f: &Closure<FnMut()>) {
     web_sys::window()
@@ -31,38 +33,66 @@ pub fn start() -> Result<(), JsValue> {
     canvas.set_height(inner_height as u32);
 
     let gl = canvas
-        .get_context("webgl")?
+        .get_context("webgl2")?
         .unwrap()
-        .dyn_into::<WebGlRenderingContext>()?;
+        .dyn_into::<WebGl2RenderingContext>()?;
 
     let vert_shader = compile_shader(
         &gl,
-        WebGlRenderingContext::VERTEX_SHADER,
-        r#"
-        attribute vec3 position;
+        WebGl2RenderingContext::VERTEX_SHADER,
+        r#"#version 300 es
+        in vec3 position;
+        in vec2 uv;
+
+        out vec2 out_vert_uv;
 
         uniform mat4 model;
         uniform mat4 projection;
         uniform mat4 view;
+
         void main() {
             gl_Position = projection * view *  model * vec4(position, 1.0);
+            out_vert_uv = uv;
         }
     "#,
     )?;
     let frag_shader = compile_shader(
         &gl,
-        WebGlRenderingContext::FRAGMENT_SHADER,
-        r#"
+        WebGl2RenderingContext::FRAGMENT_SHADER,
+        r#"#version 300 es
+        precision mediump float;
+
+        in vec2 out_vert_uv;
+
+        out vec4 out_frag_color;
+
+        uniform sampler2D tex;
+
         void main() {
-            gl_FragColor = vec4(1.0, 0.0, 1.0, 1.0);
+            //out_frag_color = texture(tex, out_vert_uv);
+            out_frag_color = vec4(1.0, 0.0, 1.0, 1.0);
         }
     "#,
     )?;
     let program = link_program(&gl, &vert_shader, &frag_shader)?;
     gl.use_program(Some(&program));
 
-    let vertices: [f32; 9] = [-0.7, -0.7, 0.0, 0.7, -0.7, 0.0, 0.0, 0.7, 0.0];
-    let vertices: [f32; 24] = [
+    let segment_by_side = 3 as usize;
+    let vertices = healpix::nested::grid(0, 1, segment_by_side as u16)
+        .into_iter()
+        .map(|(lon, lat)| {
+            let x = -(*lat).cos() * (*lon).cos();
+            let y = -(*lat).sin();
+            let z = (*lat).cos() * (*lon).sin();
+
+            vec![x as f32, y as f32, z as f32]
+        })
+        .flatten()
+        .collect::<Vec<_>>();
+    
+    console::log_1(&format!("Hello using web-sys {:?}", vertices).into());
+
+    /*let vertices: [f32; 24] = [
         // Front face
         -0.5, 0.5, 0.5,
         -0.5, -0.5, 0.5,
@@ -74,7 +104,7 @@ pub fn start() -> Result<(), JsValue> {
         0.5, 0.5, -0.5,
         0.5, -0.5, -0.5,
         -0.5, -0.5, -0.5,
-    ];
+    ];*/
     let vertices_array = {
         let memory_buffer = wasm_bindgen::memory()
             .dyn_into::<WebAssembly::Memory>()?
@@ -84,14 +114,65 @@ pub fn start() -> Result<(), JsValue> {
             .subarray(vertices_location, vertices_location + vertices.len() as u32)
     };
 
-    //let indices: [u16; 3] = [0, 1, 2];
-    let indices: [u16; 36] = [
-        0, 1, 2, 0, 2, 3,
-        3, 2, 6, 3, 6, 5,
-        4, 6, 5, 4, 6, 7,
-        4, 1, 0, 4, 1, 7,
-        7, 1, 2, 7, 2, 6,
-        4, 0, 5, 4, 5, 3];
+    /*let uv: [f32; 48] = [
+        // Front
+        0.0,  0.0,
+        1.0,  0.0,
+        1.0,  1.0,
+        0.0,  1.0,
+        // Back
+        0.0,  0.0,
+        1.0,  0.0,
+        1.0,  1.0,
+        0.0,  1.0,
+        // Top
+        0.0,  0.0,
+        1.0,  0.0,
+        1.0,  1.0,
+        0.0,  1.0,
+        // Bottom
+        0.0,  0.0,
+        1.0,  0.0,
+        1.0,  1.0,
+        0.0,  1.0,
+        // Right
+        0.0,  0.0,
+        1.0,  0.0,
+        1.0,  1.0,
+        0.0,  1.0,
+        // Left
+        0.0,  0.0,
+        1.0,  0.0,
+        1.0,  1.0,
+        0.0,  1.0,
+    ];
+    let uv_array = {
+        let memory_buffer = wasm_bindgen::memory()
+            .dyn_into::<WebAssembly::Memory>()?
+            .buffer();
+        let uv_location = uv.as_ptr() as u32 / 4;
+        js_sys::Float32Array::new(&memory_buffer)
+            .subarray(uv_location, uv_location + uv.len() as u32)
+    };*/
+
+
+    let mut indices = Vec::<u16>::with_capacity(segment_by_side * segment_by_side * 6);
+    let vertices_by_line = segment_by_side + 1;
+    for i in (0..segment_by_side) {
+        for j in (0..segment_by_side) {
+            let off = j + i * vertices_by_line;
+            // first triangle
+            indices.push(off as u16);
+            indices.push((off + 1) as u16);
+            indices.push((off + vertices_by_line) as u16);
+
+            // second triangle
+            indices.push((off + 1) as u16);
+            indices.push((off + vertices_by_line + 1) as u16);
+            indices.push((off + vertices_by_line) as u16);
+        }
+    }
+    console::log_1(&format!("Hello using web-sys {:?}", indices).into());
     let indices_array = {
         let memory_buffer = wasm_bindgen::memory()
             .dyn_into::<WebAssembly::Memory>()?
@@ -103,43 +184,91 @@ pub fn start() -> Result<(), JsValue> {
 
     // VERTEX buffer creation
     let vertex_buffer = gl.create_buffer().ok_or("failed to create buffer")?;
-    gl.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(&vertex_buffer));
+    gl.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, Some(&vertex_buffer));
     // Pass the vertices data to the buffer
     gl.buffer_data_with_array_buffer_view(
-        WebGlRenderingContext::ARRAY_BUFFER,
+        WebGl2RenderingContext::ARRAY_BUFFER,
         &vertices_array,
-        WebGlRenderingContext::STATIC_DRAW,
+        WebGl2RenderingContext::STATIC_DRAW,
     );
 
     // Unbind the buffer
-    gl.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, None);
+    gl.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, None);
+    /*
+    // UV buffer creation
+    let uv_buffer = gl.create_buffer().ok_or("failed to create buffer")?;
+    gl.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, Some(&uv_buffer));
+    // Pass the vertices data to the buffer
+    gl.buffer_data_with_array_buffer_view(
+        WebGl2RenderingContext::ARRAY_BUFFER,
+        &uv_array,
+        WebGl2RenderingContext::STATIC_DRAW,
+    );
 
+    // Unbind the buffer
+    gl.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, None);
+    */
+    
     // INDEX buffer creation
     let index_buffer = gl.create_buffer().ok_or("failed to create buffer")?;
-    gl.bind_buffer(WebGlRenderingContext::ELEMENT_ARRAY_BUFFER, Some(&index_buffer));
+    gl.bind_buffer(WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER, Some(&index_buffer));
     // Pass the indices data to the buffer
     gl.buffer_data_with_array_buffer_view(
-        WebGlRenderingContext::ELEMENT_ARRAY_BUFFER,
+        WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
         &indices_array,
-        WebGlRenderingContext::STATIC_DRAW,
+        WebGl2RenderingContext::STATIC_DRAW,
     );
 
     // Unbind the buffer
-    gl.bind_buffer(WebGlRenderingContext::ELEMENT_ARRAY_BUFFER, None);
+    gl.bind_buffer(WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER, None);
 
     /* ======= Associating shaders to buffer objects =======*/
     // Bind vertex buffer object
-    gl.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(&vertex_buffer));
+    gl.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, Some(&vertex_buffer));
+
+    gl.vertex_attrib_pointer_with_i32(0, 3, WebGl2RenderingContext::FLOAT, false, 0, 0);
+    gl.enable_vertex_attrib_array(0);
+    /*
+    // Bind uv buffer object
+    gl.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, Some(&uv_buffer));
+
+    gl.vertex_attrib_pointer_with_i32(1, 2, WebGl2RenderingContext::FLOAT, false, 0, 0);
+    gl.enable_vertex_attrib_array(1);
+    */
+
     // Bind index buffer object
     gl.bind_buffer(
-        WebGlRenderingContext::ELEMENT_ARRAY_BUFFER,
+        WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
         Some(&index_buffer),
     );
-    gl.vertex_attrib_pointer_with_i32(0, 3, WebGlRenderingContext::FLOAT, false, 0, 0);
-    gl.enable_vertex_attrib_array(0);
-
     // Enable the depth test
-    gl.enable(WebGlRenderingContext::DEPTH_TEST);
+    gl.enable(WebGl2RenderingContext::DEPTH_TEST);
+
+    // Create the TEXTURE
+    let texture = gl.create_texture().unwrap();
+    gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+    gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&texture));
+
+    gl.pixel_storei(WebGl2RenderingContext::UNPACK_ALIGNMENT, 1);
+    let format = WebGl2RenderingContext::RED;
+    let data: [u8; 4] = [
+      128,  64, 100, 0
+    ];
+    gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
+        WebGl2RenderingContext::TEXTURE_2D,
+        0,
+        WebGl2RenderingContext::R8 as i32,
+        2, 2, 0,
+        format,
+        WebGl2RenderingContext::UNSIGNED_BYTE, Some(&data)
+    ).unwrap();
+    //gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_2D);
+    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::NEAREST as i32);
+    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::NEAREST as i32);
+    // Prevents s-coordinate wrapping (repeating)
+    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
+    // Prevents t-coordinate wrapping (repeating)
+    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_WRAP_T, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
 
     // Here we want to call `requestAnimationFrame` in a loop, but only a fixed
     // number of times. After it's done we want all our resources cleaned up. To
@@ -162,8 +291,10 @@ pub fn start() -> Result<(), JsValue> {
     let model_mat_location = gl.get_uniform_location(&program, "model");
     let view_mat_location = gl.get_uniform_location(&program, "view");
     let proj_mat_location = gl.get_uniform_location(&program, "projection");
+    let texture_location = gl.get_uniform_location(&program, "tex");
 
     let fovy = cgmath::Deg(60_f32);
+    let half_fovy = cgmath::Deg(30_f32);
     let aspect = inner_width as f32 / inner_height as f32;
     let near = 0.1_f32;
     let far = 50_f32;
@@ -179,10 +310,40 @@ pub fn start() -> Result<(), JsValue> {
     let up = cgmath::Vector3::new(0_f32, 1_f32, 0_f32);
     let mut view_mat = cgmath::Matrix4::<f32>::look_at(eye, center, up);
 
+    let view = (center - eye).normalize();
+    let v_length = cgmath::Deg::tan(half_fovy) * near;
+    let h_length = v_length * (inner_width as f32 / inner_height as f32);
+
+    let h = view.cross(up).normalize() * h_length;
+    let v = h.cross(view).normalize() * v_length;
+
+    // Compute up-left corner ray
+    let origin_up_left = eye + view * near - h + v;
+    let dir_up_left = (origin_up_left - eye).normalize();
+
+    let origin_up_right = eye + view * near + h + v;
+    let dir_up_right = (origin_up_right - eye).normalize();
+
+    let origin_bottom_left = eye + view * near - h - v;
+    let dir_bottom_left = (origin_bottom_left - eye).normalize();
+
+    let origin_bottom_right = eye + view * near + h - v;
+    let dir_bottom_right = (origin_bottom_right - eye).normalize();
+    // Check whether the viewport intersect the unit sphere
+    // - Yes: 
+    //   1) Get the intersection points.
+    //   2) Convert them to lon, lat.
+    //   3) Define the minimum depth so that the number of HEALPix cell contained
+    //      in the viewport polygon is > N.
+    //   4) Call vertices on each of these pixels and define the vertices/indices buffer
+    // - No:
+    //   1) Draw the whole sphere at the order 2. Enable backfacing culling for limiting the rendering time
+    //      to what is visible.
+
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
         i = i + 1;
         // Definition of the model matrix
-        let axis = cgmath::Vector3::new(0_f32, 0_f32, 1_f32);
+        let axis = cgmath::Vector3::new(0_f32, 1_f32, 0_f32);
         let angle = cgmath::Rad((i as f32)/100_f32);
         let mut model_mat = cgmath::Matrix4::<f32>::from_axis_angle(axis, angle);
         model_mat = model_mat * cgmath::Matrix4::<f32>::from_scale(1_f32);
@@ -195,16 +356,19 @@ pub fn start() -> Result<(), JsValue> {
         let proj_mat_f32_slice: &[f32; 16] = proj_mat.as_ref();
         gl.uniform_matrix4fv_with_f32_array(proj_mat_location.as_ref(), false, proj_mat_f32_slice);
 
+        // Tell the shader to use texture unit 0 for u_texture
+        gl.uniform1i(texture_location.as_ref(), 0);
+
         // Render the scene
         gl.clear_color(0.0, 0.0, 0.0, 1.0);
         // Clear the color buffer bit
         // Clear the depth buffer bit
-        gl.clear(WebGlRenderingContext::COLOR_BUFFER_BIT | WebGlRenderingContext::DEPTH_BUFFER_BIT);
+        gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT | WebGl2RenderingContext::DEPTH_BUFFER_BIT);
 
         gl.draw_elements_with_i32(
-            WebGlRenderingContext::LINE_LOOP,
+            WebGl2RenderingContext::TRIANGLES,
             indices.len() as i32,
-            WebGlRenderingContext::UNSIGNED_SHORT,
+            WebGl2RenderingContext::UNSIGNED_SHORT,
             0,
         );
 
@@ -218,7 +382,7 @@ pub fn start() -> Result<(), JsValue> {
 }
 
 pub fn compile_shader(
-    context: &WebGlRenderingContext,
+    context: &WebGl2RenderingContext,
     shader_type: u32,
     source: &str,
 ) -> Result<WebGlShader, String> {
@@ -229,7 +393,7 @@ pub fn compile_shader(
     context.compile_shader(&shader);
 
     if context
-        .get_shader_parameter(&shader, WebGlRenderingContext::COMPILE_STATUS)
+        .get_shader_parameter(&shader, WebGl2RenderingContext::COMPILE_STATUS)
         .as_bool()
         .unwrap_or(false)
     {
@@ -242,7 +406,7 @@ pub fn compile_shader(
 }
 
 pub fn link_program(
-    context: &WebGlRenderingContext,
+    context: &WebGl2RenderingContext,
     vert_shader: &WebGlShader,
     frag_shader: &WebGlShader,
 ) -> Result<WebGlProgram, String> {
@@ -255,7 +419,7 @@ pub fn link_program(
     context.link_program(&program);
 
     if context
-        .get_program_parameter(&program, WebGlRenderingContext::LINK_STATUS)
+        .get_program_parameter(&program, WebGl2RenderingContext::LINK_STATUS)
         .as_bool()
         .unwrap_or(false)
     {

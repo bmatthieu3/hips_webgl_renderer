@@ -11,18 +11,21 @@ crate-type = ["cdylib"]
 js-sys = "0.3.25"
 wasm-bindgen = "0.2.48"
 cgmath = "*"
+healpix = { package = "cdshealpix", git = 'https://github.com/cds-astro/cds-healpix-rust', branch = 'master' }
 
 [dependencies.web-sys]
 version = "0.3.4"
 features = [
+  'console',
   'Document',
   'Element',
   'HtmlElement',
   'HtmlCanvasElement',
   'WebGlBuffer',
-  'WebGlRenderingContext',
+  'WebGl2RenderingContext',
   'WebGlProgram',
   'WebGlShader',
   'WebGlUniformLocation',
+  'WebGlTexture',
   'Window',
 ]
