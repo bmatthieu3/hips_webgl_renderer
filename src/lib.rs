@@ -13,6 +13,128 @@ fn request_animation_frame(f: &Closure<FnMut()>) {
         .expect("should register `requestAnimationFrame` OK");
 }
 
+fn build_vertices_buffer() -> (Vec<f32>, Vec<f32>, Vec<u32>) {
+    fn add_face_to_buffer(lonlat: [(f64, f64); 4]) -> Vec<f32> {
+        lonlat.into_iter()
+            .map(|(lon, lat)| {
+                // inverse longitude because
+                let x = (*lat).cos() * (-(*lon)).sin();
+                let y = (*lat).sin();
+                let z = (*lat).cos() * (-(*lon)).cos();
+
+                vec![x as f32, y as f32, z as f32]
+            })
+            .flatten()
+            .collect::<Vec<_>>()
+    }
+
+    let depth = 3;
+    let num_faces = (12 << (2 * depth)) as usize;
+    console::log_1(&format!("Num faces {:?}", num_faces).into());
+    let vertices = (0..num_faces).into_iter()
+        .map(|hash| {
+            let lonlat = healpix::nested::vertices(depth, hash as u64);
+
+            add_face_to_buffer(lonlat)
+        })
+        .flatten()
+        .collect::<Vec<_>>();
+    
+    let num_indices = 3 * 2 * num_faces;
+    let mut indices = Vec::with_capacity(num_indices);
+
+    for idx_face in 0..num_faces {
+        let idx_origin = idx_face * 4;
+        /*
+        indices.push(idx_origin as u32);
+        indices.push((idx_origin + 3) as u32);
+        indices.push((idx_origin + 3) as u32);
+        indices.push((idx_origin + 2) as u32);
+    
+        indices.push(idx_origin as u32);
+        indices.push((idx_origin + 2) as u32);
+        indices.push((idx_origin + 2) as u32);
+        indices.push((idx_origin + 1) as u32);
+
+        indices.push((idx_origin + 1) as u32);
+        indices.push(idx_origin as u32);*/
+        indices.push(idx_origin as u32);
+        indices.push((idx_origin + 3) as u32);
+        indices.push((idx_origin + 2) as u32);
+
+        indices.push(idx_origin as u32);
+        indices.push((idx_origin + 2) as u32);
+        indices.push((idx_origin + 1) as u32);
+    }
+
+    let mut uv = Vec::with_capacity(vertices.len());
+    let width_allsky = 1728;
+    let height_allsky = 1856;
+    let size_tile = 64;
+
+    let num_tile_per_row = width_allsky / size_tile;
+
+    for idx_vertex in 0..vertices.len() {
+        let position = idx_vertex % 4;
+        let idx = idx_vertex / 4;
+
+        let mut idx_row = idx / num_tile_per_row;
+        let mut idx_col = idx - (idx_row * num_tile_per_row);
+        if position == 1 {
+            idx_row += 1;
+        } else if position == 2 {
+            idx_col += 1;
+            idx_row += 1;
+        } else if position == 3 {
+            idx_col += 1;
+        }
+
+        uv.push(((idx_col * size_tile) as f32) / (width_allsky as f32)); // u
+        uv.push(((idx_row * size_tile) as f32) / (height_allsky as f32)); // v
+    }
+
+    (vertices, uv, indices)
+}
+
+use web_sys::HtmlImageElement;
+fn load_texture_image(gl: Rc<WebGl2RenderingContext>, src: &str) {
+    let image = Rc::new(RefCell::new(HtmlImageElement::new().unwrap()));
+    let image_clone = Rc::clone(&image);
+
+    let onload = Closure::wrap(Box::new(move || {
+        let texture = gl.create_texture();
+
+        gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+        gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, texture.as_ref());
+        //gl.pixel_storei(WebGl2RenderingContext::UNPACK_FLIP_Y_WEBGL, 1);
+
+        gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::LINEAR as i32);
+        gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::LINEAR as i32);
+        
+        //gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_2D);
+        // Prevents s-coordinate wrapping (repeating)
+        gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
+        // Prevents t-coordinate wrapping (repeating)
+        gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_WRAP_T, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
+        gl.tex_image_2d_with_u32_and_u32_and_html_image_element(
+            WebGl2RenderingContext::TEXTURE_2D,
+            0,
+            WebGl2RenderingContext::RGB as i32,
+            WebGl2RenderingContext::RGB,
+            WebGl2RenderingContext::UNSIGNED_BYTE,
+            &image_clone.borrow(),
+        )
+        .expect("Texture image 2d");
+    }) as Box<dyn Fn()>);
+
+    let image = image.borrow_mut();
+
+    image.set_onload(Some(onload.as_ref().unchecked_ref()));
+    image.set_src(src);
+
+    onload.forget();
+}
+
 use std::rc::Rc;
 use std::cell::RefCell;
 #[wasm_bindgen(start)]
@@ -32,10 +154,10 @@ pub fn start() -> Result<(), JsValue> {
     canvas.set_width(inner_width as u32);
     canvas.set_height(inner_height as u32);
 
-    let gl = canvas
-        .get_context("webgl2")?
+    let gl = Rc::new(
+        canvas.get_context("webgl2")?
         .unwrap()
-        .dyn_into::<WebGl2RenderingContext>()?;
+        .dyn_into::<WebGl2RenderingContext>()?);
 
     let vert_shader = compile_shader(
         &gl,
@@ -69,14 +191,14 @@ pub fn start() -> Result<(), JsValue> {
         uniform sampler2D tex;
 
         void main() {
-            //out_frag_color = texture(tex, out_vert_uv);
-            out_frag_color = vec4(1.0, 0.0, 1.0, 1.0);
+            out_frag_color = texture(tex, out_vert_uv);
+            //out_frag_color = vec4(length(out_vert_uv), 0.0, 1.0, 1.0);
         }
     "#,
     )?;
     let program = link_program(&gl, &vert_shader, &frag_shader)?;
     gl.use_program(Some(&program));
-
+    /*
     let segment_by_side = 3 as usize;
     let vertices = healpix::nested::grid(0, 1, segment_by_side as u16)
         .into_iter()
@@ -89,9 +211,26 @@ pub fn start() -> Result<(), JsValue> {
         })
         .flatten()
         .collect::<Vec<_>>();
-    
     console::log_1(&format!("Hello using web-sys {:?}", vertices).into());
+    let mut indices = Vec::<u16>::with_capacity(segment_by_side * segment_by_side * 6);
+    let vertices_by_line = segment_by_side + 1;
+    for i in (0..segment_by_side) {
+        for j in (0..segment_by_side) {
+            let off = j + i * vertices_by_line;
+            // first triangle
+            indices.push(off as u16);
+            indices.push((off + 1) as u16);
+            indices.push((off + vertices_by_line) as u16);
 
+            // second triangle
+            indices.push((off + 1) as u16);
+            indices.push((off + vertices_by_line + 1) as u16);
+            indices.push((off + vertices_by_line) as u16);
+        }
+    }
+    console::log_1(&format!("Hello using web-sys {:?}", indices).into());*/
+
+    let (vertices, uv, indices) = build_vertices_buffer();
     /*let vertices: [f32; 24] = [
         // Front face
         -0.5, 0.5, 0.5,
@@ -146,6 +285,7 @@ pub fn start() -> Result<(), JsValue> {
         1.0,  1.0,
         0.0,  1.0,
     ];
+    */
     let uv_array = {
         let memory_buffer = wasm_bindgen::memory()
             .dyn_into::<WebAssembly::Memory>()?
@@ -153,32 +293,13 @@ pub fn start() -> Result<(), JsValue> {
         let uv_location = uv.as_ptr() as u32 / 4;
         js_sys::Float32Array::new(&memory_buffer)
             .subarray(uv_location, uv_location + uv.len() as u32)
-    };*/
-
-
-    let mut indices = Vec::<u16>::with_capacity(segment_by_side * segment_by_side * 6);
-    let vertices_by_line = segment_by_side + 1;
-    for i in (0..segment_by_side) {
-        for j in (0..segment_by_side) {
-            let off = j + i * vertices_by_line;
-            // first triangle
-            indices.push(off as u16);
-            indices.push((off + 1) as u16);
-            indices.push((off + vertices_by_line) as u16);
-
-            // second triangle
-            indices.push((off + 1) as u16);
-            indices.push((off + vertices_by_line + 1) as u16);
-            indices.push((off + vertices_by_line) as u16);
-        }
-    }
-    console::log_1(&format!("Hello using web-sys {:?}", indices).into());
+    };
     let indices_array = {
         let memory_buffer = wasm_bindgen::memory()
             .dyn_into::<WebAssembly::Memory>()?
             .buffer();
-        let indices_location = indices.as_ptr() as u32 / 2;
-        js_sys::Uint16Array::new(&memory_buffer)
+        let indices_location = indices.as_ptr() as u32 / 4;
+        js_sys::Uint32Array::new(&memory_buffer)
             .subarray(indices_location, indices_location + indices.len() as u32)
     };
 
@@ -194,7 +315,7 @@ pub fn start() -> Result<(), JsValue> {
 
     // Unbind the buffer
     gl.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, None);
-    /*
+    
     // UV buffer creation
     let uv_buffer = gl.create_buffer().ok_or("failed to create buffer")?;
     gl.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, Some(&uv_buffer));
@@ -207,7 +328,6 @@ pub fn start() -> Result<(), JsValue> {
 
     // Unbind the buffer
     gl.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, None);
-    */
     
     // INDEX buffer creation
     let index_buffer = gl.create_buffer().ok_or("failed to create buffer")?;
@@ -228,13 +348,12 @@ pub fn start() -> Result<(), JsValue> {
 
     gl.vertex_attrib_pointer_with_i32(0, 3, WebGl2RenderingContext::FLOAT, false, 0, 0);
     gl.enable_vertex_attrib_array(0);
-    /*
+    
     // Bind uv buffer object
     gl.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, Some(&uv_buffer));
 
     gl.vertex_attrib_pointer_with_i32(1, 2, WebGl2RenderingContext::FLOAT, false, 0, 0);
     gl.enable_vertex_attrib_array(1);
-    */
 
     // Bind index buffer object
     gl.bind_buffer(
@@ -243,32 +362,12 @@ pub fn start() -> Result<(), JsValue> {
     );
     // Enable the depth test
     gl.enable(WebGl2RenderingContext::DEPTH_TEST);
+    // Enable back face culling
+    gl.enable(WebGl2RenderingContext::CULL_FACE);
+    gl.cull_face(WebGl2RenderingContext::BACK);
 
     // Create the TEXTURE
-    let texture = gl.create_texture().unwrap();
-    gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-    gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&texture));
-
-    gl.pixel_storei(WebGl2RenderingContext::UNPACK_ALIGNMENT, 1);
-    let format = WebGl2RenderingContext::RED;
-    let data: [u8; 4] = [
-      128,  64, 100, 0
-    ];
-    gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
-        WebGl2RenderingContext::TEXTURE_2D,
-        0,
-        WebGl2RenderingContext::R8 as i32,
-        2, 2, 0,
-        format,
-        WebGl2RenderingContext::UNSIGNED_BYTE, Some(&data)
-    ).unwrap();
-    //gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_2D);
-    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::NEAREST as i32);
-    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::NEAREST as i32);
-    // Prevents s-coordinate wrapping (repeating)
-    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
-    // Prevents t-coordinate wrapping (repeating)
-    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_WRAP_T, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
+    load_texture_image(gl.clone(), "Allsky.jpg");
 
     // Here we want to call `requestAnimationFrame` in a loop, but only a fixed
     // number of times. After it's done we want all our resources cleaned up. To
@@ -294,10 +393,10 @@ pub fn start() -> Result<(), JsValue> {
     let texture_location = gl.get_uniform_location(&program, "tex");
 
     let fovy = cgmath::Deg(60_f32);
-    let half_fovy = cgmath::Deg(30_f32);
+    let half_fovy = cgmath::Deg(22.5_f32);
     let aspect = inner_width as f32 / inner_height as f32;
     let near = 0.1_f32;
-    let far = 50_f32;
+    let far = 100_f32;
     let proj_mat: cgmath::Matrix4<f32> = cgmath::perspective(
         fovy,
         aspect,
@@ -346,7 +445,8 @@ pub fn start() -> Result<(), JsValue> {
         let axis = cgmath::Vector3::new(0_f32, 1_f32, 0_f32);
         let angle = cgmath::Rad((i as f32)/100_f32);
         let mut model_mat = cgmath::Matrix4::<f32>::from_axis_angle(axis, angle);
-        model_mat = model_mat * cgmath::Matrix4::<f32>::from_scale(1_f32);
+        model_mat = model_mat * cgmath::Matrix4::<f32>::from_scale(((i as f32)*0.05).sin() + 3.5_f32);
+        //model_mat = model_mat * cgmath::Matrix4::<f32>::from_scale(4_f32);
 
         // Send matrices to the Vertex shader
         let model_mat_f32_slice: &[f32; 16] = model_mat.as_ref();
@@ -368,7 +468,7 @@ pub fn start() -> Result<(), JsValue> {
         gl.draw_elements_with_i32(
             WebGl2RenderingContext::TRIANGLES,
             indices.len() as i32,
-            WebGl2RenderingContext::UNSIGNED_SHORT,
+            WebGl2RenderingContext::UNSIGNED_INT,
             0,
         );
 
