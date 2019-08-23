@@ -17,8 +17,8 @@ pub fn load(gl: Rc<WebGl2RenderingContext>, src: &str, idx_texture: u32) {
         gl.active_texture(idx_texture);
         gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, texture.as_ref());
 
-        gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::LINEAR as i32);
-        gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::LINEAR as i32);
+        gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::NEAREST as i32);
+        gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::NEAREST as i32);
         
         //gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_2D);
         // Prevents s-coordinate wrapping (repeating)

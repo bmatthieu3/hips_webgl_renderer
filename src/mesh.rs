@@ -23,6 +23,10 @@ where T: Mesh {
 
     model_mat: cgmath::Matrix4::<f32>,
 
+    scale_mat: cgmath::Matrix4::<f32>,
+    rotation_mat: cgmath::Matrix4::<f32>,
+    translation_mat: cgmath::Matrix4::<f32>,
+
     // Buffers id
     buffers: Box<[(u32, i32, WebGlBuffer)]>,
 
@@ -44,11 +48,19 @@ where T: Mesh {
         let phantom = PhantomData;
 
         let model_mat = cgmath::Matrix4::identity();
+
+        let scale_mat = cgmath::Matrix4::identity();
+        let rotation_mat = cgmath::Matrix4::identity();
+        let translation_mat = cgmath::Matrix4::identity();
         Renderable {
             // The shader to bind when drawing the renderable
             shader, 
             // The model matrix of the Renderable
             model_mat,
+            // And its submatrices
+            scale_mat,
+            rotation_mat,
+            translation_mat,
             // Buffers indexes
             buffers,
             // Num of vertices to draw
@@ -57,8 +69,20 @@ where T: Mesh {
         }
     }
 
+    fn recompute_model_matrix(&mut self) {
+        self.model_mat = self.translation_mat * self.rotation_mat * self.scale_mat;
+    }
+
     pub fn rotate(&mut self, axis: cgmath::Vector3<f32>, angle: cgmath::Rad<f32>) {
-        self.model_mat = cgmath::Matrix4::<f32>::from_axis_angle(axis, angle) * self.model_mat;
+        self.rotation_mat = cgmath::Matrix4::<f32>::from_axis_angle(axis, angle);
+
+        self.recompute_model_matrix();
+    }
+
+    pub fn scale(&mut self, factor: f32) {
+        self.scale_mat = cgmath::Matrix4::<f32>::from_scale(factor);
+
+        self.recompute_model_matrix();
     }
 
     pub fn draw(&self, gl: &WebGl2RenderingContext, mode: u32, viewport: &ViewPort) {
