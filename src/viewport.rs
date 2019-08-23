@@ -19,7 +19,7 @@ impl ViewPort {
             far
         );
 
-        let eye = cgmath::Point3::new(5_f32, 5_f32, 5_f32);
+        let eye = cgmath::Point3::new(1.5_f32, 1.5_f32, 1.5_f32);
         let center = cgmath::Point3::new(0_f32, 0_f32, 0_f32);
         let up = cgmath::Vector3::new(0_f32, 1_f32, 0_f32);
         let view_mat = cgmath::Matrix4::<f32>::look_at(eye, center, up);
