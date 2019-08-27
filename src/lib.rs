@@ -7,12 +7,14 @@ use cgmath;
 use cgmath::{InnerSpace, Angle};
 
 mod shader;
-mod mesh;
+mod renderable;
 mod viewport;
 mod texture;
 
 use shader::Shader;
-use mesh::{Renderable, HiPSSphere};
+use renderable::Renderable;
+use renderable::hips_sphere::HiPSSphere;
+use renderable::direct_system::DirectSystem;
 use viewport::ViewPort;
 
 fn request_animation_frame(f: &Closure<FnMut()>) {
@@ -40,18 +42,15 @@ pub fn start() -> Result<(), JsValue> {
     canvas.set_width(inner_width as u32);
     canvas.set_height(inner_height as u32);
 
-    let context_attributes = js_sys::Map::new();
-    let context_attributes2 = context_attributes.set(&"antifgfgalias".into(), &false.into());
-    let context_options: JsValue = context_attributes2.into();
+    //let context_attributes = js_sys::Map::new();
+    //let context_attributes2 = context_attributes.set(&"antialias".into(), &false.into());
+    let context_options = js_sys::JSON::parse(&"{\"antialias\":false}").unwrap();
     console::log_1(&format!("contextAA attributes {:?}", &context_options).into());
 
-    if context_options.is_object() {
-        console::log_1(&"aaaze attributes".into());
-    }
     let gl = Rc::new(
         canvas.get_context_with_context_options("webgl2", context_options.as_ref())?
-        .unwrap()
-        .dyn_into::<WebGl2RenderingContext>()?
+            .unwrap()
+            .dyn_into::<WebGl2RenderingContext>()?
     );
 
     let shader_texture = Rc::new(Shader::new(&gl,
@@ -60,6 +59,68 @@ pub fn start() -> Result<(), JsValue> {
         in vec2 uv;
 
         out vec2 out_vert_uv;
+        out vec3 out_vert_pos;
+
+        out float out_vert_zoom_factor;
+
+        uniform mat4 model;
+        uniform mat4 projection;
+        uniform mat4 view;
+
+        uniform float width;
+        uniform float height;
+
+        uniform float zoom_factor;
+
+        void main() {
+            //gl_Position = projection * view *  model * vec4(position, 1.0);
+            gl_Position = view * vec4(position, 1.0);
+            gl_Position.x *= height / width;
+            gl_Position.xyz *= zoom_factor;
+            
+            out_vert_pos = position;
+            out_vert_uv = uv;
+            out_vert_zoom_factor = zoom_factor;
+        }
+        "#,
+        r#"#version 300 es
+        precision mediump float;
+
+        in vec2 out_vert_uv;
+        in vec3 out_vert_pos;
+
+        out vec4 out_frag_color;
+        in float out_vert_zoom_factor;
+
+        uniform sampler2D texture_hips_tile;
+
+        void main() {
+            out_frag_color = texture(texture_hips_tile, out_vert_uv);
+
+            vec3 frag_pos = normalize(out_vert_pos);
+            vec2 lonlat = vec2(atan(frag_pos.x, frag_pos.z), asin(frag_pos.y));
+
+            lonlat *= 180.0/3.14159;
+            if(out_vert_zoom_factor > 0.5) {
+                lonlat /= vec2(10.0, 5.0);
+            } else {
+                lonlat /= vec2(20.0, 10.0);
+            }
+            
+            vec2 linePos = fract(lonlat + 0.5) - 0.5;
+            vec2 der = vec2(50.0);
+            linePos = max((1.0 - der*abs(linePos)), 0.0);
+
+            out_frag_color *= (1.0 - 0.1 * max(linePos.x, linePos.y));
+        }
+        "#,
+    ));
+    let shader_direct_system = Rc::new(Shader::new(&gl,
+        r#"#version 300 es
+        in vec3 position;
+        in vec4 color;
+
+        out vec4 out_vert_color;
 
         uniform mat4 model;
         uniform mat4 projection;
@@ -67,43 +128,42 @@ pub fn start() -> Result<(), JsValue> {
 
         void main() {
             gl_Position = projection * view *  model * vec4(position, 1.0);
-            out_vert_uv = uv;
+            out_vert_color = color;
         }
         "#,
         r#"#version 300 es
         precision mediump float;
 
-        in vec2 out_vert_uv;
-
+        in vec4 out_vert_color;
         out vec4 out_frag_color;
 
-        uniform sampler2D tex;
-
         void main() {
-            out_frag_color = texture(tex, out_vert_uv);
-            //out_frag_color = vec4(length(out_vert_uv), 0.0, 1.0, 1.0);
+            out_frag_color = out_vert_color;
         }
         "#,
     ));
-    shader_texture.bind(&gl);
 
     // Viewport
     let viewport = Rc::new(RefCell::new(ViewPort::new(inner_width as f32, inner_height as f32)));
 
-    // Renderable
     // Definition of the model matrix
-    let mut sphere = Rc::new(RefCell::new(Renderable::<HiPSSphere>::new(&gl, shader_texture.clone())));
 
+
+    let mut direct_system = Rc::new(RefCell::new(Renderable::<DirectSystem>::new(&gl, shader_direct_system.clone())));
+    direct_system.borrow_mut().scale(0.5_f32);
+    let mut sphere = Rc::new(RefCell::new(Renderable::<HiPSSphere>::new(&gl, shader_texture.clone())));
     // Enable the depth test
-    gl.enable(WebGl2RenderingContext::DEPTH_TEST);
+    //gl.enable(WebGl2RenderingContext::DEPTH_TEST);
     // Enable back face culling
     gl.enable(WebGl2RenderingContext::CULL_FACE);
     gl.cull_face(WebGl2RenderingContext::BACK);
+    gl.enable(WebGl2RenderingContext::BLEND);
+    gl.blend_func(WebGl2RenderingContext::SRC_ALPHA, WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA);
 
     console::log_1(&format!("context attributes {:?}", gl.get_context_attributes().unwrap()).into());
 
     // Create the TEXTURE
-    texture::load(gl.clone(), "Allsky.jpg", WebGl2RenderingContext::TEXTURE0);
+    texture::load(gl.clone(), "old_allsky.jpg", WebGl2RenderingContext::TEXTURE0);
 
     // Here we want to call `requestAnimationFrame` in a loop, but only a fixed
     // number of times. After it's done we want all our resources cleaned up. To
@@ -120,9 +180,6 @@ pub fn start() -> Result<(), JsValue> {
     // for all future iterations of the loop
     let f = Rc::new(RefCell::new(None));
     let g = f.clone();
-
-    // Get the attribute location of the matrices from the Vertex shader
-    let texture_location = shader_texture.get_uniform_location(&gl, "tex");
     /*
     let fovy = cgmath::Deg(60_f32);
     let half_fovy = cgmath::Deg(22.5_f32);
@@ -179,11 +236,23 @@ pub fn start() -> Result<(), JsValue> {
     */
     // Mouse down pression event
     let pressed = Rc::new(Cell::new(false));
+    let delta_x = Rc::new(Cell::new(0_f32));
+    let delta_y = Rc::new(Cell::new(0_f32));
+
+    let mouse_clic_x = Rc::new(Cell::new(0_f32));
+    let mouse_clic_y = Rc::new(Cell::new(0_f32));
     {
         let pressed = pressed.clone();
-        let closure = Closure::wrap(Box::new(move |_: web_sys::MouseEvent| {
+
+        let mouse_clic_x = mouse_clic_x.clone();
+        let mouse_clic_y = mouse_clic_y.clone();
+
+        let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
             console::log_1(&format!("mouse down").into());
             pressed.set(true);
+
+            mouse_clic_x.set(((event.offset_x() as f32) - (inner_width as f32 / 2_f32))/(inner_width as f32));
+            mouse_clic_y.set(((event.offset_y() as f32) - (inner_height as f32 / 2_f32))/(inner_height as f32));
         }) as Box<dyn FnMut(_)>);
         canvas.add_event_listener_with_callback("mousedown", closure.as_ref().unchecked_ref())?;
         closure.forget();
@@ -191,7 +260,8 @@ pub fn start() -> Result<(), JsValue> {
     // Mouse up pression event
     {
         let pressed = pressed.clone();
-        let closure = Closure::wrap(Box::new(move |_: web_sys::MouseEvent| {
+
+        let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
             console::log_1(&format!("mouse up").into());
             pressed.set(false);
         }) as Box<dyn FnMut(_)>);
@@ -202,9 +272,17 @@ pub fn start() -> Result<(), JsValue> {
     {
         let context = gl.clone();
         let pressed = pressed.clone();
+        let viewport = viewport.clone();
+
+        let delta_x = delta_x.clone();
+        let delta_y = delta_y.clone();
+        let mouse_clic_x = mouse_clic_x.clone();
+        let mouse_clic_y = mouse_clic_y.clone();
         let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
             if pressed.get() {
-                console::log_1(&format!("x: {:?}; y: {:?}", event.offset_x(), event.offset_y()).into());
+                delta_x.set(((event.offset_x() as f32) - (inner_width as f32 / 2_f32))/(inner_width as f32) - mouse_clic_x.get());
+                delta_y.set(((event.offset_y() as f32) - (inner_height as f32 / 2_f32))/(inner_height as f32) - mouse_clic_y.get());
+                viewport.borrow_mut().move_eye_position(delta_x.get(), delta_y.get());
             }
         }) as Box<dyn FnMut(_)>);
         canvas.add_event_listener_with_callback("mousemove", closure.as_ref().unchecked_ref())?;
@@ -235,8 +313,6 @@ pub fn start() -> Result<(), JsValue> {
     let mut i = 0;
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
         i += 1;
-        // Tell the shader to use texture unit 0 for texture_location
-        gl.uniform1i(texture_location.as_ref(), 0);
 
         // Render the scene
         gl.clear_color(0.0, 0.0, 0.0, 1.0);
@@ -244,9 +320,10 @@ pub fn start() -> Result<(), JsValue> {
         // Clear the depth buffer bit
         gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT | WebGl2RenderingContext::DEPTH_BUFFER_BIT);
         
-        let theta = cgmath::Rad((i as f32) / 1000_f32);
-        sphere.borrow_mut().rotate(axis, theta);
+        //sphere.borrow_mut().rotate(axis, theta);
+        
         sphere.borrow().draw(&gl, WebGl2RenderingContext::TRIANGLES, &viewport.borrow());
+        direct_system.borrow().draw(&gl, WebGl2RenderingContext::LINES, &viewport.borrow());
 
         // Schedule ourself for another requestAnimationFrame callback.
         request_animation_frame(f.borrow().as_ref().unwrap());

@@ -26,6 +26,7 @@ features = [
   'WheelEvent',
   'EventTarget',
   'WebGlBuffer',
+  'WebGlVertexArrayObject',
   'WebGl2RenderingContext',
   'WebGlContextAttributes',
   'WebGlProgram',

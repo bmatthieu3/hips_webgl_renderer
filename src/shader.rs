@@ -78,6 +78,10 @@ impl Shader {
         gl.use_program(Some(&self.program));
     }
 
+    pub fn unbind(&self, gl: &WebGl2RenderingContext) {
+        gl.use_program(None);
+    }
+
     pub fn get_uniform_location(&self, gl: &WebGl2RenderingContext, name: &str) -> Option<WebGlUniformLocation> {
         gl.get_uniform_location(&self.program, name)
     }
