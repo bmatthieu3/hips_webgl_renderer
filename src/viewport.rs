@@ -16,7 +16,7 @@ pub struct ViewPort {
 use crate::shader::Shader;
 use web_sys::WebGl2RenderingContext;
 
-use cgmath::{MetricSpace, InnerSpace};
+use cgmath::{MetricSpace, InnerSpace, Vector2, SquareMatrix, Matrix};
 
 use web_sys::console;
 impl ViewPort {
@@ -52,16 +52,18 @@ impl ViewPort {
 
         let view_mat = cgmath::Matrix4::<f32>::new();*/
 
-        let view_mat = compute_local_frame_matrix(theta, phi, radius);
-
-        ViewPort {
+        let view_mat = cgmath::Matrix4::identity();
+        let mut viewport = ViewPort {
             view_mat,
             theta,
             phi,
             radius,
             width,
             height,
-        }
+        };
+
+        viewport.recompute_view_matrix();
+        viewport
     }
 
     pub fn zoom(&mut self, forward: bool) {
@@ -88,8 +90,8 @@ impl ViewPort {
     }
 
     pub fn move_eye_position(&mut self, delta_theta: f32, delta_phi: f32) {
-        self.phi += delta_phi * 0.1;
-        self.theta += delta_theta * 0.1;
+        self.phi += delta_phi;
+        self.theta += delta_theta;
 
         let phi_max = (std::f32::consts::PI / 2_f32) - 0.01_f32;
         if self.phi > phi_max {
@@ -105,19 +107,34 @@ impl ViewPort {
     pub fn recompute_view_matrix(&mut self) {
         /*let up = cgmath::Vector3::new(0_f32, 1_f32, 0_f32);
         self.view_mat = cgmath::Matrix4::<f32>::look_at(self.eye, self.center, up);*/
-        let min_radius = 1_f32;
-        let max_radius = 5_f32;
-        if self.radius > max_radius {
-            self.radius = max_radius;
+        /*let radius_min = 1_f32;
+        let radius_max = 5_f32;
+        if self.radius > radius_max {
+            self.radius = radius_max;
         }
 
-        if self.radius < min_radius {
-            self.radius = min_radius;
+        if self.radius < radius_min {
+            self.radius = radius_min;
         }
 
-        let zoom_factor = (self.radius - min_radius) / (max_radius - min_radius);
+        let zoom_factor = (self.radius - radius_min) / (radius_max - radius_min);*/
 
-        self.view_mat = compute_local_frame_matrix(self.theta, self.phi, zoom_factor);
+        let ca = self.theta.cos(); // ca stands for cos(alpha)
+        let sa = self.theta.sin(); // sa stands for sin(alpha)
+
+        let cd = self.phi.cos(); // cd stands for cos(delta)
+        let sd = self.phi.sin(); // sd stands for sin(delta)
+
+        /*this.r11 =  ca * cd; this.r12 =  sa * cd; this.r13 = sd;
+        this.r21 =      -sa; this.r22 =       ca; this.r23 =  0;
+        this.r31 = -ca * sd; this.r32 = -sa * sd; this.r33 = cd;*/
+
+        self.view_mat = cgmath::Matrix4::<f32>::new(
+            ca * cd, -sa, -ca * sd, 0_f32,
+            sa * cd, ca, -sa * sd, 0_f32,
+            sd, 0_f32, cd, 0_f32, 
+            0_f32, 0_f32, 0_f32, 1_f32
+        )
     }
 
     pub fn send_to_vertex_shader(&self, gl: &WebGl2RenderingContext, shader: &Shader) {
@@ -133,12 +150,63 @@ impl ViewPort {
         //let proj_mat_f32_slice: &[f32; 16] = self.projection_mat.as_ref();
         //gl.uniform_matrix4fv_with_f32_array(proj_mat_location.as_ref(), false, proj_mat_f32_slice);
 
-        /*let zoom_total_amplitude = 5_f32 - 1_f32;
-        let zoom_factor = (-(self.center.distance(self.eye) - 1_f32)/zoom_total_amplitude) + 1_f32;*/
+        let radius_max = 5_f32;
+        let radius_min = 1_f32;
+        let zoom_total_amplitude = radius_max - radius_min;
+        //let zoom_factor = 2_f32*((radius_max - self.radius)/(radius_max - radius_min));
+        let zoom_factor = 1_f32 / (radius_max - self.radius);
+        let zoom_factor = 1_f32;
 
-        gl.uniform1f(zoom_factor_location.as_ref(), self.radius);
+        gl.uniform1f(zoom_factor_location.as_ref(), zoom_factor);
         gl.uniform1f(width_location.as_ref(), self.width);
         gl.uniform1f(height_location.as_ref(), self.height);
+    }
+
+    /// Screen space to world space transformation
+    /// 
+    /// # Arguments
+    /// 
+    /// * `x` - X mouse position in the screen space (in pixel)
+    /// * `y` - Y mouse position in the screen space (in pixel)
+    pub fn unproj(&self, x: f32, y: f32) -> Option<cgmath::Vector2<f32>> {
+        console::log_1(&format!("x_off, y_off {:?} {:?}", x, y).into());
+        // Screen space in pixels to homogeneous screen space (values between [-1, 1])
+        // Change of origin
+        let xo = (x - self.width/2_f32);
+        let yo = (y - self.height/2_f32);
+
+        // Scale to fit in [-1, 1]
+        let xh = 2_f32*(xo/self.width);
+        let yh = -2_f32*(yo/self.height);
+
+        let aspect = self.width / self.height;
+        let xw_2 = 1_f32 - xh*xh*aspect*aspect - yh*yh;
+        console::log_1(&format!("xl, yl, zl {:?} {:?} {:?}", xh, yh, xw_2).into());
+        if xw_2 > 0_f32 {
+            let pos_local_space = cgmath::Vector4::new(xh, yh, xw_2.sqrt(), 1_f32);
+
+            // Local space centered around the view camera to global space
+            let mat_local_to_global = cgmath::Matrix4::<f32>::new(
+                self.view_mat.x[0], self.view_mat.y[0], self.view_mat.z[0], self.view_mat.w[0],
+                self.view_mat.x[1], self.view_mat.y[1], self.view_mat.z[1], self.view_mat.w[1], 
+                self.view_mat.x[2], self.view_mat.y[2], self.view_mat.z[2], self.view_mat.w[2], 
+                self.view_mat.x[3], self.view_mat.y[3], self.view_mat.z[3], self.view_mat.w[3],
+            );
+
+            let pos_global_space = mat_local_to_global * pos_local_space;
+            console::log_1(&format!("position global {:?}", pos_global_space).into());
+
+            // Get the (ra, dec) from XYZ coordinates
+            let ra = pos_global_space.x.atan2(pos_global_space.z) as f32;
+            let dec = pos_global_space.y.asin() as f32;
+
+            console::log_1(&format!("ra {:?}, dec {:?}", ra, dec).into());
+
+            Some(Vector2::<f32>::new(ra, dec))
+        } else {
+            // Out of the sphere
+            None
+        }
     }
 }
 
@@ -147,24 +215,5 @@ fn compute_eye_position(radius: f32, theta: f32, phi: f32) -> cgmath::Point3<f32
         radius * (-theta).sin() * phi.cos(),
         radius * phi.sin(),
         radius * (-theta).cos() * phi.cos(),
-    )
-}
-
-fn compute_local_frame_matrix(theta: f32, alpha: f32, zoom_factor: f32) -> cgmath::Matrix4<f32> {
-    let ca = theta.cos(); // ca stands for cos(alpha)
-    let sa = theta.sin(); // sa stands for sin(alpha)
-
-    let cd = alpha.cos(); // cd stands for cos(delta)
-    let sd = alpha.sin(); // sd stands for sin(delta)
-
-    /*this.r11 =  ca * cd; this.r12 =  sa * cd; this.r13 = sd;
-    this.r21 =      -sa; this.r22 =       ca; this.r23 =  0;
-    this.r31 = -ca * sd; this.r32 = -sa * sd; this.r33 = cd;*/
-
-    cgmath::Matrix4::<f32>::new(
-        ca * cd, -sa, -ca * sd, 0_f32,
-        sa * cd, ca, -sa * sd, 0_f32,
-        sd, 0_f32, cd, 0_f32, 
-        0_f32, 0_f32, 0_f32, 1_f32
     )
 }

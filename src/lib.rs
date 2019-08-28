@@ -4,7 +4,7 @@ use web_sys::{WebGl2RenderingContext, MouseEvent, EventTarget, console};
 use wasm_bindgen::prelude::*;
 use js_sys::WebAssembly;
 use cgmath;
-use cgmath::{InnerSpace, Angle};
+use cgmath::{InnerSpace, Angle, Vector2};
 
 mod shader;
 mod renderable;
@@ -16,6 +16,7 @@ use renderable::Renderable;
 use renderable::hips_sphere::HiPSSphere;
 use renderable::direct_system::DirectSystem;
 use viewport::ViewPort;
+use std::borrow::Borrow;
 
 fn request_animation_frame(f: &Closure<FnMut()>) {
     web_sys::window()
@@ -75,9 +76,10 @@ pub fn start() -> Result<(), JsValue> {
         void main() {
             //gl_Position = projection * view *  model * vec4(position, 1.0);
             gl_Position = view * vec4(position, 1.0);
+
             gl_Position.x *= height / width;
-            gl_Position.xyz *= zoom_factor;
-            
+            //gl_Position.xy *= zoom_factor;
+
             out_vert_pos = position;
             out_vert_uv = uv;
             out_vert_zoom_factor = zoom_factor;
@@ -99,19 +101,21 @@ pub fn start() -> Result<(), JsValue> {
 
             vec3 frag_pos = normalize(out_vert_pos);
             vec2 lonlat = vec2(atan(frag_pos.x, frag_pos.z), asin(frag_pos.y));
-
             lonlat *= 180.0/3.14159;
-            if(out_vert_zoom_factor > 0.5) {
-                lonlat /= vec2(10.0, 5.0);
-            } else {
-                lonlat /= vec2(20.0, 10.0);
-            }
-            
-            vec2 linePos = fract(lonlat + 0.5) - 0.5;
-            vec2 der = vec2(50.0);
-            linePos = max((1.0 - der*abs(linePos)), 0.0);
 
-            out_frag_color *= (1.0 - 0.1 * max(linePos.x, linePos.y));
+            if(abs(lonlat.y) < 80.0) {
+                if(out_vert_zoom_factor > 0.5) {
+                    lonlat /= vec2(10.0, 10.0);
+                } else {
+                    lonlat /= vec2(20.0, 20.0);
+                }
+                
+                vec2 linePos = fract(lonlat + 0.5) - 0.5;
+                vec2 der = vec2(50.0);
+                linePos = max((1.0 - der*abs(linePos)), 0.0);
+
+                out_frag_color *= (1.0 - 0.3 * max(linePos.x, linePos.y));
+            }
         }
         "#,
     ));
@@ -147,8 +151,6 @@ pub fn start() -> Result<(), JsValue> {
     let viewport = Rc::new(RefCell::new(ViewPort::new(inner_width as f32, inner_height as f32)));
 
     // Definition of the model matrix
-
-
     let mut direct_system = Rc::new(RefCell::new(Renderable::<DirectSystem>::new(&gl, shader_direct_system.clone())));
     direct_system.borrow_mut().scale(0.5_f32);
     let mut sphere = Rc::new(RefCell::new(Renderable::<HiPSSphere>::new(&gl, shader_texture.clone())));
@@ -241,18 +243,26 @@ pub fn start() -> Result<(), JsValue> {
 
     let mouse_clic_x = Rc::new(Cell::new(0_f32));
     let mouse_clic_y = Rc::new(Cell::new(0_f32));
+
+    let start_pos_clic = Rc::new(Cell::new(Vector2::new(0_f32, 0_f32)));
     {
         let pressed = pressed.clone();
 
         let mouse_clic_x = mouse_clic_x.clone();
         let mouse_clic_y = mouse_clic_y.clone();
 
+        let start_pos_clic = start_pos_clic.clone();
+
+        let v = viewport.clone();
+
         let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
             console::log_1(&format!("mouse down").into());
             pressed.set(true);
 
-            mouse_clic_x.set(((event.offset_x() as f32) - (inner_width as f32 / 2_f32))/(inner_width as f32));
-            mouse_clic_y.set(((event.offset_y() as f32) - (inner_height as f32 / 2_f32))/(inner_height as f32));
+            let result = v.as_ref().borrow().unproj(event.offset_x() as f32, event.offset_y() as f32);
+            if let Some(pos) = result {
+                start_pos_clic.set(pos);
+            }
         }) as Box<dyn FnMut(_)>);
         canvas.add_event_listener_with_callback("mousedown", closure.as_ref().unchecked_ref())?;
         closure.forget();
@@ -272,17 +282,24 @@ pub fn start() -> Result<(), JsValue> {
     {
         let context = gl.clone();
         let pressed = pressed.clone();
-        let viewport = viewport.clone();
+        let v = viewport.clone();
 
         let delta_x = delta_x.clone();
         let delta_y = delta_y.clone();
         let mouse_clic_x = mouse_clic_x.clone();
         let mouse_clic_y = mouse_clic_y.clone();
+
+        let start_pos_clic = start_pos_clic.clone();
+
         let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
             if pressed.get() {
-                delta_x.set(((event.offset_x() as f32) - (inner_width as f32 / 2_f32))/(inner_width as f32) - mouse_clic_x.get());
-                delta_y.set(((event.offset_y() as f32) - (inner_height as f32 / 2_f32))/(inner_height as f32) - mouse_clic_y.get());
-                viewport.borrow_mut().move_eye_position(delta_x.get(), delta_y.get());
+                let result = v.as_ref().borrow().unproj(event.offset_x() as f32, event.offset_y() as f32);
+                if let Some(pos) = result {
+                    let direction = (pos - start_pos_clic.get());
+                    start_pos_clic.set(pos);
+
+                    v.borrow_mut().move_eye_position(direction.x, direction.y);
+                }
             }
         }) as Box<dyn FnMut(_)>);
         canvas.add_event_listener_with_callback("mousemove", closure.as_ref().unchecked_ref())?;
@@ -322,14 +339,14 @@ pub fn start() -> Result<(), JsValue> {
         
         //sphere.borrow_mut().rotate(axis, theta);
         
-        sphere.borrow().draw(&gl, WebGl2RenderingContext::TRIANGLES, &viewport.borrow());
-        direct_system.borrow().draw(&gl, WebGl2RenderingContext::LINES, &viewport.borrow());
+        sphere.as_ref().borrow().draw(&gl, WebGl2RenderingContext::TRIANGLES, &viewport.as_ref().borrow());
+        direct_system.as_ref().borrow().draw(&gl, WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());
 
         // Schedule ourself for another requestAnimationFrame callback.
-        request_animation_frame(f.borrow().as_ref().unwrap());
+        request_animation_frame(f.as_ref().borrow().as_ref().unwrap());
     }) as Box<dyn FnMut()>));
 
-    request_animation_frame(g.borrow().as_ref().unwrap());
+    request_animation_frame(g.as_ref().borrow().as_ref().unwrap());
 
     Ok(())
 }
