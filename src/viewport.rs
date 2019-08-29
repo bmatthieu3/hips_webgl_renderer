@@ -16,7 +16,7 @@ pub struct ViewPort {
 use crate::shader::Shader;
 use web_sys::WebGl2RenderingContext;
 
-use cgmath::{MetricSpace, InnerSpace, Vector2, SquareMatrix, Matrix};
+use cgmath::{MetricSpace, InnerSpace, Vector2, SquareMatrix, Matrix, Vector3};
 
 use web_sys::console;
 impl ViewPort {
@@ -34,8 +34,8 @@ impl ViewPort {
         );*/
 
         let radius = 1.5_f32;
-        let theta = 0_f32;
-        let phi = 0_f32;
+        let theta = 0_f32 * 3.14_f32/180_f32;
+        let phi = 0_f32 * 3.14_f32/180_f32;
 
         //let eye = compute_eye_position(radius, theta, phi);
         //let center = cgmath::Point3::new(0_f32, 0_f32, 0_f32);
@@ -90,8 +90,8 @@ impl ViewPort {
     }
 
     pub fn move_eye_position(&mut self, delta_theta: f32, delta_phi: f32) {
-        self.phi += delta_phi;
-        self.theta += delta_theta;
+        self.phi -= delta_phi;
+        self.theta -= delta_theta;
 
         let phi_max = (std::f32::consts::PI / 2_f32) - 0.01_f32;
         if self.phi > phi_max {
@@ -102,6 +102,10 @@ impl ViewPort {
 
         //self.eye = compute_eye_position(self.radius, self.theta, self.phi);
         self.recompute_view_matrix();
+    }
+
+    pub fn apply_transformation(&mut self, t: cgmath::Matrix4<f32>) {
+        self.view_mat = t * self.view_mat;
     }
 
     pub fn recompute_view_matrix(&mut self) {
@@ -119,22 +123,40 @@ impl ViewPort {
 
         let zoom_factor = (self.radius - radius_min) / (radius_max - radius_min);*/
 
-        let ca = self.theta.cos(); // ca stands for cos(alpha)
-        let sa = self.theta.sin(); // sa stands for sin(alpha)
+        let ct = self.theta.cos(); // ca stands for cos(alpha)
+        let st = self.theta.sin(); // sa stands for sin(alpha)
 
-        let cd = self.phi.cos(); // cd stands for cos(delta)
-        let sd = self.phi.sin(); // sd stands for sin(delta)
+        let cp = self.phi.cos(); // cd stands for cos(delta)
+        let sp = self.phi.sin(); // sd stands for sin(delta)
 
         /*this.r11 =  ca * cd; this.r12 =  sa * cd; this.r13 = sd;
         this.r21 =      -sa; this.r22 =       ca; this.r23 =  0;
         this.r31 = -ca * sd; this.r32 = -sa * sd; this.r33 = cd;*/
 
-        self.view_mat = cgmath::Matrix4::<f32>::new(
-            ca * cd, -sa, -ca * sd, 0_f32,
-            sa * cd, ca, -sa * sd, 0_f32,
-            sd, 0_f32, cd, 0_f32, 
+        /*self.view_mat = cgmath::Matrix4::<f32>::new(
+            ca, sa*cd, sa*sd, 0_f32,
+            -sa, ca*cd, ca*sd, 0_f32,
+            0_f32, -sd, cd, 0_f32,
             0_f32, 0_f32, 0_f32, 1_f32
         )
+        self.view_mat = cgmath::Matrix4::<f32>::new(
+            ca, sa*cd, sa*sd, 0_f32,
+            -sa, ca*cd, ca*sd, 0_f32,
+            0_f32, -sd, cd, 0_f32,
+            0_f32, 0_f32, 0_f32, 1_f32
+        )*/
+        self.view_mat = cgmath::Matrix4::<f32>::new(
+            cp*st, sp, cp*ct, 0_f32,
+            ct, 0_f32, -st, 0_f32,
+            -st*sp, cp, -sp*ct, 0_f32,
+            0_f32, 0_f32, 0_f32, 1_f32
+        );
+        self.view_mat = cgmath::Matrix4::<f32>::new(
+            self.view_mat.x[0], self.view_mat.y[0], self.view_mat.z[0], self.view_mat.w[0],
+            self.view_mat.x[1], self.view_mat.y[1], self.view_mat.z[1], self.view_mat.w[1], 
+            self.view_mat.x[2], self.view_mat.y[2], self.view_mat.z[2], self.view_mat.w[2], 
+            self.view_mat.x[3], self.view_mat.y[3], self.view_mat.z[3], self.view_mat.w[3],
+        );
     }
 
     pub fn send_to_vertex_shader(&self, gl: &WebGl2RenderingContext, shader: &Shader) {
@@ -168,7 +190,7 @@ impl ViewPort {
     /// 
     /// * `x` - X mouse position in the screen space (in pixel)
     /// * `y` - Y mouse position in the screen space (in pixel)
-    pub fn unproj(&self, x: f32, y: f32) -> Option<cgmath::Vector2<f32>> {
+    pub fn unproj(&self, x: f32, y: f32) -> Option<cgmath::Vector3<f32>> {
         console::log_1(&format!("x_off, y_off {:?} {:?}", x, y).into());
         // Screen space in pixels to homogeneous screen space (values between [-1, 1])
         // Change of origin
@@ -178,12 +200,12 @@ impl ViewPort {
         // Scale to fit in [-1, 1]
         let xh = 2_f32*(xo/self.width);
         let yh = -2_f32*(yo/self.height);
-
+        console::log_1(&format!("xh, yh {:?} {:?}", xh, yh).into());
         let aspect = self.width / self.height;
         let xw_2 = 1_f32 - xh*xh*aspect*aspect - yh*yh;
         console::log_1(&format!("xl, yl, zl {:?} {:?} {:?}", xh, yh, xw_2).into());
         if xw_2 > 0_f32 {
-            let pos_local_space = cgmath::Vector4::new(xh, yh, xw_2.sqrt(), 1_f32);
+            let pos_local_space = cgmath::Vector4::new(xw_2.sqrt(), xh, yh, 1_f32);
 
             // Local space centered around the view camera to global space
             let mat_local_to_global = cgmath::Matrix4::<f32>::new(
@@ -202,7 +224,8 @@ impl ViewPort {
 
             console::log_1(&format!("ra {:?}, dec {:?}", ra, dec).into());
 
-            Some(Vector2::<f32>::new(ra, dec))
+            //Some(Vector2::<f32>::new(ra, dec))
+            Some(Vector3::<f32>::new(pos_global_space.x, pos_global_space.y, pos_global_space.z))
         } else {
             // Out of the sphere
             None

@@ -4,12 +4,13 @@ use web_sys::{WebGl2RenderingContext, MouseEvent, EventTarget, console};
 use wasm_bindgen::prelude::*;
 use js_sys::WebAssembly;
 use cgmath;
-use cgmath::{InnerSpace, Angle, Vector2};
+use cgmath::{InnerSpace, Angle, Vector2, Vector3, Matrix4, MetricSpace};
 
 mod shader;
 mod renderable;
 mod viewport;
 mod texture;
+mod math;
 
 use shader::Shader;
 use renderable::Renderable;
@@ -75,7 +76,9 @@ pub fn start() -> Result<(), JsValue> {
 
         void main() {
             //gl_Position = projection * view *  model * vec4(position, 1.0);
-            gl_Position = view * vec4(position, 1.0);
+            vec4 p = view * vec4(position, 1.0);
+            gl_Position = vec4(p.y, p.z, p.x, 1.0);
+            //gl_Position = p;
 
             gl_Position.x *= height / width;
             //gl_Position.xy *= zoom_factor;
@@ -109,7 +112,7 @@ pub fn start() -> Result<(), JsValue> {
                 } else {
                     lonlat /= vec2(20.0, 20.0);
                 }
-                
+
                 vec2 linePos = fract(lonlat + 0.5) - 0.5;
                 vec2 der = vec2(50.0);
                 linePos = max((1.0 - der*abs(linePos)), 0.0);
@@ -244,7 +247,7 @@ pub fn start() -> Result<(), JsValue> {
     let mouse_clic_x = Rc::new(Cell::new(0_f32));
     let mouse_clic_y = Rc::new(Cell::new(0_f32));
 
-    let start_pos_clic = Rc::new(Cell::new(Vector2::new(0_f32, 0_f32)));
+    let start_pos_clic = Rc::new(Cell::new(Vector3::<f32>::new(0_f32, 0_f32, 0_f32)));
     {
         let pressed = pressed.clone();
 
@@ -257,11 +260,11 @@ pub fn start() -> Result<(), JsValue> {
 
         let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
             console::log_1(&format!("mouse down").into());
-            pressed.set(true);
-
+            
             let result = v.as_ref().borrow().unproj(event.offset_x() as f32, event.offset_y() as f32);
             if let Some(pos) = result {
                 start_pos_clic.set(pos);
+                pressed.set(true);
             }
         }) as Box<dyn FnMut(_)>);
         canvas.add_event_listener_with_callback("mousedown", closure.as_ref().unchecked_ref())?;
@@ -295,13 +298,32 @@ pub fn start() -> Result<(), JsValue> {
             if pressed.get() {
                 let result = v.as_ref().borrow().unproj(event.offset_x() as f32, event.offset_y() as f32);
                 if let Some(pos) = result {
-                    let direction = (pos - start_pos_clic.get());
-                    start_pos_clic.set(pos);
+                    let pos = pos.normalize();
+                    //let direction = (pos - start_pos_clic.get()).normalize()*math::angular_distance_haversine(pos, start_pos_clic.get());
+                    if pos.distance2(start_pos_clic.get()) > 1e-6 {
+                        let mut delta = pos - start_pos_clic.get();
+                        //direction.x = direction.x * (inner_width as f32)/(inner_height as f32);
+                        
 
-                    v.borrow_mut().move_eye_position(direction.x, direction.y);
+                        // projection on the plane tangent to the sphere and passing by pos
+                        let h = delta.dot(pos);
+
+                        let p = (delta - h*pos).normalize();
+
+                        let dist = pos.cross(start_pos_clic.get()).magnitude().atan2(pos.dot(start_pos_clic.get()));
+
+                        let axis = pos.cross(p);
+                        let R = Matrix4::<f32>::from_axis_angle(axis, cgmath::Rad(-dist));
+                        
+                        console::log_1(&format!("axis {:?} amplitude {:?}", axis, pos.cross(start_pos_clic.get()).magnitude()).into());
+                        //v.borrow_mut().move_eye_position(direction.x, direction.y);
+                        v.borrow_mut().apply_transformation(R);
+                        start_pos_clic.set(pos);
+                    }
                 }
             }
         }) as Box<dyn FnMut(_)>);
+
         canvas.add_event_listener_with_callback("mousemove", closure.as_ref().unchecked_ref())?;
         closure.forget();
     }
@@ -315,7 +337,7 @@ pub fn start() -> Result<(), JsValue> {
         let viewport = viewport.clone();
         let closure = Closure::wrap(Box::new(move |event: web_sys::WheelEvent| {
             let delta_y = event.delta_y() as f32;
-            //console::log_1(&format!("delta: {:?}", delta_y).into());
+
             if delta_y < 0_f32 {
                 viewport.borrow_mut().zoom(true);
             } else {
