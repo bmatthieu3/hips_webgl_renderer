@@ -74,12 +74,42 @@ pub fn start() -> Result<(), JsValue> {
 
         uniform float zoom_factor;
 
-        void main() {
-            //gl_Position = projection * view *  model * vec4(position, 1.0);
-            vec4 p = view * vec4(position, 1.0);
-            gl_Position = vec4(p.y, p.z, p.x, 1.0);
-            //gl_Position = p;
+        vec3 orthographic_projection(vec4 pos) {
+            return pos.yzx;
+        }
 
+        vec3 aitoff_projection(vec4 pos) {
+            /*final double r = sqrt(x * x + y * y);
+            double w = sqrt(HALF * r * (r + x)); // cos(b) cos(l/2)
+            w = sqrt(HALF * (1 + w)); 
+            toXY.setY(z / w);
+            w = sqrt(2 * r * (r - x)) / w;
+            toXY.setX(y < 0 ? w : -w);*/
+
+            float r = length(pos.yz);
+            float w = sqrt(0.5f * r * (r + pos.z));
+
+            float tt = sqrt(0.5f * (1.f + w));
+
+            vec3 p = vec3(0.f);
+            p.y = pos.x / tt;
+            
+            float zz = sqrt(2.f * r * (r - pos.z)) / tt;
+            if (pos.y < 0.f) {
+                p.x = zz;
+            } else {
+                p.x = -zz;
+            }
+            p.z = pos.x;
+
+            return p;
+        }
+
+        void main() {
+            vec4 pos = view * model * vec4(position, 1.0);
+            gl_Position = vec4(orthographic_projection(pos), 1.0);
+
+            //gl_Position.xy *= 0.4f;
             gl_Position.x *= height / width;
             //gl_Position.xy *= zoom_factor;
 
@@ -162,6 +192,7 @@ pub fn start() -> Result<(), JsValue> {
     // Enable back face culling
     gl.enable(WebGl2RenderingContext::CULL_FACE);
     gl.cull_face(WebGl2RenderingContext::BACK);
+
     gl.enable(WebGl2RenderingContext::BLEND);
     gl.blend_func(WebGl2RenderingContext::SRC_ALPHA, WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA);
 
@@ -247,29 +278,33 @@ pub fn start() -> Result<(), JsValue> {
     let mouse_clic_x = Rc::new(Cell::new(0_f32));
     let mouse_clic_y = Rc::new(Cell::new(0_f32));
 
-    let start_pos_clic = Rc::new(Cell::new(Vector3::<f32>::new(0_f32, 0_f32, 0_f32)));
+    let start_pos = Rc::new(Cell::new(Vector3::<f32>::new(0_f32, 0_f32, 0_f32)));
     {
         let pressed = pressed.clone();
 
         let mouse_clic_x = mouse_clic_x.clone();
         let mouse_clic_y = mouse_clic_y.clone();
 
-        let start_pos_clic = start_pos_clic.clone();
+        let start_pos = start_pos.clone();
 
         let v = viewport.clone();
 
         let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
             console::log_1(&format!("mouse down").into());
-            
+            mouse_clic_x.set(event.offset_x() as f32);
+            mouse_clic_y.set(event.offset_y() as f32);
+
             let result = v.as_ref().borrow().unproj(event.offset_x() as f32, event.offset_y() as f32);
             if let Some(pos) = result {
-                start_pos_clic.set(pos);
+                let pos = pos.normalize();
+                start_pos.set(pos);
                 pressed.set(true);
             }
         }) as Box<dyn FnMut(_)>);
         canvas.add_event_listener_with_callback("mousedown", closure.as_ref().unchecked_ref())?;
         closure.forget();
     }
+
     // Mouse up pression event
     {
         let pressed = pressed.clone();
@@ -281,44 +316,37 @@ pub fn start() -> Result<(), JsValue> {
         canvas.add_event_listener_with_callback("mouseup", closure.as_ref().unchecked_ref())?;
         closure.forget();
     }
+
     // Mouse move event
     {
-        let context = gl.clone();
         let pressed = pressed.clone();
-        let v = viewport.clone();
+        let viewport = viewport.clone();
 
-        let delta_x = delta_x.clone();
-        let delta_y = delta_y.clone();
+        let start_pos = start_pos.clone();
+        let sphere = sphere.clone();
+
         let mouse_clic_x = mouse_clic_x.clone();
         let mouse_clic_y = mouse_clic_y.clone();
 
-        let start_pos_clic = start_pos_clic.clone();
-
         let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
             if pressed.get() {
-                let result = v.as_ref().borrow().unproj(event.offset_x() as f32, event.offset_y() as f32);
+                let event_x = event.offset_x() as f32;
+                let event_y = event.offset_y() as f32;
+
+                let result = viewport.as_ref().borrow().unproj(event_x, event_y);
                 if let Some(pos) = result {
                     let pos = pos.normalize();
-                    //let direction = (pos - start_pos_clic.get()).normalize()*math::angular_distance_haversine(pos, start_pos_clic.get());
-                    if pos.distance2(start_pos_clic.get()) > 1e-6 {
-                        let mut delta = pos - start_pos_clic.get();
-                        //direction.x = direction.x * (inner_width as f32)/(inner_height as f32);
-                        
+                    let dist = math::angular_distance_xyz(pos, start_pos.get());
 
-                        // projection on the plane tangent to the sphere and passing by pos
-                        let h = delta.dot(pos);
+                    if event_x != mouse_clic_x.get() || event_y != mouse_clic_y.get() {
+                        let mut axis = start_pos.get().cross(pos);
+                        axis = axis.normalize();
+                        sphere.borrow_mut().apply_rotation(axis, cgmath::Rad(dist));
 
-                        let p = (delta - h*pos).normalize();
+                        mouse_clic_x.set(event_x);
+                        mouse_clic_y.set(event_y);
 
-                        let dist = pos.cross(start_pos_clic.get()).magnitude().atan2(pos.dot(start_pos_clic.get()));
-
-                        let axis = pos.cross(p);
-                        let R = Matrix4::<f32>::from_axis_angle(axis, cgmath::Rad(-dist));
-                        
-                        console::log_1(&format!("axis {:?} amplitude {:?}", axis, pos.cross(start_pos_clic.get()).magnitude()).into());
-                        //v.borrow_mut().move_eye_position(direction.x, direction.y);
-                        v.borrow_mut().apply_transformation(R);
-                        start_pos_clic.set(pos);
+                        start_pos.set(pos);
                     }
                 }
             }

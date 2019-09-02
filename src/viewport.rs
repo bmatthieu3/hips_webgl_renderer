@@ -109,42 +109,12 @@ impl ViewPort {
     }
 
     pub fn recompute_view_matrix(&mut self) {
-        /*let up = cgmath::Vector3::new(0_f32, 1_f32, 0_f32);
-        self.view_mat = cgmath::Matrix4::<f32>::look_at(self.eye, self.center, up);*/
-        /*let radius_min = 1_f32;
-        let radius_max = 5_f32;
-        if self.radius > radius_max {
-            self.radius = radius_max;
-        }
-
-        if self.radius < radius_min {
-            self.radius = radius_min;
-        }
-
-        let zoom_factor = (self.radius - radius_min) / (radius_max - radius_min);*/
-
         let ct = self.theta.cos(); // ca stands for cos(alpha)
         let st = self.theta.sin(); // sa stands for sin(alpha)
 
         let cp = self.phi.cos(); // cd stands for cos(delta)
         let sp = self.phi.sin(); // sd stands for sin(delta)
 
-        /*this.r11 =  ca * cd; this.r12 =  sa * cd; this.r13 = sd;
-        this.r21 =      -sa; this.r22 =       ca; this.r23 =  0;
-        this.r31 = -ca * sd; this.r32 = -sa * sd; this.r33 = cd;*/
-
-        /*self.view_mat = cgmath::Matrix4::<f32>::new(
-            ca, sa*cd, sa*sd, 0_f32,
-            -sa, ca*cd, ca*sd, 0_f32,
-            0_f32, -sd, cd, 0_f32,
-            0_f32, 0_f32, 0_f32, 1_f32
-        )
-        self.view_mat = cgmath::Matrix4::<f32>::new(
-            ca, sa*cd, sa*sd, 0_f32,
-            -sa, ca*cd, ca*sd, 0_f32,
-            0_f32, -sd, cd, 0_f32,
-            0_f32, 0_f32, 0_f32, 1_f32
-        )*/
         self.view_mat = cgmath::Matrix4::<f32>::new(
             cp*st, sp, cp*ct, 0_f32,
             ct, 0_f32, -st, 0_f32,
@@ -191,19 +161,19 @@ impl ViewPort {
     /// * `x` - X mouse position in the screen space (in pixel)
     /// * `y` - Y mouse position in the screen space (in pixel)
     pub fn unproj(&self, x: f32, y: f32) -> Option<cgmath::Vector3<f32>> {
-        console::log_1(&format!("x_off, y_off {:?} {:?}", x, y).into());
+        //console::log_1(&format!("x_off, y_off {:?} {:?}", x, y).into());
         // Screen space in pixels to homogeneous screen space (values between [-1, 1])
         // Change of origin
         let xo = (x - self.width/2_f32);
         let yo = (y - self.height/2_f32);
 
         // Scale to fit in [-1, 1]
-        let xh = 2_f32*(xo/self.width);
-        let yh = -2_f32*(yo/self.height);
-        console::log_1(&format!("xh, yh {:?} {:?}", xh, yh).into());
         let aspect = self.width / self.height;
-        let xw_2 = 1_f32 - xh*xh*aspect*aspect - yh*yh;
-        console::log_1(&format!("xl, yl, zl {:?} {:?} {:?}", xh, yh, xw_2).into());
+        let xh = 2_f32*(xo/self.width) * aspect;
+        let yh = -2_f32*(yo/self.height);
+
+        let xw_2 = 1_f32 - xh*xh - yh*yh;
+
         if xw_2 > 0_f32 {
             let pos_local_space = cgmath::Vector4::new(xw_2.sqrt(), xh, yh, 1_f32);
 
@@ -215,14 +185,15 @@ impl ViewPort {
                 self.view_mat.x[3], self.view_mat.y[3], self.view_mat.z[3], self.view_mat.w[3],
             );
 
-            let pos_global_space = mat_local_to_global * pos_local_space;
-            console::log_1(&format!("position global {:?}", pos_global_space).into());
+            let mut pos_global_space = mat_local_to_global * pos_local_space;
+            pos_global_space = pos_global_space.normalize();
+            //console::log_1(&format!("position global {:?}", pos_global_space).into());
 
             // Get the (ra, dec) from XYZ coordinates
             let ra = pos_global_space.x.atan2(pos_global_space.z) as f32;
             let dec = pos_global_space.y.asin() as f32;
 
-            console::log_1(&format!("ra {:?}, dec {:?}", ra, dec).into());
+            //console::log_1(&format!("ra {:?}, dec {:?}", ra, dec).into());
 
             //Some(Vector2::<f32>::new(ra, dec))
             Some(Vector3::<f32>::new(pos_global_space.x, pos_global_space.y, pos_global_space.z))

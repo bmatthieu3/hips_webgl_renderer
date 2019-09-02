@@ -117,6 +117,12 @@ where T: Mesh {
         self.recompute_model_matrix();
     }
 
+    pub fn apply_rotation(&mut self, axis: cgmath::Vector3<f32>, angle: cgmath::Rad<f32>) {
+        self.rotation_mat = cgmath::Matrix4::<f32>::from_axis_angle(axis, angle) * self.rotation_mat;
+
+        self.recompute_model_matrix();
+    }
+
     pub fn scale(&mut self, factor: f32) {
         self.scale_mat = cgmath::Matrix4::<f32>::from_scale(factor);
 
