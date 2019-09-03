@@ -79,13 +79,6 @@ pub fn start() -> Result<(), JsValue> {
         }
 
         vec3 aitoff_projection(vec4 pos) {
-            /*final double r = sqrt(x * x + y * y);
-            double w = sqrt(HALF * r * (r + x)); // cos(b) cos(l/2)
-            w = sqrt(HALF * (1 + w)); 
-            toXY.setY(z / w);
-            w = sqrt(2 * r * (r - x)) / w;
-            toXY.setX(y < 0 ? w : -w);*/
-
             float r = length(pos.yz);
             float w = sqrt(0.5f * r * (r + pos.z));
 
@@ -107,10 +100,12 @@ pub fn start() -> Result<(), JsValue> {
 
         void main() {
             vec4 pos = view * model * vec4(position, 1.0);
-            gl_Position = vec4(orthographic_projection(pos), 1.0);
-
+            gl_Position = vec4(aitoff_projection(pos), 1.0);
             //gl_Position.xy *= 0.4f;
             gl_Position.x *= height / width;
+            int aa = 3;
+            int bb = aa ^ 2;
+            int cc = aa << 4;
             //gl_Position.xy *= zoom_factor;
 
             out_vert_pos = position;
@@ -199,7 +194,7 @@ pub fn start() -> Result<(), JsValue> {
     console::log_1(&format!("context attributes {:?}", gl.get_context_attributes().unwrap()).into());
 
     // Create the TEXTURE
-    texture::load(gl.clone(), "old_allsky.jpg", WebGl2RenderingContext::TEXTURE0);
+    texture::load(gl.clone(), "http://alasky.u-strasbg.fr/DSS/DSSColor/Norder0/Dir0/Npix0.jpg", WebGl2RenderingContext::TEXTURE0);
 
     // Here we want to call `requestAnimationFrame` in a loop, but only a fixed
     // number of times. After it's done we want all our resources cleaned up. To

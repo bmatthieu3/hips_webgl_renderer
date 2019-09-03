@@ -8,8 +8,10 @@ edition = "2018"
 crate-type = ["cdylib"]
 
 [dependencies]
+futures = "0.1.20"
 js-sys = "0.3.25"
 wasm-bindgen = "0.2.48"
+wasm-bindgen-futures = "0.3.27"
 cgmath = "*"
 healpix = { package = "cdshealpix", git = 'https://github.com/cds-astro/cds-healpix-rust', branch = 'master' }
 
@@ -34,4 +36,11 @@ features = [
   'WebGlUniformLocation',
   'WebGlTexture',
   'Window',
+  'Headers',
+  'Request',
+  'RequestInit',
+  'RequestMode',
+  'Response',
+  'XmlHttpRequest',
+  'XmlHttpRequestEventTarget',
 ]
