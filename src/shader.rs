@@ -59,12 +59,12 @@ impl Shader {
         let vert_shader = compile_shader(
             &gl,
             WebGl2RenderingContext::VERTEX_SHADER,
-            vert_src,
+            &vert_src,
         ).unwrap();
         let frag_shader = compile_shader(
             &gl,
             WebGl2RenderingContext::FRAGMENT_SHADER,
-            frag_src,
+            &frag_src,
         ).unwrap();
 
         let program = link_program(&gl, &vert_shader, &frag_shader).unwrap();

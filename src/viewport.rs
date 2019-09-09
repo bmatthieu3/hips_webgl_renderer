@@ -161,7 +161,6 @@ impl ViewPort {
     /// * `x` - X mouse position in the screen space (in pixel)
     /// * `y` - Y mouse position in the screen space (in pixel)
     pub fn unproj(&self, x: f32, y: f32) -> Option<cgmath::Vector3<f32>> {
-        //console::log_1(&format!("x_off, y_off {:?} {:?}", x, y).into());
         // Screen space in pixels to homogeneous screen space (values between [-1, 1])
         // Change of origin
         let xo = (x - self.width/2_f32);
@@ -185,18 +184,14 @@ impl ViewPort {
                 self.view_mat.x[3], self.view_mat.y[3], self.view_mat.z[3], self.view_mat.w[3],
             );
 
-            let mut pos_global_space = mat_local_to_global * pos_local_space;
+            let pos_global_space = mat_local_to_global * pos_local_space;
+
+            let mut pos_global_space = Vector3::<f32>::new(pos_global_space.x, pos_global_space.y, pos_global_space.z);
             pos_global_space = pos_global_space.normalize();
-            //console::log_1(&format!("position global {:?}", pos_global_space).into());
 
-            // Get the (ra, dec) from XYZ coordinates
-            let ra = pos_global_space.x.atan2(pos_global_space.z) as f32;
-            let dec = pos_global_space.y.asin() as f32;
+            console::log_1(&format!("pos {:?}", pos_global_space).into());
 
-            //console::log_1(&format!("ra {:?}, dec {:?}", ra, dec).into());
-
-            //Some(Vector2::<f32>::new(ra, dec))
-            Some(Vector3::<f32>::new(pos_global_space.x, pos_global_space.y, pos_global_space.z))
+            Some(pos_global_space)
         } else {
             // Out of the sphere
             None

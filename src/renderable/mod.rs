@@ -1,12 +1,15 @@
 use web_sys::WebGl2RenderingContext;
 use web_sys::WebGlVertexArrayObject;
+use web_sys::WebGlTexture;
 use crate::shader::Shader;
 use web_sys::console;
+
+use crate::viewport::ViewPort;
 
 use std::rc::Rc;
 use std::borrow::Borrow;
 pub trait Mesh {
-    fn create_buffers(gl: &WebGl2RenderingContext) -> (Box<[(u32, i32, WebGlBuffer)]>, i32, WebGlVertexArrayObject);
+    fn create_buffers(gl: &WebGl2RenderingContext, viewport: &ViewPort) -> (Box<[(u32, i32, WebGlBuffer)]>, i32, WebGlVertexArrayObject);
     fn link_buffers_to_vertex_shader(gl: &WebGl2RenderingContext, buffers: &Box<[(u32, i32, WebGlBuffer)]>) {
         let mut indx = 0;
         for (target, size, buffer_idx) in buffers.iter() {
@@ -27,13 +30,13 @@ pub trait Mesh {
         }
     }
 
-    fn create_vertex_array() -> js_sys::Float32Array;
+    fn create_vertex_array(viewer: &ViewPort) -> (js_sys::Float32Array, js_sys::Float32Array);
     fn create_uv_array() -> js_sys::Float32Array;
     fn create_color_array() -> js_sys::Float32Array;
     fn create_index_array() -> js_sys::Uint32Array;
 
     fn init_uniforms(gl: &WebGl2RenderingContext, shader: &Shader) -> Box<[WebGlUniformLocation]>;
-    fn send_uniforms(gl: &WebGl2RenderingContext, uniforms: &Box<[WebGlUniformLocation]>);
+    fn send_uniform_textures(gl: &WebGl2RenderingContext, uniform_textures: &Box<[WebGlUniformLocation]>, textures: &Vec<Rc<Option<WebGlTexture>>>);
 }
 
 pub mod hips_sphere;
@@ -65,20 +68,18 @@ where T: Mesh {
     phantom: PhantomData<&'a T>,
 }
 
-use crate::viewport::ViewPort;
 use cgmath;
 use cgmath::SquareMatrix;
 impl<'a, T> Renderable<'a, T>
 where T: Mesh {
-    pub fn new(gl: &WebGl2RenderingContext, shader: Rc<Shader>) -> Renderable<'a, T> {
+    pub fn new(gl: &WebGl2RenderingContext, shader: Rc<Shader>, viewport: &ViewPort) -> Renderable<'a, T> {
         shader.bind(gl);
 
-        let (buffers, num_vertices, vao) = T::create_buffers(gl);
+        let (buffers, num_vertices, vao) = T::create_buffers(gl, viewport);
         console::log_1(&format!("num_vertices {:?}", num_vertices).into());
-
         T::link_buffers_to_vertex_shader(gl, &buffers);
+        
         let uniforms = T::init_uniforms(gl, shader.borrow());
-
         let phantom = PhantomData;
 
         let model_mat = cgmath::Matrix4::identity();
@@ -129,7 +130,7 @@ where T: Mesh {
         self.recompute_model_matrix();
     }
 
-    pub fn draw(&self, gl: &WebGl2RenderingContext, mode: u32, viewport: &ViewPort) {
+    pub fn draw(&self, gl: &WebGl2RenderingContext, mode: u32, viewport: &ViewPort, textures: &Vec<Rc<Option<WebGlTexture>>>) {
         self.shader.bind(gl);
 
         gl.bind_vertex_array(Some(&self.vao));
@@ -138,7 +139,7 @@ where T: Mesh {
 
         // Send Uniforms
         viewport.send_to_vertex_shader(gl, self.shader.borrow());
-        T::send_uniforms(gl, &self.uniforms);
+        T::send_uniform_textures(gl, &self.uniforms, textures);
 
         // Get the attribute location of the model matrix from the Vertex shader
         let model_mat_location = self.shader.get_uniform_location(gl, "model");
