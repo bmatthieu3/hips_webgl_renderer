@@ -150,6 +150,9 @@ where T: Mesh {
         let model_mat_f32_slice: &[f32; 16] = self.model_mat.as_ref();
         gl.uniform_matrix4fv_with_f32_array(model_mat_location.as_ref(), false, model_mat_f32_slice);
 
+        let grid_location = self.shader.get_uniform_location(gl, "draw_grid");
+        gl.uniform1i(grid_location.as_ref(), 0);
+
         gl.draw_elements_with_i32(
             mode,
             self.num_vertices,

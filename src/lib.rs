@@ -112,6 +112,7 @@ pub fn start() -> Result<(), JsValue> {
 
         const uint NUM_MAX_TILES = 12U;
         uniform sampler2D texture_hips_tile[NUM_MAX_TILES];
+        uniform int draw_grid;
 
         const float PI = 3.1415926535897932384626433832795f;
 
@@ -451,17 +452,19 @@ pub fn start() -> Result<(), JsValue> {
             //out_color += frag_pos;
             out_frag_color = vec4(out_color, 1.0f);
 
-            vec2 lonlat = vec2(atan(frag_pos.x, frag_pos.z), asin(frag_pos.y));
-            lonlat *= 180.0/PI;
+            if(draw_grid == 1) {
+                vec2 lonlat = vec2(atan(frag_pos.x, frag_pos.z), asin(frag_pos.y));
+                lonlat *= 180.0/PI;
 
-            if(abs(lonlat.y) < 80.0) {
-                lonlat /= vec2(10.0, 10.0);
+                if(abs(lonlat.y) < 80.0) {
+                    lonlat /= vec2(10.0, 10.0);
 
-                vec2 linePos = fract(lonlat + 0.5) - 0.5;
-                vec2 der = vec2(50.0);
-                linePos = max((1.0 - der*abs(linePos)), 0.0);
+                    vec2 linePos = fract(lonlat + 0.5) - 0.5;
+                    vec2 der = vec2(50.0);
+                    linePos = max((1.0 - der*abs(linePos)), 0.0);
 
-                out_frag_color *= (1.0 - 0.4 * max(linePos.x, linePos.y));
+                    out_frag_color *= (1.0 - 0.4 * max(linePos.x, linePos.y));
+                }
             }
         }"#
     ));
