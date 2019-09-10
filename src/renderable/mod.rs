@@ -39,7 +39,7 @@ pub trait Mesh {
     fn send_uniform_textures(gl: &WebGl2RenderingContext, uniform_textures: &Box<[WebGlUniformLocation]>, textures: &Vec<Rc<Option<WebGlTexture>>>);
 }
 
-pub mod hips_sphere;
+pub mod orthographic_sphere;
 pub mod direct_system;
 
 use std::marker::PhantomData;
@@ -128,6 +128,10 @@ where T: Mesh {
         self.scale_mat = cgmath::Matrix4::<f32>::from_scale(factor);
 
         self.recompute_model_matrix();
+    }
+
+    pub fn get_model_mat(&self) -> cgmath::Matrix4<f32> {
+        return self.model_mat.clone();
     }
 
     pub fn draw(&self, gl: &WebGl2RenderingContext, mode: u32, viewport: &ViewPort, textures: &Vec<Rc<Option<WebGlTexture>>>) {

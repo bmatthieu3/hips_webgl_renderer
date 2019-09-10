@@ -1,3 +1,5 @@
+use crate::renderable::Renderable;
+
 pub struct ViewPort {
     //projection_mat: cgmath::Matrix4<f32>,
     view_mat: cgmath::Matrix4<f32>,
@@ -91,14 +93,15 @@ impl ViewPort {
 
     pub fn move_eye_position(&mut self, delta_theta: f32, delta_phi: f32) {
         self.phi -= delta_phi;
-        self.theta -= delta_theta;
-
-        let phi_max = (std::f32::consts::PI / 2_f32) - 0.01_f32;
+        self.theta += delta_theta;
+        console::log_1(&format!("RA {:?}", self.theta * 180_f32/3.14_f32).into());
+        console::log_1(&format!("DEC {:?}", self.phi * 180_f32/3.14_f32).into());
+        /*let phi_max = (std::f32::consts::PI / 2_f32) - 0.01_f32;
         if self.phi > phi_max {
             self.phi = phi_max;
         } else if self.phi < -phi_max {
             self.phi = -phi_max;
-        }
+        }*/
 
         //self.eye = compute_eye_position(self.radius, self.theta, self.phi);
         self.recompute_view_matrix();
@@ -160,36 +163,33 @@ impl ViewPort {
     /// 
     /// * `x` - X mouse position in the screen space (in pixel)
     /// * `y` - Y mouse position in the screen space (in pixel)
-    pub fn unproj(&self, x: f32, y: f32) -> Option<cgmath::Vector3<f32>> {
+    pub fn unproj(&self, x: f32, y: f32, model: &cgmath::Matrix4<f32>, op: &Fn(f32, f32, f32) -> cgmath::Vector4<f32>) -> Option<cgmath::Vector3<f32>> {
         // Screen space in pixels to homogeneous screen space (values between [-1, 1])
         // Change of origin
-        let xo = (x - self.width/2_f32);
-        let yo = (y - self.height/2_f32);
+        let xo = x - self.width/2_f32;
+        let yo = y - self.height/2_f32;
 
         // Scale to fit in [-1, 1]
-        let aspect = self.width / self.height;
-        let xh = 2_f32*(xo/self.width) * aspect;
+        //let aspect = self.width / self.height;
+        //let xh = 2_f32*(xo/self.width) * aspect;
+        let xh = 2_f32*(xo/self.width);
         let yh = -2_f32*(yo/self.height);
+
+        console::log_1(&format!("xh, yh {:?} {:?}", xh, yh).into());
 
         let xw_2 = 1_f32 - xh*xh - yh*yh;
 
         if xw_2 > 0_f32 {
-            let pos_local_space = cgmath::Vector4::new(xw_2.sqrt(), xh, yh, 1_f32);
+            let pos_local_space = op(xh, yh, xw_2.sqrt());
 
             // Local space centered around the view camera to global space
-            let mat_local_to_global = cgmath::Matrix4::<f32>::new(
-                self.view_mat.x[0], self.view_mat.y[0], self.view_mat.z[0], self.view_mat.w[0],
-                self.view_mat.x[1], self.view_mat.y[1], self.view_mat.z[1], self.view_mat.w[1], 
-                self.view_mat.x[2], self.view_mat.y[2], self.view_mat.z[2], self.view_mat.w[2], 
-                self.view_mat.x[3], self.view_mat.y[3], self.view_mat.z[3], self.view_mat.w[3],
-            );
-
-            let pos_global_space = mat_local_to_global * pos_local_space;
+            let pos_global_space = pos_local_space;
 
             let mut pos_global_space = Vector3::<f32>::new(pos_global_space.x, pos_global_space.y, pos_global_space.z);
+            //console::log_1(&format!("pos unproj mag {:?}", pos_global_space.magnitude()).into());
             pos_global_space = pos_global_space.normalize();
 
-            console::log_1(&format!("pos {:?}", pos_global_space).into());
+            console::log_1(&format!("pos unproj {:?}", pos_global_space).into());
 
             Some(pos_global_space)
         } else {

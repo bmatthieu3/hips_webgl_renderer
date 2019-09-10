@@ -1,5 +1,5 @@
 
-pub struct HiPSSphere {
+pub struct OrthoSphere {
     texture_location: WebGlUniformLocation,
 }
 
@@ -13,6 +13,8 @@ use web_sys::WebGlTexture;
 use web_sys::WebGlUniformLocation;
 use web_sys::WebGlVertexArrayObject;
 
+use crate::math;
+
 use std::rc::Rc;
 
 use cgmath::Vector2;
@@ -23,10 +25,14 @@ use crate::viewport::ViewPort;
 
 const MAX_NUMBER_TEXTURE: usize = 15;
 
-const NUM_VERTICES_PER_STEP: usize = 40;
-const NUM_STEPS: usize = 15;
+const NUM_VERTICES_PER_STEP: usize = 70;
+const NUM_STEPS: usize = 40;
 
-impl Mesh for HiPSSphere {
+use cgmath::SquareMatrix;
+
+
+
+impl Mesh for OrthoSphere {
     fn create_color_array() -> js_sys::Float32Array {
         unreachable!()
     }
@@ -45,29 +51,40 @@ impl Mesh for HiPSSphere {
             .as_f64()
             .unwrap() as f32;
         let radius_max = (height - 1_f32) / 2_f32; // radius in pixels
+        let aspect = width / height;
 
         let center_screen_space = Vector2::<f32>::new(width / 2_f32, height / 2_f32);
         vertices_screen.push(2_f32 * ((center_screen_space.x / width) - 0.5_f32));
-        vertices_screen.push(2_f32 * ((center_screen_space.y / height) - 0.5_f32));
+        vertices_screen.push(-2_f32 * ((center_screen_space.y / height) - 0.5_f32));
 
-        let center = viewport.unproj(center_screen_space.x, center_screen_space.y).unwrap();
+        let center = viewport.unproj(
+            center_screen_space.x, center_screen_space.y,
+            &cgmath::Matrix4::identity(),
+            &math::aitoff_projection
+        ).unwrap();
         vertices.push(center.x);
         vertices.push(center.y);
         vertices.push(center.z);
 
         for j in 0..NUM_STEPS {
-            let radius = (std::f32::consts::PI * (j as f32) / (2_f32 * (NUM_STEPS as f32))).sin() * radius_max;
+            let radius = (std::f32::consts::PI * ((j + 1) as f32) / (2_f32 * (NUM_STEPS as f32))).sin();
             for i in 0..NUM_VERTICES_PER_STEP {
                 let angle = (i as f32) * 2_f32 * std::f32::consts::PI / (NUM_VERTICES_PER_STEP as f32);
 
-                let mut pos_screen_space = Vector2::<f32>::new(radius * angle.cos(), radius * angle.sin());
+                let mut pos_screen_space = Vector2::<f32>::new((width/2_f32 - 1_f32) * radius * angle.cos(), ((height/2_f32 - 1_f32) / 2_f32) * radius * angle.sin());
+                console::log_1(&format!("pos_screen {:?}", pos_screen_space).into());
+
                 pos_screen_space += center_screen_space;
                 vertices_screen.push(2_f32 * ((pos_screen_space.x / width) - 0.5_f32));
-                vertices_screen.push(2_f32 * ((pos_screen_space.y / height) - 0.5_f32));
+                vertices_screen.push(-2_f32 * ((pos_screen_space.y / height) - 0.5_f32));
 
                 // Perform the inverse projection that converts
                 // screen position to the 3D space position
-                let pos = viewport.unproj(pos_screen_space.x, pos_screen_space.y).unwrap();
+                let pos = viewport.unproj(
+                    pos_screen_space.x, pos_screen_space.y,
+                    &cgmath::Matrix4::identity(),
+                    &math::aitoff_projection
+                ).unwrap();
                 vertices.push(pos.x);
                 vertices.push(pos.y);
                 vertices.push(pos.z);
@@ -155,7 +172,7 @@ impl Mesh for HiPSSphere {
     fn create_buffers(gl: &WebGl2RenderingContext, viewport: &ViewPort) -> (Box<[(u32, i32, WebGlBuffer)]>, i32, WebGlVertexArrayObject) {
         let vao = gl.create_vertex_array()
             .ok_or("failed to create the vertex array buffer")
-            .unwrap();;
+            .unwrap();
         gl.bind_vertex_array(Some(&vao));
 
         let (vertices_array, vertices_screen_array) = Self::create_vertex_array(viewport);

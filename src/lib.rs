@@ -4,7 +4,7 @@ use web_sys::{WebGl2RenderingContext, MouseEvent, EventTarget, console};
 use wasm_bindgen::prelude::*;
 use js_sys::WebAssembly;
 use cgmath;
-use cgmath::{InnerSpace, Angle, Vector2, Vector3, Matrix4, MetricSpace};
+use cgmath::{InnerSpace, Angle, Vector2, SquareMatrix, Vector3, Matrix4, MetricSpace, EuclideanSpace, Matrix};
 
 mod shader;
 mod renderable;
@@ -14,7 +14,7 @@ mod math;
 
 use shader::Shader;
 use renderable::Renderable;
-use renderable::hips_sphere::HiPSSphere;
+use renderable::orthographic_sphere::OrthoSphere;
 use renderable::direct_system::DirectSystem;
 use viewport::ViewPort;
 use std::borrow::Borrow;
@@ -114,7 +114,6 @@ pub fn start() -> Result<(), JsValue> {
         uniform sampler2D texture_hips_tile[NUM_MAX_TILES];
 
         const float PI = 3.1415926535897932384626433832795f;
-        const float PI_2 = 1.57079632679489661923f;
 
         const float TRANSITION_Z = 2.0f / 3.0f;
         const float TRANSITION_Z_INV = 3.0f / 2.0f;
@@ -449,7 +448,7 @@ pub fn start() -> Result<(), JsValue> {
             //out_color.x = uv.x;
             //out_color.y = uv.y;
             //out_color.x += float(tile_idx)/20.f;
-
+            //out_color += frag_pos;
             out_frag_color = vec4(out_color, 1.0f);
 
             vec2 lonlat = vec2(atan(frag_pos.x, frag_pos.z), asin(frag_pos.y));
@@ -462,7 +461,7 @@ pub fn start() -> Result<(), JsValue> {
                 vec2 der = vec2(50.0);
                 linePos = max((1.0 - der*abs(linePos)), 0.0);
 
-                out_frag_color *= (1.0 - 0.3 * max(linePos.x, linePos.y));
+                out_frag_color *= (1.0 - 0.4 * max(linePos.x, linePos.y));
             }
         }"#
     ));
@@ -493,9 +492,11 @@ pub fn start() -> Result<(), JsValue> {
         }
         "#,
     ));*/
-    
+
     // Viewport
     let viewport = Rc::new(RefCell::new(ViewPort::new(inner_width as f32, inner_height as f32)));
+
+    let mut sphere = Rc::new(RefCell::new(Renderable::<OrthoSphere>::new(&gl, shader_texture.clone(), &viewport.as_ref().borrow())));
 
     // Definition of the model matrix
     /*let mut direct_system = Rc::new(
@@ -504,7 +505,7 @@ pub fn start() -> Result<(), JsValue> {
         )
     );*/
     //direct_system.borrow_mut().scale(0.5_f32);
-    let mut sphere = Rc::new(RefCell::new(Renderable::<HiPSSphere>::new(&gl, shader_texture.clone(), &viewport.as_ref().borrow())));
+
     // Enable the depth test
     //gl.enable(WebGl2RenderingContext::DEPTH_TEST);
     // Enable back face culling
@@ -625,6 +626,7 @@ pub fn start() -> Result<(), JsValue> {
         let mouse_clic_y = mouse_clic_y.clone();
 
         let start_pos = start_pos.clone();
+        let sphere = sphere.clone();
 
         let v = viewport.clone();
 
@@ -632,10 +634,11 @@ pub fn start() -> Result<(), JsValue> {
             console::log_1(&format!("mouse down").into());
             mouse_clic_x.set(event.offset_x() as f32);
             mouse_clic_y.set(event.offset_y() as f32);
-
-            let result = v.as_ref().borrow().unproj(event.offset_x() as f32, event.offset_y() as f32);
+            let model_mat = &sphere.as_ref().borrow().get_model_mat();
+            let result = v.as_ref().borrow().unproj(event.offset_x() as f32, event.offset_y() as f32, model_mat, &math::aitoff_projection);
             if let Some(pos) = result {
                 let pos = pos.normalize();
+
                 start_pos.set(pos);
                 pressed.set(true);
             }
@@ -671,16 +674,38 @@ pub fn start() -> Result<(), JsValue> {
             if pressed.get() {
                 let event_x = event.offset_x() as f32;
                 let event_y = event.offset_y() as f32;
+                let model_mat = &sphere.as_ref().borrow().get_model_mat();
 
-                let result = viewport.as_ref().borrow().unproj(event_x, event_y);
+                let result = viewport.as_ref().borrow().unproj(event_x, event_y, model_mat, &math::aitoff_projection);
                 if let Some(pos) = result {
                     let pos = pos.normalize();
-                    let dist = math::angular_distance_xyz(pos, start_pos.get());
 
                     if event_x != mouse_clic_x.get() || event_y != mouse_clic_y.get() {
-                        let mut axis = start_pos.get().cross(pos);
+                        let start_pos_rotated = model_mat * cgmath::Vector4::<f32>::new(
+                            start_pos.get().x,
+                            start_pos.get().y,
+                            start_pos.get().z,
+                            1_f32
+                        );
+
+                        let start_pos_rotated = cgmath::Vector3::<f32>::new(start_pos_rotated.x, start_pos_rotated.y, start_pos_rotated.z);
+                        
+                        let pos_rotated = model_mat * cgmath::Vector4::<f32>::new(
+                            pos.x,
+                            pos.y,
+                            pos.z,
+                            1_f32
+                        );
+
+                        let pos_rotated = cgmath::Vector3::<f32>::new(pos_rotated.x, pos_rotated.y, pos_rotated.z);
+
+                        console::log_1(&format!("REAL pos clic {:?}", start_pos_rotated).into());
+                        
+                        let mut axis = start_pos_rotated.cross(pos_rotated);
+                        let dist = math::angular_distance_xyz(start_pos_rotated, pos_rotated);
+
                         axis = axis.normalize();
-                        sphere.borrow_mut().apply_rotation(axis, cgmath::Rad(dist));
+                        sphere.borrow_mut().apply_rotation(-axis, cgmath::Rad(dist));
 
                         mouse_clic_x.set(event_x);
                         mouse_clic_y.set(event_y);
@@ -716,10 +741,7 @@ pub fn start() -> Result<(), JsValue> {
     }
 
     let axis = cgmath::Vector3::new(0_f32, 1_f32, 0_f32);
-    let mut i = 0;
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
-        i += 1;
-
         // Render the scene
         gl.clear_color(0.0, 0.0, 0.0, 1.0);
         // Clear the color buffer bit
