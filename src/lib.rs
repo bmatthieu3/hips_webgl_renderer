@@ -14,8 +14,10 @@ mod math;
 
 use shader::Shader;
 use renderable::Renderable;
-use renderable::orthographic_sphere::OrthoSphere;
+use renderable::hips_sphere::HiPSSphere;
 use renderable::direct_system::DirectSystem;
+use renderable::projection;
+use renderable::projection::{ProjectionType, Aitoff, Orthographic};
 use viewport::ViewPort;
 use std::borrow::Borrow;
 
@@ -460,7 +462,7 @@ pub fn start() -> Result<(), JsValue> {
                     lonlat /= vec2(10.0, 10.0);
 
                     vec2 linePos = fract(lonlat + 0.5) - 0.5;
-                    vec2 der = vec2(50.0);
+                    vec2 der = vec2(60.0f);
                     linePos = max((1.0 - der*abs(linePos)), 0.0);
 
                     out_frag_color *= (1.0 - 0.4 * max(linePos.x, linePos.y));
@@ -498,8 +500,13 @@ pub fn start() -> Result<(), JsValue> {
 
     // Viewport
     let viewport = Rc::new(RefCell::new(ViewPort::new(inner_width as f32, inner_height as f32)));
+    let projection = Rc::new(ProjectionType::Aitoff(Aitoff {}));
 
-    let mut sphere = Rc::new(RefCell::new(Renderable::<OrthoSphere>::new(&gl, shader_texture.clone(), &viewport.as_ref().borrow())));
+    let sphere = Rc::new(RefCell::new(Renderable::<HiPSSphere>::new(
+        &gl,
+        shader_texture.clone(),
+        projection.clone()
+    )));
 
     // Definition of the model matrix
     /*let mut direct_system = Rc::new(
@@ -544,75 +551,10 @@ pub fn start() -> Result<(), JsValue> {
         num_tile += 1;
     }
 
-    // Here we want to call `requestAnimationFrame` in a loop, but only a fixed
-    // number of times. After it's done we want all our resources cleaned up. To
-    // achieve this we're using an `Rc`. The `Rc` will eventually store the
-    // closure we want to execute on each frame, but to start out it contains
-    // `None`.
-    //
-    // After the `Rc` is made we'll actually create the closure, and the closure
-    // will reference one of the `Rc` instances. The other `Rc` reference is
-    // used to store the closure, request the first frame, and then is dropped
-    // by this function.
-    //
-    // Inside the closure we've got a persistent `Rc` reference, which we use
-    // for all future iterations of the loop
+    
     let f = Rc::new(RefCell::new(None));
     let g = f.clone();
-    /*
-    let fovy = cgmath::Deg(60_f32);
-    let half_fovy = cgmath::Deg(22.5_f32);
-    let aspect = inner_width as f32 / inner_height as f32;
-    let near = 0.1_f32;
-    let far = 50_f32;
-    let proj_mat: cgmath::Matrix4<f32> = cgmath::perspective(
-        fovy,
-        aspect,
-        near,
-        far
-    );
-
-    let eye = cgmath::Point3::new(5_f32, 5_f32, 5_f32);
-    let center = cgmath::Point3::new(0_f32, 0_f32, 0_f32);
-    let up = cgmath::Vector3::new(0_f32, 1_f32, 0_f32);
-    let view_mat = cgmath::Matrix4::<f32>::look_at(eye, center, up);
-
-    let view = (center - eye).normalize();
-    let v_length = cgmath::Deg::tan(half_fovy) * near;
-    let h_length = v_length * (inner_width as f32 / inner_height as f32);
-
-    let h = view.cross(up).normalize() * h_length;
-    let v = h.cross(view).normalize() * v_length;
-
-    // Compute up-left corner ray
-    let origin_up_left = eye + view * near - h + v;
-    let dir_up_left = (origin_up_left - eye).normalize();
-
-    let origin_up_right = eye + view * near + h + v;
-    let dir_up_right = (origin_up_right - eye).normalize();
-
-    let origin_bottom_left = eye + view * near - h - v;
-    let dir_bottom_left = (origin_bottom_left - eye).normalize();
-
-    let origin_bottom_right = eye + view * near + h - v;
-    let dir_bottom_right = (origin_bottom_right - eye).normalize();
     
-    // Check whether the viewport intersect the unit sphere
-    // - Yes: 
-    //   1) Get the intersection points.
-    //   2) Convert them to lon, lat.
-    //   3) Define the minimum depth so that the number of HEALPix cell contained
-    //      in the viewport polygon is > N.
-    //   4) Call vertices on each of these pixels and define the vertices/indices buffer
-    // - No:
-    //   1) Draw the whole sphere at the order 2. Enable backfacing culling for limiting the rendering time
-    //      to what is visible.
-    console::log_1(&format!("Dir_up_left {:?}", dir_up_left).into());
-    console::log_1(&format!("Dir_up_right {:?}", dir_up_right).into());
-
-    console::log_1(&format!("Dir_bottom_left {:?}", dir_bottom_left).into());
-    console::log_1(&format!("Dir_bottom_right {:?}", dir_bottom_right).into());
-    */
     // Mouse down pression event
     let pressed = Rc::new(Cell::new(false));
     let delta_x = Rc::new(Cell::new(0_f32));
@@ -629,16 +571,19 @@ pub fn start() -> Result<(), JsValue> {
         let mouse_clic_y = mouse_clic_y.clone();
 
         let start_pos = start_pos.clone();
-        let sphere = sphere.clone();
 
-        let v = viewport.clone();
+        let projection = projection.clone();
 
         let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
             console::log_1(&format!("mouse down").into());
-            mouse_clic_x.set(event.offset_x() as f32);
-            mouse_clic_y.set(event.offset_y() as f32);
-            let model_mat = &sphere.as_ref().borrow().get_model_mat();
-            let result = v.as_ref().borrow().unproj(event.offset_x() as f32, event.offset_y() as f32, model_mat, &math::aitoff_projection);
+            let event_x = event.offset_x() as f32;
+            let event_y = event.offset_y() as f32;
+
+            mouse_clic_x.set(event_x);
+            mouse_clic_y.set(event_y);
+
+            let (x_screen_homogeous_space, y_screen_homogeous_space) = projection::screen_pixels_to_homogeous(event_x, event_y);
+            let result = projection.screen_to_world_space(x_screen_homogeous_space, y_screen_homogeous_space);
             if let Some(pos) = result {
                 let pos = pos.normalize();
 
@@ -654,7 +599,7 @@ pub fn start() -> Result<(), JsValue> {
     {
         let pressed = pressed.clone();
 
-        let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
+        let closure = Closure::wrap(Box::new(move |_: web_sys::MouseEvent| {
             console::log_1(&format!("mouse up").into());
             pressed.set(false);
         }) as Box<dyn FnMut(_)>);
@@ -665,7 +610,6 @@ pub fn start() -> Result<(), JsValue> {
     // Mouse move event
     {
         let pressed = pressed.clone();
-        let viewport = viewport.clone();
 
         let start_pos = start_pos.clone();
         let sphere = sphere.clone();
@@ -679,7 +623,8 @@ pub fn start() -> Result<(), JsValue> {
                 let event_y = event.offset_y() as f32;
                 let model_mat = &sphere.as_ref().borrow().get_model_mat();
 
-                let result = viewport.as_ref().borrow().unproj(event_x, event_y, model_mat, &math::aitoff_projection);
+                let (x_screen_homogeous_space, y_screen_homogeous_space) = projection::screen_pixels_to_homogeous(event_x, event_y);
+                let result = projection.screen_to_world_space(x_screen_homogeous_space, y_screen_homogeous_space);
                 if let Some(pos) = result {
                     let pos = pos.normalize();
 
@@ -743,15 +688,13 @@ pub fn start() -> Result<(), JsValue> {
         closure.forget();
     }
 
-    let axis = cgmath::Vector3::new(0_f32, 1_f32, 0_f32);
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
         // Render the scene
-        gl.clear_color(0.0, 0.0, 0.0, 1.0);
+        gl.clear_color(0.08, 0.08, 0.08, 1.0);
         // Clear the color buffer bit
         // Clear the depth buffer bit
         gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT | WebGl2RenderingContext::DEPTH_BUFFER_BIT);
         
-        //sphere.borrow_mut().rotate(axis, theta);
         sphere.as_ref().borrow().draw(&gl, WebGl2RenderingContext::TRIANGLES, &viewport.as_ref().borrow(), &textures);
         //direct_system.as_ref().borrow().draw(&gl, WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());
 

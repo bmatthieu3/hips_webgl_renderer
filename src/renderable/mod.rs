@@ -5,11 +5,12 @@ use crate::shader::Shader;
 use web_sys::console;
 
 use crate::viewport::ViewPort;
+use crate::renderable::projection::ProjectionType;
 
 use std::rc::Rc;
 use std::borrow::Borrow;
 pub trait Mesh {
-    fn create_buffers(gl: &WebGl2RenderingContext, viewport: &ViewPort) -> (Box<[(u32, i32, WebGlBuffer)]>, i32, WebGlVertexArrayObject);
+    fn create_buffers(gl: &WebGl2RenderingContext, projection: &ProjectionType) -> (Box<[(u32, i32, WebGlBuffer)]>, i32, WebGlVertexArrayObject);
     fn link_buffers_to_vertex_shader(gl: &WebGl2RenderingContext, buffers: &Box<[(u32, i32, WebGlBuffer)]>) {
         let mut indx = 0;
         for (target, size, buffer_idx) in buffers.iter() {
@@ -30,7 +31,7 @@ pub trait Mesh {
         }
     }
 
-    fn create_vertex_array(viewer: &ViewPort) -> (js_sys::Float32Array, js_sys::Float32Array);
+    fn create_vertices_array(projection: &ProjectionType) -> js_sys::Float32Array;
     fn create_uv_array() -> js_sys::Float32Array;
     fn create_color_array() -> js_sys::Float32Array;
     fn create_index_array() -> js_sys::Uint32Array;
@@ -39,8 +40,9 @@ pub trait Mesh {
     fn send_uniform_textures(gl: &WebGl2RenderingContext, uniform_textures: &Box<[WebGlUniformLocation]>, textures: &Vec<Rc<Option<WebGlTexture>>>);
 }
 
-pub mod orthographic_sphere;
+pub mod hips_sphere;
 pub mod direct_system;
+pub mod projection;
 
 use std::marker::PhantomData;
 use web_sys::WebGlBuffer;
@@ -48,6 +50,7 @@ use web_sys::WebGlUniformLocation;
 pub struct Renderable<'a, T>
 where T: Mesh {
     shader: Rc<Shader>,
+    projection: Rc<ProjectionType>,
 
     model_mat: cgmath::Matrix4::<f32>,
 
@@ -72,11 +75,10 @@ use cgmath;
 use cgmath::SquareMatrix;
 impl<'a, T> Renderable<'a, T>
 where T: Mesh {
-    pub fn new(gl: &WebGl2RenderingContext, shader: Rc<Shader>, viewport: &ViewPort) -> Renderable<'a, T> {
+    pub fn new(gl: &WebGl2RenderingContext, shader: Rc<Shader>, projection: Rc<ProjectionType>) -> Renderable<'a, T> {
         shader.bind(gl);
 
-        let (buffers, num_vertices, vao) = T::create_buffers(gl, viewport);
-        console::log_1(&format!("num_vertices {:?}", num_vertices).into());
+        let (buffers, num_vertices, vao) = T::create_buffers(gl, projection.as_ref());
         T::link_buffers_to_vertex_shader(gl, &buffers);
         
         let uniforms = T::init_uniforms(gl, shader.borrow());
@@ -89,7 +91,9 @@ where T: Mesh {
         let translation_mat = cgmath::Matrix4::identity();
         Renderable {
             // The shader to bind when drawing the renderable
-            shader, 
+            shader,
+            // The type of projection
+            projection,
             // The model matrix of the Renderable
             model_mat,
             // And its submatrices
@@ -114,19 +118,16 @@ where T: Mesh {
 
     pub fn rotate(&mut self, axis: cgmath::Vector3<f32>, angle: cgmath::Rad<f32>) {
         self.rotation_mat = cgmath::Matrix4::<f32>::from_axis_angle(axis, angle);
-
         self.recompute_model_matrix();
     }
 
     pub fn apply_rotation(&mut self, axis: cgmath::Vector3<f32>, angle: cgmath::Rad<f32>) {
         self.rotation_mat = cgmath::Matrix4::<f32>::from_axis_angle(axis, angle) * self.rotation_mat;
-
         self.recompute_model_matrix();
     }
 
     pub fn scale(&mut self, factor: f32) {
         self.scale_mat = cgmath::Matrix4::<f32>::from_scale(factor);
-
         self.recompute_model_matrix();
     }
 

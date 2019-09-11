@@ -156,47 +156,6 @@ impl ViewPort {
         gl.uniform1f(width_location.as_ref(), self.width);
         gl.uniform1f(height_location.as_ref(), self.height);
     }
-
-    /// Screen space to world space transformation
-    /// 
-    /// # Arguments
-    /// 
-    /// * `x` - X mouse position in the screen space (in pixel)
-    /// * `y` - Y mouse position in the screen space (in pixel)
-    pub fn unproj(&self, x: f32, y: f32, model: &cgmath::Matrix4<f32>, op: &Fn(f32, f32, f32) -> cgmath::Vector4<f32>) -> Option<cgmath::Vector3<f32>> {
-        // Screen space in pixels to homogeneous screen space (values between [-1, 1])
-        // Change of origin
-        let xo = x - self.width/2_f32;
-        let yo = y - self.height/2_f32;
-
-        // Scale to fit in [-1, 1]
-        //let aspect = self.width / self.height;
-        //let xh = 2_f32*(xo/self.width) * aspect;
-        let xh = 2_f32*(xo/self.width);
-        let yh = -2_f32*(yo/self.height);
-
-        console::log_1(&format!("xh, yh {:?} {:?}", xh, yh).into());
-
-        let xw_2 = 1_f32 - xh*xh - yh*yh;
-
-        if xw_2 > 0_f32 {
-            let pos_local_space = op(xh, yh, xw_2.sqrt());
-
-            // Local space centered around the view camera to global space
-            let pos_global_space = pos_local_space;
-
-            let mut pos_global_space = Vector3::<f32>::new(pos_global_space.x, pos_global_space.y, pos_global_space.z);
-            //console::log_1(&format!("pos unproj mag {:?}", pos_global_space.magnitude()).into());
-            pos_global_space = pos_global_space.normalize();
-
-            console::log_1(&format!("pos unproj {:?}", pos_global_space).into());
-
-            Some(pos_global_space)
-        } else {
-            // Out of the sphere
-            None
-        }
-    }
 }
 
 fn compute_eye_position(radius: f32, theta: f32, phi: f32) -> cgmath::Point3<f32> {

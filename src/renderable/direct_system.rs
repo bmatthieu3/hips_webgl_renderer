@@ -18,6 +18,8 @@ use crate::renderable::Mesh;
 use crate::shader::Shader;
 use crate::viewport::ViewPort;
 
+use crate::renderable::projection::ProjectionType;
+
 impl Mesh for DirectSystem {
     fn create_color_array() -> js_sys::Float32Array {
         let colors: Vec<f32> = vec![
@@ -39,7 +41,7 @@ impl Mesh for DirectSystem {
         colors_array
     }
 
-    fn create_vertex_array(viewport: &ViewPort) -> (js_sys::Float32Array, js_sys::Float32Array) {
+    fn create_vertices_array(projection: &ProjectionType) -> js_sys::Float32Array {
         let vertices: Vec<f32> = vec![
             0_f32, 0_f32, 0_f32,
             1_f32, 0_f32, 0_f32,
@@ -56,7 +58,7 @@ impl Mesh for DirectSystem {
                 .subarray(vertices_location, vertices_location + vertices.len() as u32)
         };
 
-        (vertices_array.clone(), vertices_array)
+        vertices_array
     }
     fn create_uv_array() -> js_sys::Float32Array {
         unreachable!();
@@ -80,13 +82,13 @@ impl Mesh for DirectSystem {
         indexes_array
     }
 
-    fn create_buffers(gl: &WebGl2RenderingContext, viewport: &ViewPort) -> (Box<[(u32, i32, WebGlBuffer)]>, i32, WebGlVertexArrayObject) {
+    fn create_buffers(gl: &WebGl2RenderingContext, projection: &ProjectionType) -> (Box<[(u32, i32, WebGlBuffer)]>, i32, WebGlVertexArrayObject) {
         let vao = gl.create_vertex_array()
             .ok_or("failed to create the vertex array buffer")
             .unwrap();;
         gl.bind_vertex_array(Some(&vao));
 
-        let (vertices_array, _) = Self::create_vertex_array(viewport);
+        let vertices_array = Self::create_vertices_array(projection);
 
         // VERTEX buffer creation
         let vertex_buffer = gl.create_buffer()

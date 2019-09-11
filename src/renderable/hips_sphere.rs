@@ -1,118 +1,65 @@
-
-pub struct OrthoSphere {
-    texture_location: WebGlUniformLocation,
-}
-
 use web_sys::console;
-use wasm_bindgen::prelude::*;
+
 use wasm_bindgen::JsCast;
+
 use js_sys::WebAssembly;
+
 use web_sys::WebGl2RenderingContext;
 use web_sys::WebGlBuffer;
 use web_sys::WebGlTexture;
 use web_sys::WebGlUniformLocation;
 use web_sys::WebGlVertexArrayObject;
 
-use crate::math;
+use crate::renderable::projection::ProjectionType;
 
 use std::rc::Rc;
 
-use cgmath::Vector2;
-
 use crate::renderable::Mesh;
 use crate::shader::Shader;
-use crate::viewport::ViewPort;
 
 const MAX_NUMBER_TEXTURE: usize = 15;
 
 const NUM_VERTICES_PER_STEP: usize = 70;
 const NUM_STEPS: usize = 40;
 
-use cgmath::SquareMatrix;
+pub struct HiPSSphere;
 
-
-
-impl Mesh for OrthoSphere {
+impl Mesh for HiPSSphere {
     fn create_color_array() -> js_sys::Float32Array {
         unreachable!()
     }
 
-    fn create_vertex_array(viewport: &ViewPort) -> (js_sys::Float32Array, js_sys::Float32Array) {
-        let mut vertices = Vec::with_capacity(3*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
-        let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
-
-        let window = web_sys::window().unwrap();
-        let width = window.inner_width()
-            .unwrap()
-            .as_f64()
-            .unwrap() as f32;
-        let height = window.inner_height()
-            .unwrap()
-            .as_f64()
-            .unwrap() as f32;
-        let radius_max = (height - 1_f32) / 2_f32; // radius in pixels
-        let aspect = width / height;
-
-        let center_screen_space = Vector2::<f32>::new(width / 2_f32, height / 2_f32);
-        vertices_screen.push(2_f32 * ((center_screen_space.x / width) - 0.5_f32));
-        vertices_screen.push(-2_f32 * ((center_screen_space.y / height) - 0.5_f32));
-
-        let center = viewport.unproj(
-            center_screen_space.x, center_screen_space.y,
-            &cgmath::Matrix4::identity(),
-            &math::aitoff_projection
-        ).unwrap();
-        vertices.push(center.x);
-        vertices.push(center.y);
-        vertices.push(center.z);
-
-        for j in 0..NUM_STEPS {
-            let radius = (std::f32::consts::PI * ((j + 1) as f32) / (2_f32 * (NUM_STEPS as f32))).sin();
-            for i in 0..NUM_VERTICES_PER_STEP {
-                let angle = (i as f32) * 2_f32 * std::f32::consts::PI / (NUM_VERTICES_PER_STEP as f32);
-
-                let mut pos_screen_space = Vector2::<f32>::new((width/2_f32 - 1_f32) * radius * angle.cos(), ((height/2_f32 - 1_f32) / 2_f32) * radius * angle.sin());
-                console::log_1(&format!("pos_screen {:?}", pos_screen_space).into());
-
-                pos_screen_space += center_screen_space;
-                vertices_screen.push(2_f32 * ((pos_screen_space.x / width) - 0.5_f32));
-                vertices_screen.push(-2_f32 * ((pos_screen_space.y / height) - 0.5_f32));
-
-                // Perform the inverse projection that converts
-                // screen position to the 3D space position
-                let pos = viewport.unproj(
-                    pos_screen_space.x, pos_screen_space.y,
-                    &cgmath::Matrix4::identity(),
-                    &math::aitoff_projection
-                ).unwrap();
-                vertices.push(pos.x);
-                vertices.push(pos.y);
-                vertices.push(pos.z);
-            }
-        }
-
-        let vertices_array = {
-            let memory_buffer = wasm_bindgen::memory()
-                .dyn_into::<WebAssembly::Memory>().unwrap()
-                .buffer();
-            let vertices_location = vertices.as_ptr() as u32 / 4;
-            js_sys::Float32Array::new(&memory_buffer)
-                .subarray(vertices_location, vertices_location + vertices.len() as u32)
-        };
-        let vertices_screen_array = {
-            let memory_buffer = wasm_bindgen::memory()
-                .dyn_into::<WebAssembly::Memory>().unwrap()
-                .buffer();
-            let vertices_location = vertices_screen.as_ptr() as u32 / 4;
-            js_sys::Float32Array::new(&memory_buffer)
-                .subarray(vertices_location, vertices_location + vertices_screen.len() as u32)
-        };
-
-        (vertices_array, vertices_screen_array)
-    }
-
     fn create_uv_array() -> js_sys::Float32Array {
         unreachable!()
+    }
+
+    fn create_vertices_array(projection: &ProjectionType) -> js_sys::Float32Array {
+        let vertices_screen_space = projection.build_screen_map();
+
+        let vertices_world_space = vertices_screen_space
+            .iter()
+            .map(|pos_screen_space| {
+                // Perform the inverse projection that converts
+                // screen position to the 3D space position
+                let pos_world_space = projection.screen_to_world_space(
+                    pos_screen_space.x, pos_screen_space.y,
+                ).unwrap();
+
+                vec![pos_world_space.x, pos_world_space.y, pos_world_space.z]
+            })
+            .flatten()
+            .collect::<Vec<_>>();
+
+        let vertices_world_space_array = {
+            let memory_buffer = wasm_bindgen::memory()
+                .dyn_into::<WebAssembly::Memory>().unwrap()
+                .buffer();
+            let vertices_location = vertices_world_space.as_ptr() as u32 / 4;
+            js_sys::Float32Array::new(&memory_buffer)
+                .subarray(vertices_location, vertices_location + vertices_world_space.len() as u32)
+        };
+
+        vertices_world_space_array
     }
 
     fn create_index_array() -> js_sys::Uint32Array {
@@ -169,13 +116,13 @@ impl Mesh for OrthoSphere {
         indices_array
     }
 
-    fn create_buffers(gl: &WebGl2RenderingContext, viewport: &ViewPort) -> (Box<[(u32, i32, WebGlBuffer)]>, i32, WebGlVertexArrayObject) {
+    fn create_buffers(gl: &WebGl2RenderingContext, projection: &ProjectionType) -> (Box<[(u32, i32, WebGlBuffer)]>, i32, WebGlVertexArrayObject) {
         let vao = gl.create_vertex_array()
             .ok_or("failed to create the vertex array buffer")
             .unwrap();
         gl.bind_vertex_array(Some(&vao));
 
-        let (vertices_array, vertices_screen_array) = Self::create_vertex_array(viewport);
+        let vertices_world_space = Self::create_vertices_array(projection);
 
         // VERTEX buffer creation
         let vertex_buffer = gl.create_buffer()
@@ -185,13 +132,31 @@ impl Mesh for OrthoSphere {
         // Pass the vertices data to the buffer
         gl.buffer_data_with_array_buffer_view(
             WebGl2RenderingContext::ARRAY_BUFFER,
-            &vertices_array,
+            &vertices_world_space,
             WebGl2RenderingContext::STATIC_DRAW,
         );
 
         // Unbind the buffer
         gl.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, None);
         
+        let vertices_screen_space = {
+            let vertices_screen = projection
+                .build_screen_map()
+                .iter()
+                .map(|pos_screen_space| {
+                    vec![pos_screen_space.x, pos_screen_space.y]
+                })
+                .flatten()
+                .collect::<Vec<_>>();
+
+            let memory_buffer = wasm_bindgen::memory()
+                .dyn_into::<WebAssembly::Memory>().unwrap()
+                .buffer();
+            let vertices_location = vertices_screen.as_ptr() as u32 / 4;
+            js_sys::Float32Array::new(&memory_buffer)
+                .subarray(vertices_location, vertices_location + vertices_screen.len() as u32)
+        };
+
         // SCREEN VERTICES buffer creation
         let screen_vertices_buffer = gl.create_buffer()
             .ok_or("failed to create buffer")
@@ -200,7 +165,7 @@ impl Mesh for OrthoSphere {
         // Pass the vertices data to the buffer
         gl.buffer_data_with_array_buffer_view(
             WebGl2RenderingContext::ARRAY_BUFFER,
-            &vertices_screen_array,
+            &vertices_screen_space,
             WebGl2RenderingContext::STATIC_DRAW,
         );
 
