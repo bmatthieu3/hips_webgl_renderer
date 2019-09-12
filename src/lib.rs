@@ -1,10 +1,8 @@
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use web_sys::{WebGl2RenderingContext, MouseEvent, EventTarget, console};
-use wasm_bindgen::prelude::*;
-use js_sys::WebAssembly;
+use web_sys::{WebGl2RenderingContext, console};
 use cgmath;
-use cgmath::{InnerSpace, Angle, Vector2, SquareMatrix, Vector3, Matrix4, MetricSpace, EuclideanSpace, Matrix};
+use cgmath::{InnerSpace, Vector3};
 
 mod shader;
 mod renderable;
@@ -15,11 +13,9 @@ mod math;
 use shader::Shader;
 use renderable::Renderable;
 use renderable::hips_sphere::HiPSSphere;
-use renderable::direct_system::DirectSystem;
 use renderable::projection;
 use renderable::projection::{ProjectionType, Aitoff, Orthographic};
 use viewport::ViewPort;
-use std::borrow::Borrow;
 
 extern crate base64;
 
@@ -565,6 +561,9 @@ pub fn start() -> Result<(), JsValue> {
     let mouse_clic_y = Rc::new(Cell::new(0_f32));
 
     let start_pos = Rc::new(Cell::new(Vector3::<f32>::new(0_f32, 0_f32, 0_f32)));
+
+    let last_axis = Rc::new(Cell::new(Vector3::<f32>::new(0_f32, 0_f32, 0_f32)));
+    let last_dist = Rc::new(Cell::new(0_f32));
     {
         let pressed = pressed.clone();
 
@@ -572,7 +571,6 @@ pub fn start() -> Result<(), JsValue> {
         let mouse_clic_y = mouse_clic_y.clone();
 
         let start_pos = start_pos.clone();
-
         let projection = projection.clone();
 
         let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
@@ -589,6 +587,7 @@ pub fn start() -> Result<(), JsValue> {
                 let pos = pos.normalize();
 
                 start_pos.set(pos);
+
                 pressed.set(true);
             }
         }) as Box<dyn FnMut(_)>);
@@ -617,6 +616,9 @@ pub fn start() -> Result<(), JsValue> {
 
         let mouse_clic_x = mouse_clic_x.clone();
         let mouse_clic_y = mouse_clic_y.clone();
+
+        let last_axis = last_axis.clone();
+        let last_dist = last_dist.clone();
 
         let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
             if pressed.get() {
@@ -660,6 +662,9 @@ pub fn start() -> Result<(), JsValue> {
                         mouse_clic_y.set(event_y);
 
                         start_pos.set(pos);
+
+                        last_axis.set(axis);
+                        last_dist.set(dist);
                     }
                 }
             }
@@ -690,6 +695,11 @@ pub fn start() -> Result<(), JsValue> {
     }
 
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
+        if pressed.get() == false {
+            sphere.borrow_mut().apply_rotation(-last_axis.get(), cgmath::Rad(0.95_f32 * last_dist.get()));
+            last_dist.set(0.95_f32 * last_dist.get());
+        }
+
         // Render the scene
         gl.clear_color(0.08, 0.08, 0.08, 1.0);
         // Clear the color buffer bit
