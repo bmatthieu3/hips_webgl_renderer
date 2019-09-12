@@ -22,8 +22,10 @@ const MAX_NUMBER_TEXTURE: usize = 12;
 const NUM_VERTICES_PER_STEP: usize = 70;
 const NUM_STEPS: usize = 40;
 
+use std::cell::RefCell;
+
 pub struct HiPSSphere {
-    idx_textures: Vec<i32>,
+    idx_textures: Rc<RefCell<Vec<i32>>>,
     depth: i32,
     textures: Vec<Rc<Option<WebGlTexture>>>,
 }
@@ -40,15 +42,15 @@ impl HiPSSphere {
         let depth = 0;
         let idx_textures = (0..12).collect::<Vec<_>>();
         let mut hips_sphere = HiPSSphere {
-            idx_textures: idx_textures,
+            idx_textures: Rc::new(RefCell::new(idx_textures)),
             depth: depth,
             textures: vec![],
         };
-        hips_sphere.load_healpix_tile_textures(gl);
+        hips_sphere.load_healpix_tile_textures(gl, (0..12).collect::<Vec<_>>());
         hips_sphere
     }
 
-    fn load_healpix_tile_textures(&mut self, gl: Rc<WebGl2RenderingContext>) {
+    fn load_healpix_tile_textures(&mut self, gl: Rc<WebGl2RenderingContext>, idx_textures_next: Vec<i32>) {
         // Create the TEXTURE
         // 1. Update the FoV
 
@@ -60,15 +62,15 @@ impl HiPSSphere {
         // Now we load the textures
         self.textures.clear(); // TODO: do not clear the tiles that are still needed
         let mut num_tile = 0;
-        for tile_idx in self.idx_textures.iter() {
-            let dir_idx = (tile_idx / 10000) * 10000;
+        for tile_idx_to_load in idx_textures_next.iter() {
+            let dir_idx = (tile_idx_to_load / 10000) * 10000;
 
             let mut url = String::from("http://alasky.u-strasbg.fr/DSS/DSSColor/");
             url = url + "Norder" + &self.depth.to_string() + "/";
             url = url + "Dir" + &dir_idx.to_string() + "/";
-            url = url + "Npix" + &tile_idx.to_string() + ".jpg";
+            url = url + "Npix" + &tile_idx_to_load.to_string() + ".jpg";
 
-            self.textures.push(texture::load(gl.clone(), &url, WebGl2RenderingContext::TEXTURE0 + num_tile));
+            self.textures.push(texture::load(gl.clone(), &url, num_tile, tile_idx_to_load.clone(), self.idx_textures.clone()));
             num_tile += 1;
         }
     }
@@ -149,11 +151,11 @@ impl HiPSSphere {
         };
         console::log_1(&format!("depth {:?}, healpix_cells {:?}", depth, healpix_cells).into());
 
-        self.idx_textures = healpix_cells;
+        //self.idx_textures = healpix_cells;
         
         if depth != self.depth || self.depth != 0 {
             self.depth = depth;
-            self.load_healpix_tile_textures(gl);
+            self.load_healpix_tile_textures(gl, healpix_cells);
         }
     }
 }
@@ -364,7 +366,7 @@ impl Mesh for HiPSSphere {
         gl.uniform1i(Some(uniform_locations[1].as_ref()), self.depth);
 
         // Send the HEALPix cell indexes
-        gl.uniform1iv_with_i32_array(Some(uniform_locations[2].as_ref()), &self.idx_textures);
+        gl.uniform1iv_with_i32_array(Some(uniform_locations[2].as_ref()), &self.idx_textures.borrow());
 
         // Send grid enable
         gl.uniform1i(Some(uniform_locations[3].as_ref()), 1);

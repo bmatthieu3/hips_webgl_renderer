@@ -454,14 +454,16 @@ pub fn start() -> Result<(), JsValue> {
                 vec2 lonlat = vec2(atan(frag_pos.x, frag_pos.z), atan(frag_pos.y, sqrt(frag_pos.x*frag_pos.x + frag_pos.z*frag_pos.z)));
                 lonlat *= 180.0/PI;
 
-                if(abs(lonlat.y) < 70.0) {
+                if(abs(lonlat.y) < 80.0) {
                     lonlat /= vec2(10.0, 10.0);
 
                     vec2 linePos = fract(lonlat + 0.5) - 0.5;
                     vec2 der = vec2(60.0f) * zoom_factor;
+                    der = min(der, der / (abs(lonlat.y) * 0.25f));
                     linePos = max((1.0 - der*abs(linePos)), 0.0);
 
-                    out_frag_color.a *= (1.0 - 0.4 * max(linePos.x, linePos.y));
+                    vec4 color_grid = vec4(1.f, 0.f, 0.f, 1.f);
+                    out_frag_color = mix(out_frag_color, color_grid, (0.4 * max(linePos.x, linePos.y)));
                 }
             }
         }"#
@@ -656,11 +658,8 @@ pub fn start() -> Result<(), JsValue> {
         closure.forget();
     }
     // Mouse wheel event
-    let zoom_factor = Rc::new(Cell::new(1_f32));
     {
         let context = gl.clone();
-        let pressed = pressed.clone();
-        let zoom_factor = zoom_factor.clone();
         let sphere = sphere.clone();
         let viewport = viewport.clone();
 
@@ -686,9 +685,9 @@ pub fn start() -> Result<(), JsValue> {
 
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
         if pressed.get() == false {
-            //let next_dist = 0.95_f32 * last_dist.get();
-            //sphere.borrow_mut().apply_rotation(-last_axis.get(), cgmath::Rad(next_dist));
-            //last_dist.set(next_dist);
+            let next_dist = 0.95_f32 * last_dist.get();
+            sphere.borrow_mut().apply_rotation(-last_axis.get(), cgmath::Rad(next_dist));
+            last_dist.set(next_dist);
         }
 
         // Render the scene

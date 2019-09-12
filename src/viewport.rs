@@ -19,11 +19,11 @@ impl ViewPort {
     }
 
     pub fn zoom(&mut self) {
-        self.zoom_factor += 0.5_f32;
+        self.zoom_factor *= 2_f32;
     }
 
     pub fn unzoom(&mut self) {
-        self.zoom_factor -= 0.5_f32;
+        self.zoom_factor /= 2_f32;
 
         if self.zoom_factor < 1_f32 {
             self.zoom_factor = 1_f32;
