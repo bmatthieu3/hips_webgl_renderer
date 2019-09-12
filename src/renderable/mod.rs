@@ -9,6 +9,9 @@ use crate::renderable::projection::ProjectionType;
 
 use std::rc::Rc;
 use std::borrow::Borrow;
+
+const MAX_NUMBER_TEXTURE: usize = 12;
+
 pub trait Mesh {
     fn create_buffers(gl: &WebGl2RenderingContext, projection: &ProjectionType) -> (Box<[(u32, i32, WebGlBuffer)]>, i32, WebGlVertexArrayObject);
     fn link_buffers_to_vertex_shader(gl: &WebGl2RenderingContext, buffers: &Box<[(u32, i32, WebGlBuffer)]>) {
@@ -37,7 +40,13 @@ pub trait Mesh {
     fn create_index_array() -> js_sys::Uint32Array;
 
     fn init_uniforms(gl: &WebGl2RenderingContext, shader: &Shader) -> Box<[WebGlUniformLocation]>;
-    fn send_uniform_textures(gl: &WebGl2RenderingContext, uniform_textures: &Box<[WebGlUniformLocation]>, textures: &Vec<Rc<Option<WebGlTexture>>>);
+    fn send_uniform_textures(
+        gl: &WebGl2RenderingContext,
+        uniform_locations: &Box<[WebGlUniformLocation]>,
+        healpix_depth: i32,
+        healpix_idx: &[i32],
+        textures: &Vec<Rc<Option<WebGlTexture>>>
+    );
 }
 
 pub mod hips_sphere;
@@ -144,15 +153,18 @@ where T: Mesh {
 
         // Send Uniforms
         viewport.send_to_vertex_shader(gl, self.shader.borrow());
-        T::send_uniform_textures(gl, &self.uniforms, textures);
+
+        let grid_location = self.shader.get_uniform_location(gl, "draw_grid");
+        gl.uniform1i(grid_location.as_ref(), 0);
+
+        let healpix_idx = ((0 as i32)..(MAX_NUMBER_TEXTURE as i32))
+            .collect::<Vec<_>>();
+        T::send_uniform_textures(gl, &self.uniforms, 0, &healpix_idx, textures);
 
         // Get the attribute location of the model matrix from the Vertex shader
         let model_mat_location = self.shader.get_uniform_location(gl, "model");
         let model_mat_f32_slice: &[f32; 16] = self.model_mat.as_ref();
         gl.uniform_matrix4fv_with_f32_array(model_mat_location.as_ref(), false, model_mat_f32_slice);
-
-        let grid_location = self.shader.get_uniform_location(gl, "draw_grid");
-        gl.uniform1i(grid_location.as_ref(), 0);
 
         gl.draw_elements_with_i32(
             mode,

@@ -17,8 +17,7 @@ use std::rc::Rc;
 use crate::renderable::Mesh;
 use crate::shader::Shader;
 
-const MAX_NUMBER_TEXTURE: usize = 15;
-
+const MAX_NUMBER_TEXTURE: usize = 12;
 const NUM_VERTICES_PER_STEP: usize = 70;
 const NUM_STEPS: usize = 40;
 
@@ -200,12 +199,28 @@ impl Mesh for HiPSSphere {
 
     fn init_uniforms(gl: &WebGl2RenderingContext, shader: &Shader) -> Box<[WebGlUniformLocation]> {
         // Get the attribute location of the matrices from the Vertex shader
-        let sampler_uniform = shader.get_uniform_location(gl, "texture_hips_tile").unwrap();
-        Box::new([sampler_uniform])
+        let textures_data_uniform = shader.get_uniform_location(gl, "texture_hips_tile").unwrap();
+        // Array storing the visible HEALPix indexes
+        let healpix_idx_uniform = shader.get_uniform_location(gl, "idx_textures").unwrap();
+        //console::log_1(&format!("HEALPIX IDX {:?}", healpix_idx_uniform).into());
+        // Depth of the visible HEALPix cells
+        let healpix_depth_uniform = shader.get_uniform_location(gl, "depth").unwrap();
+        console::log_1(&format!("DEPTH IDX {:?}", healpix_depth_uniform).into());
+        
+        Box::new([textures_data_uniform, healpix_depth_uniform, healpix_idx_uniform])
+        //Box::new([textures_data_uniform])
     }
 
-    fn send_uniform_textures(gl: &WebGl2RenderingContext, uniform_textures: &Box<[WebGlUniformLocation]>, textures: &Vec<Rc<Option<WebGlTexture>>>) {
+    fn send_uniform_textures(
+        gl: &WebGl2RenderingContext,
+        uniform_locations: &Box<[WebGlUniformLocation]>,
+        healpix_depth: i32,
+        healpix_idx: &[i32],
+        textures: &Vec<Rc<Option<WebGlTexture>>>
+    ) {
         let sampler_idxs = ((0 as i32)..(MAX_NUMBER_TEXTURE as i32)).collect::<Vec<_>>();
-        gl.uniform1iv_with_i32_array(Some(uniform_textures[0].as_ref()), &sampler_idxs);
+        gl.uniform1iv_with_i32_array(Some(uniform_locations[0].as_ref()), &sampler_idxs);
+        gl.uniform1i(Some(uniform_locations[1].as_ref()), healpix_depth);
+        gl.uniform1iv_with_i32_array(Some(uniform_locations[2].as_ref()), healpix_idx);
     }
 }

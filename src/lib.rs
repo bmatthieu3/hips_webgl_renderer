@@ -112,9 +112,11 @@ pub fn start() -> Result<(), JsValue> {
 
         out vec4 out_frag_color;
 
-        const uint NUM_MAX_TILES = 12U;
+        const int NUM_MAX_TILES = 12;
         uniform sampler2D texture_hips_tile[NUM_MAX_TILES];
         uniform int draw_grid;
+        uniform int depth;
+        uniform int idx_textures[NUM_MAX_TILES];
 
         const float PI = 3.1415926535897932384626433832795f;
 
@@ -407,41 +409,40 @@ pub fn start() -> Result<(), JsValue> {
             );
         }
 
-        const uint idx_textures[12] = uint[12](0U, 1U, 2U, 3U, 4U, 5U, 6U, 7U, 8U, 9U, 10U, 11U);
+        //const int idx_textures[12] = int[12](0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11);
 
         void main() {
             vec3 frag_pos = normalize(out_vert_pos);
             // Get the HEALPix cell idx and the uv in the texture
-            vec3 r = hash_with_dxdy(0U, frag_pos.zxy);
+            vec3 r = hash_with_dxdy(uint(depth), frag_pos.zxy);
 
-            uint tile_idx = uint(r.x);
+            int tile_idx = int(r.x);
             vec2 uv = clamp(r.zy, 0.f, 1.f);
-            uint tex_idx = 0U;
             
             vec3 out_color = vec3(0.f);
-            for(uint i = 0U; i < NUM_MAX_TILES; i++) {
+            for(int i = 0; i < NUM_MAX_TILES; i++) {
                 if (idx_textures[i] == tile_idx) {
-                    if (i == 0U) {
+                    if (i == 0) {
                         out_color = texture(texture_hips_tile[0], uv).rgb;
-                    } else if (i == 1U) {
+                    } else if (i == 1) {
                         out_color = texture(texture_hips_tile[1], uv).rgb;
-                    } else if (i == 2U) {
+                    } else if (i == 2) {
                         out_color = texture(texture_hips_tile[2], uv).rgb;
-                    } else if (i == 3U) {
+                    } else if (i == 3) {
                         out_color = texture(texture_hips_tile[3], uv).rgb;
-                    } else if (i == 4U) {
+                    } else if (i == 4) {
                         out_color = texture(texture_hips_tile[4], uv).rgb;
-                    } else if (i == 5U) {
+                    } else if (i == 5) {
                         out_color = texture(texture_hips_tile[5], uv).rgb;
-                    } else if (i == 6U) {
+                    } else if (i == 6) {
                         out_color = texture(texture_hips_tile[6], uv).rgb;
-                    } else if (i == 7U) {
+                    } else if (i == 7) {
                         out_color = texture(texture_hips_tile[7], uv).rgb;
-                    } else if (i == 8U) {
+                    } else if (i == 8) {
                         out_color = texture(texture_hips_tile[8], uv).rgb;
-                    } else if (i == 9U) {
+                    } else if (i == 9) {
                         out_color = texture(texture_hips_tile[9], uv).rgb;
-                    } else if (i == 10U) {
+                    } else if (i == 10) {
                         out_color = texture(texture_hips_tile[10], uv).rgb;
                     } else {
                         out_color = texture(texture_hips_tile[11], uv).rgb;
@@ -500,7 +501,7 @@ pub fn start() -> Result<(), JsValue> {
 
     // Viewport
     let viewport = Rc::new(RefCell::new(ViewPort::new(inner_width as f32, inner_height as f32)));
-    let projection = Rc::new(ProjectionType::Aitoff(Aitoff {}));
+    let projection = Rc::new(ProjectionType::Orthographic(Orthographic {}));
 
     let sphere = Rc::new(RefCell::new(Renderable::<HiPSSphere>::new(
         &gl,

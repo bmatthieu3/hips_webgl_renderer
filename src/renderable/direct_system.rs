@@ -151,5 +151,11 @@ impl Mesh for DirectSystem {
         Box::new([])
     }
 
-    fn send_uniform_textures(gl: &WebGl2RenderingContext, uniform_textures: &Box<[WebGlUniformLocation]>, textures: &Vec<Rc<Option<WebGlTexture>>>) {}
+    fn send_uniform_textures(
+        gl: &WebGl2RenderingContext,
+        uniform_locations: &Box<[WebGlUniformLocation]>,
+        healpix_depth: i32,
+        healpix_idx: &[i32],
+        textures: &Vec<Rc<Option<WebGlTexture>>>
+    ) {}
 }
