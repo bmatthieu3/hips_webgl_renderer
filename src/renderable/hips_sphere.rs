@@ -10,6 +10,7 @@ use web_sys::WebGlTexture;
 use web_sys::WebGlUniformLocation;
 use web_sys::WebGlVertexArrayObject;
 
+use crate::renderable::projection;
 use crate::renderable::projection::ProjectionType;
 
 use std::rc::Rc;
@@ -21,7 +22,141 @@ const MAX_NUMBER_TEXTURE: usize = 12;
 const NUM_VERTICES_PER_STEP: usize = 70;
 const NUM_STEPS: usize = 40;
 
-pub struct HiPSSphere;
+pub struct HiPSSphere {
+    idx_textures: Vec<i32>,
+    depth: i32,
+    textures: Vec<Rc<Option<WebGlTexture>>>,
+}
+
+use crate::viewport::ViewPort;
+use crate::math;
+use healpix;
+use itertools_num;
+use std::iter;
+
+use crate::texture;
+impl HiPSSphere {
+    pub fn new(gl: Rc<WebGl2RenderingContext>) -> HiPSSphere {
+        let depth = 0;
+        let idx_textures = (0..12).collect::<Vec<_>>();
+        let mut hips_sphere = HiPSSphere {
+            idx_textures: idx_textures,
+            depth: depth,
+            textures: vec![],
+        };
+        hips_sphere.load_healpix_tile_textures(gl);
+        hips_sphere
+    }
+
+    fn load_healpix_tile_textures(&mut self, gl: Rc<WebGl2RenderingContext>) {
+        // Create the TEXTURE
+        // 1. Update the FoV
+
+        // 2. Compute the maximum depth for which there is at most
+        // 15 tiles in the FoV
+        // Get this list of HEALPix tiles too
+
+        // 3. At this point we have at least 15 tiles selected at a specific depth
+        // Now we load the textures
+        self.textures.clear(); // TODO: do not clear the tiles that are still needed
+        let mut num_tile = 0;
+        for tile_idx in self.idx_textures.iter() {
+            let dir_idx = (tile_idx / 10000) * 10000;
+
+            let mut url = String::from("http://alasky.u-strasbg.fr/DSS/DSSColor/");
+            url = url + "Norder" + &self.depth.to_string() + "/";
+            url = url + "Dir" + &dir_idx.to_string() + "/";
+            url = url + "Npix" + &tile_idx.to_string() + ".jpg";
+
+            self.textures.push(texture::load(gl.clone(), &url, WebGl2RenderingContext::TEXTURE0 + num_tile));
+            num_tile += 1;
+        }
+    }
+
+    pub fn update_field_of_view(&mut self, gl: Rc<WebGl2RenderingContext>, projection: &ProjectionType, viewport: &ViewPort, model: &cgmath::Matrix4<f32>) {
+        let num_control_points_width = 4;
+        let num_control_points_height = 3;
+        let num_control_points = 4 + 2*num_control_points_width + 2*num_control_points_height;
+
+        let mut x_ss = itertools_num::linspace::<f32>(-1., 1., num_control_points_width + 2)
+            .collect::<Vec<_>>();
+
+        x_ss.extend(iter::repeat(1_f32).take(num_control_points_height));
+        x_ss.extend(itertools_num::linspace::<f32>(1., -1., num_control_points_width + 2));
+        x_ss.extend(iter::repeat(-1_f32).take(num_control_points_height));
+
+        let mut y_ss = iter::repeat(-1_f32).take(num_control_points_width + 1)
+            .collect::<Vec<_>>();
+
+        y_ss.extend(itertools_num::linspace::<f32>(-1., 1., num_control_points_height + 2));
+        y_ss.extend(iter::repeat(1_f32).take(num_control_points_width));
+        y_ss.extend(itertools_num::linspace::<f32>(1., -1., num_control_points_height + 2));
+        y_ss.pop();
+
+        let zoom_factor = viewport.get_zoom_factor();
+        let pos_ws = x_ss.into_iter().zip(y_ss.into_iter())
+            .filter_map(|(x_screen_space, y_screen_space)| {
+                let (x_hs, y_hs) = (x_screen_space / zoom_factor, y_screen_space / zoom_factor);
+                let pos_world_space = projection.screen_to_world_space(x_hs, y_hs);
+                pos_world_space
+            })
+            .collect::<Vec<_>>();
+        
+        let (depth, healpix_cells) = if pos_ws.len() == num_control_points {
+            let vertices = pos_ws.into_iter()
+                .map(|pos_world_space| {
+                    // Take into account the rotation of the sphere
+                    let pos_world_space = model * cgmath::Vector4::<f32>::new(
+                        pos_world_space.x,
+                        pos_world_space.y,
+                        pos_world_space.z,
+                        1_f32
+                    );
+
+                    let pos_world_space = cgmath::Vector3::<f32>::new(pos_world_space.x, pos_world_space.y, pos_world_space.z);
+
+                    let (ra, dec) = math::xyz_to_radec(pos_world_space);
+                    (ra as f64, dec as f64)
+                })
+                .collect::<Vec<_>>();
+            
+            let mut depth = 1;
+            let mut num_healpix_cells_in_fov = 12;
+            let mut healpix_cells_in_fov = (0..12).collect::<Vec<_>>();
+            while num_healpix_cells_in_fov <= 12 {
+                let moc = healpix::nested::polygon_coverage(depth as u8, &vertices, true);
+                let healpix_cells = moc.flat_iter()
+                    .map(|hpx_idx_u64| hpx_idx_u64 as i32)
+                    .collect::<Vec<_>>();
+                
+                console::log_1(&format!("current depth {:?}, current healpix_cells {:?}", depth, healpix_cells.len()).into());
+
+                if healpix_cells.len() > 12 {
+                    depth -= 1;
+                    break;
+                }
+
+                depth += 1;
+                num_healpix_cells_in_fov = healpix_cells.len();
+                healpix_cells_in_fov = healpix_cells;
+            }
+
+            (depth, healpix_cells_in_fov)
+        } else {
+            let depth = 0;
+            let healpix_cells_in_fov = (0..12).collect::<Vec<_>>(); 
+            (depth, healpix_cells_in_fov)
+        };
+        console::log_1(&format!("depth {:?}, healpix_cells {:?}", depth, healpix_cells).into());
+
+        self.idx_textures = healpix_cells;
+        
+        if depth != self.depth || self.depth != 0 {
+            self.depth = depth;
+            self.load_healpix_tile_textures(gl);
+        }
+    }
+}
 
 impl Mesh for HiPSSphere {
     fn create_color_array() -> js_sys::Float32Array {
@@ -198,29 +333,40 @@ impl Mesh for HiPSSphere {
     }
 
     fn init_uniforms(gl: &WebGl2RenderingContext, shader: &Shader) -> Box<[WebGlUniformLocation]> {
+        // Enable (lon, lat) grid
+        let grid_uniform = shader.get_uniform_location(gl, "draw_grid").unwrap();
+
         // Get the attribute location of the matrices from the Vertex shader
         let textures_data_uniform = shader.get_uniform_location(gl, "texture_hips_tile").unwrap();
         // Array storing the visible HEALPix indexes
         let healpix_idx_uniform = shader.get_uniform_location(gl, "idx_textures").unwrap();
-        //console::log_1(&format!("HEALPIX IDX {:?}", healpix_idx_uniform).into());
         // Depth of the visible HEALPix cells
         let healpix_depth_uniform = shader.get_uniform_location(gl, "depth").unwrap();
-        console::log_1(&format!("DEPTH IDX {:?}", healpix_depth_uniform).into());
-        
-        Box::new([textures_data_uniform, healpix_depth_uniform, healpix_idx_uniform])
-        //Box::new([textures_data_uniform])
+
+        Box::new([
+            textures_data_uniform,
+            healpix_depth_uniform,
+            healpix_idx_uniform,
+            grid_uniform
+        ])
     }
 
-    fn send_uniform_textures(
+    fn send_uniforms(
+        &self,
         gl: &WebGl2RenderingContext,
         uniform_locations: &Box<[WebGlUniformLocation]>,
-        healpix_depth: i32,
-        healpix_idx: &[i32],
-        textures: &Vec<Rc<Option<WebGlTexture>>>
     ) {
+        // Send textures
         let sampler_idxs = ((0 as i32)..(MAX_NUMBER_TEXTURE as i32)).collect::<Vec<_>>();
         gl.uniform1iv_with_i32_array(Some(uniform_locations[0].as_ref()), &sampler_idxs);
-        gl.uniform1i(Some(uniform_locations[1].as_ref()), healpix_depth);
-        gl.uniform1iv_with_i32_array(Some(uniform_locations[2].as_ref()), healpix_idx);
+
+        // Send current depth
+        gl.uniform1i(Some(uniform_locations[1].as_ref()), self.depth);
+
+        // Send the HEALPix cell indexes
+        gl.uniform1iv_with_i32_array(Some(uniform_locations[2].as_ref()), &self.idx_textures);
+
+        // Send grid enable
+        gl.uniform1i(Some(uniform_locations[3].as_ref()), 1);
     }
 }

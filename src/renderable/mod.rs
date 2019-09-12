@@ -40,12 +40,10 @@ pub trait Mesh {
     fn create_index_array() -> js_sys::Uint32Array;
 
     fn init_uniforms(gl: &WebGl2RenderingContext, shader: &Shader) -> Box<[WebGlUniformLocation]>;
-    fn send_uniform_textures(
+    fn send_uniforms(
+        &self,
         gl: &WebGl2RenderingContext,
         uniform_locations: &Box<[WebGlUniformLocation]>,
-        healpix_depth: i32,
-        healpix_idx: &[i32],
-        textures: &Vec<Rc<Option<WebGlTexture>>>
     );
 }
 
@@ -56,10 +54,12 @@ pub mod projection;
 use std::marker::PhantomData;
 use web_sys::WebGlBuffer;
 use web_sys::WebGlUniformLocation;
-pub struct Renderable<'a, T>
+use std::cell::RefCell;
+
+pub struct Renderable<T>
 where T: Mesh {
     shader: Rc<Shader>,
-    projection: Rc<ProjectionType>,
+    projection: Rc<RefCell<ProjectionType>>,
 
     model_mat: cgmath::Matrix4::<f32>,
 
@@ -77,21 +77,21 @@ where T: Mesh {
     uniforms: Box<[WebGlUniformLocation]>,
 
     num_vertices: i32,
-    phantom: PhantomData<&'a T>,
+    mesh: Rc<RefCell<T>>
 }
 
 use cgmath;
 use cgmath::SquareMatrix;
-impl<'a, T> Renderable<'a, T>
+
+impl<T> Renderable<T>
 where T: Mesh {
-    pub fn new(gl: &WebGl2RenderingContext, shader: Rc<Shader>, projection: Rc<ProjectionType>) -> Renderable<'a, T> {
+    pub fn new(gl: &WebGl2RenderingContext, shader: Rc<Shader>, projection: Rc<RefCell<ProjectionType>>, mesh: Rc<RefCell<T>>) -> Renderable<T> {
         shader.bind(gl);
 
-        let (buffers, num_vertices, vao) = T::create_buffers(gl, projection.as_ref());
+        let (buffers, num_vertices, vao) = T::create_buffers(gl, &projection.as_ref().borrow());
         T::link_buffers_to_vertex_shader(gl, &buffers);
         
         let uniforms = T::init_uniforms(gl, shader.borrow());
-        let phantom = PhantomData;
 
         let model_mat = cgmath::Matrix4::identity();
 
@@ -117,7 +117,7 @@ where T: Mesh {
             uniforms,
             // Num of vertices to draw
             num_vertices,
-            phantom
+            mesh
         }
     }
 
@@ -144,22 +144,14 @@ where T: Mesh {
         return self.model_mat.clone();
     }
 
-    pub fn draw(&self, gl: &WebGl2RenderingContext, mode: u32, viewport: &ViewPort, textures: &Vec<Rc<Option<WebGlTexture>>>) {
+    pub fn draw(&self, gl: &WebGl2RenderingContext, mode: u32, viewport: &ViewPort) {
         self.shader.bind(gl);
 
         gl.bind_vertex_array(Some(&self.vao));
-        /*// Bind buffers
-        T::bind_buffers_to_vertex_shader(gl, &self.buffers);*/
 
         // Send Uniforms
         viewport.send_to_vertex_shader(gl, self.shader.borrow());
-
-        let grid_location = self.shader.get_uniform_location(gl, "draw_grid");
-        gl.uniform1i(grid_location.as_ref(), 0);
-
-        let healpix_idx = ((0 as i32)..(MAX_NUMBER_TEXTURE as i32))
-            .collect::<Vec<_>>();
-        T::send_uniform_textures(gl, &self.uniforms, 0, &healpix_idx, textures);
+        self.mesh.as_ref().borrow().send_uniforms(gl, &self.uniforms);
 
         // Get the attribute location of the model matrix from the Vertex shader
         let model_mat_location = self.shader.get_uniform_location(gl, "model");

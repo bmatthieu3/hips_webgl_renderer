@@ -1,3 +1,5 @@
+extern crate itertools_num;
+
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{WebGl2RenderingContext, console};
@@ -17,14 +19,14 @@ use renderable::projection;
 use renderable::projection::{ProjectionType, Aitoff, Orthographic};
 use viewport::ViewPort;
 
-extern crate base64;
-
 fn request_animation_frame(f: &Closure<FnMut()>) {
     web_sys::window()
         .unwrap()
         .request_animation_frame(f.as_ref().unchecked_ref())
         .expect("should register `requestAnimationFrame` OK");
 }
+
+use std::time::SystemTime;
 
 use std::rc::Rc;
 use std::cell::{RefCell, Cell};
@@ -64,11 +66,7 @@ pub fn start() -> Result<(), JsValue> {
         out vec3 out_vert_pos;
 
         uniform mat4 model;
-        uniform mat4 projection;
         uniform mat4 view;
-
-        uniform float width;
-        uniform float height;
 
         uniform float zoom_factor;
 
@@ -97,7 +95,7 @@ pub fn start() -> Result<(), JsValue> {
         }*/
 
         void main() {
-            gl_Position = vec4(screen_position.x, screen_position.y, 0.0, 1.0);
+            gl_Position = vec4(screen_position.x * zoom_factor, screen_position.y * zoom_factor, 0.0, 1.0);
             out_vert_pos = vec3(model * vec4(position, 1.f));
         }"#,
         r#"#version 300 es
@@ -406,6 +404,7 @@ pub fn start() -> Result<(), JsValue> {
         }
 
         //const int idx_textures[12] = int[12](0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11);
+        uniform float zoom_factor;
 
         void main() {
             vec3 frag_pos = normalize(out_vert_pos);
@@ -452,17 +451,17 @@ pub fn start() -> Result<(), JsValue> {
             out_frag_color = vec4(out_color, 1.0f);
 
             if(draw_grid == 1) {
-                vec2 lonlat = vec2(atan(frag_pos.x, frag_pos.z), asin(frag_pos.y));
+                vec2 lonlat = vec2(atan(frag_pos.x, frag_pos.z), atan(frag_pos.y, sqrt(frag_pos.x*frag_pos.x + frag_pos.z*frag_pos.z)));
                 lonlat *= 180.0/PI;
 
-                if(abs(lonlat.y) < 80.0) {
+                if(abs(lonlat.y) < 70.0) {
                     lonlat /= vec2(10.0, 10.0);
 
                     vec2 linePos = fract(lonlat + 0.5) - 0.5;
-                    vec2 der = vec2(60.0f);
+                    vec2 der = vec2(60.0f) * zoom_factor;
                     linePos = max((1.0 - der*abs(linePos)), 0.0);
 
-                    out_frag_color *= (1.0 - 0.4 * max(linePos.x, linePos.y));
+                    out_frag_color.a *= (1.0 - 0.4 * max(linePos.x, linePos.y));
                 }
             }
         }"#
@@ -496,13 +495,15 @@ pub fn start() -> Result<(), JsValue> {
     ));*/
 
     // Viewport
-    let viewport = Rc::new(RefCell::new(ViewPort::new(inner_width as f32, inner_height as f32)));
-    let projection = Rc::new(ProjectionType::Orthographic(Orthographic {}));
+    let viewport = Rc::new(RefCell::new(ViewPort::new()));
+    let projection = Rc::new(RefCell::new(ProjectionType::Aitoff(Aitoff {})));
 
+    let hips_sphere_mesh = Rc::new(RefCell::new(HiPSSphere::new(gl.clone())));
     let sphere = Rc::new(RefCell::new(Renderable::<HiPSSphere>::new(
         &gl,
         shader_texture.clone(),
-        projection.clone()
+        projection.clone(),
+        hips_sphere_mesh.clone(),
     )));
 
     // Definition of the model matrix
@@ -522,40 +523,11 @@ pub fn start() -> Result<(), JsValue> {
     gl.enable(WebGl2RenderingContext::BLEND);
     gl.blend_func(WebGl2RenderingContext::SRC_ALPHA, WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA);
 
-    let mut textures = vec![];
-    // Create the TEXTURE
-    let mut depth = 0;
-    let mut tiles_idxs = (0..12).collect::<Vec<_>>();
-    // 1. Update the FoV
-
-    // 2. Compute the maximum depth for which there is at most
-    // 15 tiles in the FoV
-    // Get this list of HEALPix tiles too
-
-    // 3. At this point we have at least 15 tiles selected at a specific depth
-    // Now we load the textures
-    textures.clear(); // TODO: do not clear the tiles that are still needed
-    let mut num_tile = 0;
-    for tile_idx in tiles_idxs {
-        let dir_idx = (tile_idx / 10000) * 10000;
-
-        let mut url = String::from("http://alasky.u-strasbg.fr/DSS/DSSColor/");
-        url = url + "Norder" + &depth.to_string() + "/";
-        url = url + "Dir" + &dir_idx.to_string() + "/";
-        url = url + "Npix" + &tile_idx.to_string() + ".jpg";
-
-        textures.push(texture::load(gl.clone(), &url, WebGl2RenderingContext::TEXTURE0 + num_tile));
-        num_tile += 1;
-    }
-
-    
     let f = Rc::new(RefCell::new(None));
     let g = f.clone();
-    
+
     // Mouse down pression event
     let pressed = Rc::new(Cell::new(false));
-    let delta_x = Rc::new(Cell::new(0_f32));
-    let delta_y = Rc::new(Cell::new(0_f32));
 
     let mouse_clic_x = Rc::new(Cell::new(0_f32));
     let mouse_clic_y = Rc::new(Cell::new(0_f32));
@@ -573,6 +545,8 @@ pub fn start() -> Result<(), JsValue> {
         let start_pos = start_pos.clone();
         let projection = projection.clone();
 
+        let viewport = viewport.clone();
+
         let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
             console::log_1(&format!("mouse down").into());
             let event_x = event.offset_x() as f32;
@@ -581,8 +555,8 @@ pub fn start() -> Result<(), JsValue> {
             mouse_clic_x.set(event_x);
             mouse_clic_y.set(event_y);
 
-            let (x_screen_homogeous_space, y_screen_homogeous_space) = projection::screen_pixels_to_homogeous(event_x, event_y);
-            let result = projection.screen_to_world_space(x_screen_homogeous_space, y_screen_homogeous_space);
+            let (x_screen_homogeous_space, y_screen_homogeous_space) = projection::screen_pixels_to_homogeous(event_x, event_y, &viewport.borrow());
+            let result = projection.as_ref().borrow().screen_to_world_space(x_screen_homogeous_space, y_screen_homogeous_space);
             if let Some(pos) = result {
                 let pos = pos.normalize();
 
@@ -620,14 +594,19 @@ pub fn start() -> Result<(), JsValue> {
         let last_axis = last_axis.clone();
         let last_dist = last_dist.clone();
 
+        let viewport = viewport.clone();
+        let projection = projection.clone();
+        let context = gl.clone();
+        let hips_sphere_mesh = hips_sphere_mesh.clone();
+
         let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
             if pressed.get() {
                 let event_x = event.offset_x() as f32;
                 let event_y = event.offset_y() as f32;
                 let model_mat = &sphere.as_ref().borrow().get_model_mat();
 
-                let (x_screen_homogeous_space, y_screen_homogeous_space) = projection::screen_pixels_to_homogeous(event_x, event_y);
-                let result = projection.screen_to_world_space(x_screen_homogeous_space, y_screen_homogeous_space);
+                let (x_screen_homogeous_space, y_screen_homogeous_space) = projection::screen_pixels_to_homogeous(event_x, event_y, &viewport.borrow());
+                let result = projection.as_ref().borrow().screen_to_world_space(x_screen_homogeous_space, y_screen_homogeous_space);
                 if let Some(pos) = result {
                     let pos = pos.normalize();
 
@@ -651,7 +630,7 @@ pub fn start() -> Result<(), JsValue> {
                         let pos_rotated = cgmath::Vector3::<f32>::new(pos_rotated.x, pos_rotated.y, pos_rotated.z);
 
                         console::log_1(&format!("REAL pos clic {:?}", start_pos_rotated).into());
-                        
+
                         let mut axis = start_pos_rotated.cross(pos_rotated);
                         let dist = math::angular_distance_xyz(start_pos_rotated, pos_rotated);
 
@@ -665,6 +644,9 @@ pub fn start() -> Result<(), JsValue> {
 
                         last_axis.set(axis);
                         last_dist.set(dist);
+
+                        // update the fov
+                        hips_sphere_mesh.borrow_mut().update_field_of_view(context.clone(), &projection.as_ref().borrow(), &viewport.borrow(), model_mat);
                     }
                 }
             }
@@ -681,14 +663,22 @@ pub fn start() -> Result<(), JsValue> {
         let zoom_factor = zoom_factor.clone();
         let sphere = sphere.clone();
         let viewport = viewport.clone();
+
+        let hips_sphere_mesh = hips_sphere_mesh.clone();
+        let projection = projection.clone();
+
         let closure = Closure::wrap(Box::new(move |event: web_sys::WheelEvent| {
             let delta_y = event.delta_y() as f32;
 
             if delta_y < 0_f32 {
-                viewport.borrow_mut().zoom(true);
+                viewport.borrow_mut().zoom();
             } else {
-                viewport.borrow_mut().zoom(false);
+                viewport.borrow_mut().unzoom();
             }
+
+            // update the fov
+            let model_mat = &sphere.as_ref().borrow().get_model_mat();
+            hips_sphere_mesh.borrow_mut().update_field_of_view(context.clone(), &projection.as_ref().borrow(), &viewport.borrow(), model_mat);
         }) as Box<dyn FnMut(_)>);
         canvas.add_event_listener_with_callback("wheel", closure.as_ref().unchecked_ref())?;
         closure.forget();
@@ -696,8 +686,9 @@ pub fn start() -> Result<(), JsValue> {
 
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
         if pressed.get() == false {
-            sphere.borrow_mut().apply_rotation(-last_axis.get(), cgmath::Rad(0.95_f32 * last_dist.get()));
-            last_dist.set(0.95_f32 * last_dist.get());
+            //let next_dist = 0.95_f32 * last_dist.get();
+            //sphere.borrow_mut().apply_rotation(-last_axis.get(), cgmath::Rad(next_dist));
+            //last_dist.set(next_dist);
         }
 
         // Render the scene
@@ -706,7 +697,7 @@ pub fn start() -> Result<(), JsValue> {
         // Clear the depth buffer bit
         gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT | WebGl2RenderingContext::DEPTH_BUFFER_BIT);
         
-        sphere.as_ref().borrow().draw(&gl, WebGl2RenderingContext::TRIANGLES, &viewport.as_ref().borrow(), &textures);
+        sphere.as_ref().borrow().draw(&gl, WebGl2RenderingContext::TRIANGLES, &viewport.as_ref().borrow());
         //direct_system.as_ref().borrow().draw(&gl, WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());
 
         // Schedule ourself for another requestAnimationFrame callback.

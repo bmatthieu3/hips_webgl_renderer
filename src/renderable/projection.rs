@@ -1,7 +1,9 @@
 use cgmath::{Vector3, InnerSpace};
 use web_sys::console;
 
-pub fn screen_pixels_to_homogeous(x: f32, y: f32) -> (f32, f32) {
+use crate::viewport::ViewPort;
+
+pub fn screen_pixels_to_homogeous(x: f32, y: f32, viewport: &ViewPort) -> (f32, f32) {
     // Screen space in pixels to homogeneous screen space (values between [-1, 1])
     let window = web_sys::window().unwrap();
     let width = window.inner_width()
@@ -20,7 +22,8 @@ pub fn screen_pixels_to_homogeous(x: f32, y: f32) -> (f32, f32) {
     let xh = 2_f32*(xo/width);
     let yh = -2_f32*(yo/height);
 
-    (xh, yh)
+    let zoom_f = viewport.get_zoom_factor();
+    (xh / zoom_f, yh / zoom_f)
 }
 
 pub trait Projection {
@@ -34,8 +37,6 @@ pub trait Projection {
     /// * `x` - X mouse position in homogenous screen space (between [-1, 1])
     /// * `y` - Y mouse position in homogenous screen space (between [-1, 1])
     fn screen_to_world_space(x: f32, y: f32) -> Option<cgmath::Vector3<f32>> {
-        console::log_1(&format!("screen space position {:?} {:?}", x, y).into());
-
         let (x, y) = Self::scale_by_screen_ratio(x, y);
         let xw_2 = 1_f32 - x*x - y*y;
 
@@ -43,10 +44,7 @@ pub trait Projection {
             let pos_world_space = Self::view_to_world_space(x, y, xw_2.sqrt());
 
             let mut pos_world_space = Vector3::<f32>::new(pos_world_space.x, pos_world_space.y, pos_world_space.z);
-            //console::log_1(&format!("pos unproj mag {:?}", pos_global_space.magnitude()).into());
             pos_world_space = pos_world_space.normalize();
-
-            console::log_1(&format!("pos unproj {:?}", pos_world_space).into());
 
             Some(pos_world_space)
         } else {
@@ -97,8 +95,6 @@ impl ProjectionType {
 }
 
 use cgmath::Vector2;
-use js_sys::WebAssembly;
-use wasm_bindgen::JsCast;
 
 const NUM_VERTICES_PER_STEP: usize = 70;
 const NUM_STEPS: usize = 40;
@@ -124,7 +120,10 @@ impl Projection for Aitoff {
             for i in 0..NUM_VERTICES_PER_STEP {
                 let angle = (i as f32) * 2_f32 * std::f32::consts::PI / (NUM_VERTICES_PER_STEP as f32);
 
-                let mut pos_screen_space = Vector2::<f32>::new((width/2_f32 - 1_f32) * radius * angle.cos(), ((width/2_f32 - 1_f32) / 2_f32) * radius * angle.sin());
+                let mut pos_screen_space = Vector2::<f32>::new(
+                    (width/2_f32 - 1_f32) * radius * angle.cos(),
+                    ((width/2_f32 - 1_f32) / 2_f32) * radius * angle.sin()
+                );
                 console::log_1(&format!("pos_screen {:?}", pos_screen_space).into());
 
                 pos_screen_space += Vector2::<f32>::new(width / 2_f32, height / 2_f32);

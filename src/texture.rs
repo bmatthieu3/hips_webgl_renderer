@@ -16,7 +16,6 @@ use web_sys::console;
 use web_sys::{Request, RequestInit, RequestMode, Response, XmlHttpRequest, WebGlTexture};
 
 use std::str;
-use base64::{encode, decode};
 
 pub fn load(gl: Rc<WebGl2RenderingContext>, src: &str, idx_texture: u32) -> Rc<Option<WebGlTexture>> {
     let image = Rc::new(RefCell::new(HtmlImageElement::new().unwrap()));
