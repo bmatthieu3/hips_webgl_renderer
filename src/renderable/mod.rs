@@ -10,8 +10,6 @@ use crate::renderable::projection::ProjectionType;
 use std::rc::Rc;
 use std::borrow::Borrow;
 
-const MAX_NUMBER_TEXTURE: usize = 12;
-
 pub trait Mesh {
     fn create_buffers(gl: &WebGl2RenderingContext, projection: &ProjectionType) -> (Box<[(u32, i32, WebGlBuffer)]>, i32, WebGlVertexArrayObject);
     fn link_buffers_to_vertex_shader(gl: &WebGl2RenderingContext, buffers: &Box<[(u32, i32, WebGlBuffer)]>) {

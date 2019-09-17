@@ -11,6 +11,7 @@ mod renderable;
 mod viewport;
 mod texture;
 mod math;
+mod utils;
 
 use shader::Shader;
 use renderable::Renderable;
@@ -24,6 +25,19 @@ fn request_animation_frame(f: &Closure<FnMut()>) {
         .unwrap()
         .request_animation_frame(f.as_ref().unchecked_ref())
         .expect("should register `requestAnimationFrame` OK");
+}
+
+fn compute_speed(t_start: f32, speed_max: f32) -> f32 {
+    let t = utils::get_current_time() as f32; 
+    let t_duration = 1200_f32; // in ms
+    let t_end = t_start + t_duration;
+
+    if t > t_end {
+        0_f32
+    } else {
+        let speed = (-t*speed_max / t_duration) + t_end*speed_max/t_duration;
+        speed
+    }
 }
 
 use std::time::SystemTime;
@@ -106,100 +120,19 @@ pub fn start() -> Result<(), JsValue> {
 
         out vec4 out_frag_color;
 
-        const int NUM_MAX_TILES = 12;
-        uniform sampler2D texture_hips_tile[NUM_MAX_TILES];
         uniform int draw_grid;
-        uniform int depth;
+        uniform int num_textures;
+
+        const uint NUM_MAX_TILES = 16U;
+        uniform sampler2D texture_hips_tile[NUM_MAX_TILES];
+        uniform int depth_textures[NUM_MAX_TILES];
         uniform int idx_textures[NUM_MAX_TILES];
+        uniform int depth_max;
 
         const float PI = 3.1415926535897932384626433832795f;
 
         const float TRANSITION_Z = 2.0f / 3.0f;
         const float TRANSITION_Z_INV = 3.0f / 2.0f;
-
-        /*pub fn hash_with_dxdy(depth: u8, x: f32, y: f32, z: f32) -> (u32, f32, f32) {
-            assert!(depth <= 14);
-            assert!(-1.0 <= x && x <= 1.0);
-            assert!(-1.0 <= y && y <= 1.0);
-            assert!(-1.0 <= z && z <= 1.0);
-            // println!("norm: {}", (x *  x + y * y + z * z));
-            debug_assert!(1.0 - (x *  x + y * y + z * z) < 1e-5);
-            // A f32 mantissa contains 23 bits.
-            // - it basically means that when storing (x, y) coordinates,
-            //   we can go as deep as depth 24 (or maybe 25)
-            let nside = nside(depth);
-            let half_nside = nside as f32 * 0.5;
-            let (x_pm1, q) = xpm1_and_q(x, y);
-            let (d0h, x_proj, y_proj) = if z > TRANSITION_Z {
-                // North polar cap, Collignon projection.
-                // - set the origin to (PI/4, 0)
-                let sqrt_3_one_min_z = (3.0 * one_minus_z_pos(x, y, z)).sqrt();
-                let (x_proj, y_proj) = (x_pm1 * sqrt_3_one_min_z, 2.0 - sqrt_3_one_min_z);
-                let d0h = q;
-                (d0h, x_proj, y_proj)
-            } else if z < -TRANSITION_Z {
-                // South polar cap, Collignon projection
-                // - set the origin to (PI/4, -PI/2)
-                let sqrt_3_one_min_z = (3.0 * one_minus_z_neg(x, y, z)).sqrt();
-                let (x_proj, y_proj) = (x_pm1 * sqrt_3_one_min_z, sqrt_3_one_min_z);
-                let d0h = q + 8;
-                (d0h, x_proj, y_proj)
-            } else {
-                // Equatorial region, Cylindrical equal area projection
-                // - set the origin to (PI/4, 0)               if q = 2
-                // - set the origin to (PI/4, -PI/2)           if q = 0
-                // - set the origin to (0, -TRANSITION_LAT)    if q = 3
-                // - set the origin to (PI/2, -TRANSITION_LAT) if q = 1
-                // let zero_or_one = (x_cea as u8) & 1;
-                let y_pm1 = z * TRANSITION_Z_INV;
-                // |\2/|
-                // .3X1.
-                // |/0\|
-                let q01 = (x_pm1 >  y_pm1) as u8;  // 0/1
-                debug_assert!(q01 == 0 || q01 == 1);
-                let q12 = (x_pm1 >= -y_pm1) as u8; // 0\1
-                debug_assert!(q12 == 0 || q12 == 1);
-                let q03 = 1 - q12; // 1\0
-                //let q13 = q01 ^ q12;
-                //debug_assert!(q13 == 0 || q13 == 1);
-                let q1  = q01 & q12; // = 1 if q1, 0 else
-                debug_assert!( q1 == 0 ||  q1 == 1);
-                // x: xcea - 0 if q3 | xcea - 2 if q1 | xcea - 1 if q0 or q2
-                let x_proj = x_pm1 - ((q01 + q12) as i8 - 1) as f32;
-                // y: y - 0 if q2 | y - 1 if q1 or q3 | y - 2 if q0 
-                let y_proj = y_pm1 + (q01 + q03) as f32;
-                // d0h: +8 if q0 | +4 if q3 | +5 if q1
-                let d0h = ((q01 + q03) << 2) + ((q + q1) & 3);
-                (d0h, x_proj, y_proj)
-            };
-            // Coords inside the base cell
-            let x = (half_nside * (y_proj + x_proj));    debug_assert!(x <= (0.0 - 1e-5) || x < (nside as f32 + 1e-5), format!("x: {}, x_proj: {}; y_proj: {}", &x, &x_proj, &y_proj));
-            let y = (half_nside * (y_proj - x_proj));    debug_assert!(y <= (0.0 - 1e-5) || y < (nside as f32 + 1e-5), format!("y: {}", &y));
-            let mut i = x as u32;
-            let mut j = y as u32;
-            if i == nside { i -= 1; } // Deal with numerical inaccuracies, rare so branch miss-prediction negligible
-            if j == nside { j -= 1; } // Deal with numerical inaccuracies, rare so branch miss-prediction negligible
-            (
-                ((d0h as u32) << (depth << 1)) | ij2z(i, j),
-                (x - (i as f32)),
-                (y - (j as f32)),
-            )
-        }*/
-
-        /*fn xpm1_and_q(x: f32, y: f32) -> (f32, u8) {
-            let x_neg = (x < 0.0) as u8;           debug_assert!(x_neg <= 1);
-            let y_neg = (y < 0.0) as u8;           debug_assert!(y_neg <= 1);
-            let q = (x_neg + y_neg) | (y_neg << 1);    debug_assert!(y_neg <= 3);
-            // The purpose it to have the same numerical precision for each base cell
-            // by avoiding subtraction by 1 or 3 or 5 or 7
-            let lon = y.abs().atan2(x.abs());          debug_assert!(0.0 <= lon && lon <= PI / 2.0);
-            let x02 = lon * 4.0 / PI;                  debug_assert!(0.0 <= x02 && x02 <= 2.0);
-            if x_neg != y_neg { // Could be replaced by a sign copy from (x_neg ^ y_neg) << 32
-                (1.0 - x02, q)
-            } else {
-                (x02 - 1.0, q)
-            }
-        }*/
 
         uint quarter(vec2 p) {
             bool x_neg = (p.x < 0.0f);
@@ -225,16 +158,6 @@ pub fn start() -> Result<(), JsValue> {
                 return x02 - 1.0f;
             }
         }
-
-        /*fn one_minus_z_pos(x: f32, y: f32, z: f32) -> f32 {
-            debug_assert!(z > 0.0);
-            let d2: f32 = x * x + y * y; // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256
-            if d2 < 1e-1 { // <=> dec > 84.27 deg
-                d2 * (0.5 + d2 * (0.125 + d2 * (0.0625 + d2 * (0.0390625 + d2 * 0.02734375))))
-            } else {
-                1.0 - z
-            }
-        }*/
         
         float one_minus_z_pos(vec3 p) {
             //debug_assert!(z > 0.0);
@@ -246,17 +169,6 @@ pub fn start() -> Result<(), JsValue> {
             return 1.0f - p.z;
         }
 
-        /*fn one_minus_z_neg(x: f32, y: f32, z: f32) -> f32 {
-            debug_assert!(z < 0.0);
-            let d2: f32 = x * x + y * y; // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256
-            if d2 < 1e-1 { // <=> dec < -84.27 deg
-                // 0.5 * d2 + 0.125 * d2 * d2
-                d2 * (0.5 + d2 * (0.125 + d2 * (0.0625 + d2 * (0.0390625 + d2 * 0.02734375))))
-            } else {
-                z + 1.0
-            }
-        }*/
-
         float one_minus_z_neg(vec3 p) {
             //debug_assert!(z < 0.0);
             float d2 = p.x * p.x + p.y * p.y; // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256
@@ -266,15 +178,6 @@ pub fn start() -> Result<(), JsValue> {
             }
             return p.z + 1.0f;
         }
-
-        /*fn ij2z(mut i: u32, mut j: u32) -> u32 {
-            i |= j << 16;
-            j = (i ^ (i >> 8)) & 0x0000FF00_u32; i = i ^ j ^ (j << 8);
-            j = (i ^ (i >> 4)) & 0x00F000F0_u32; i = i ^ j ^ (j << 4);
-            j = (i ^ (i >> 2)) & 0x0C0C0C0C_u32; i = i ^ j ^ (j << 2);
-            j = (i ^ (i >> 1)) & 0x22222222_u32; i = i ^ j ^ (j << 1);
-            i
-        }*/
 
         // Z-Order curve projection.
         uint ij2z(uint i, uint j) {
@@ -403,20 +306,19 @@ pub fn start() -> Result<(), JsValue> {
             );
         }
 
-        //const int idx_textures[12] = int[12](0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11);
         uniform float zoom_factor;
 
         void main() {
             vec3 frag_pos = normalize(out_vert_pos);
             // Get the HEALPix cell idx and the uv in the texture
-            vec3 r = hash_with_dxdy(uint(depth), frag_pos.zxy);
+            vec3 r = hash_with_dxdy(uint(depth_max), frag_pos.zxy);
 
             int tile_idx = int(r.x);
             vec2 uv = clamp(r.zy, 0.f, 1.f);
             
             vec3 out_color = vec3(0.f);
-            for(int i = 0; i < NUM_MAX_TILES; i++) {
-                if (idx_textures[i] == tile_idx) {
+            for(int i = 0; i < num_textures; i++) {
+                if (depth_textures[i] == depth_max && idx_textures[i] == tile_idx) {
                     if (i == 0) {
                         out_color = texture(texture_hips_tile[0], uv).rgb;
                     } else if (i == 1) {
@@ -439,8 +341,16 @@ pub fn start() -> Result<(), JsValue> {
                         out_color = texture(texture_hips_tile[9], uv).rgb;
                     } else if (i == 10) {
                         out_color = texture(texture_hips_tile[10], uv).rgb;
-                    } else {
+                    } else if (i == 11) {
                         out_color = texture(texture_hips_tile[11], uv).rgb;
+                    } else if (i == 12) {
+                        out_color = texture(texture_hips_tile[12], uv).rgb;
+                    } else if (i == 13) {
+                        out_color = texture(texture_hips_tile[13], uv).rgb;
+                    } else if (i == 14) {
+                        out_color = texture(texture_hips_tile[14], uv).rgb;
+                    } else {
+                        out_color = texture(texture_hips_tile[15], uv).rgb;
                     }
                 }
             }
@@ -538,6 +448,9 @@ pub fn start() -> Result<(), JsValue> {
 
     let last_axis = Rc::new(Cell::new(Vector3::<f32>::new(0_f32, 0_f32, 0_f32)));
     let last_dist = Rc::new(Cell::new(0_f32));
+    let roll = Rc::new(Cell::new(false));
+
+    let time_last_move = Rc::new(Cell::new(utils::get_current_time() as f32));
     {
         let pressed = pressed.clone();
 
@@ -601,6 +514,9 @@ pub fn start() -> Result<(), JsValue> {
         let context = gl.clone();
         let hips_sphere_mesh = hips_sphere_mesh.clone();
 
+        let time_last_move = time_last_move.clone();
+        let roll = roll.clone();
+
         let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
             if pressed.get() {
                 let event_x = event.offset_x() as f32;
@@ -638,6 +554,8 @@ pub fn start() -> Result<(), JsValue> {
 
                         axis = axis.normalize();
                         sphere.borrow_mut().apply_rotation(-axis, cgmath::Rad(dist));
+                        time_last_move.set(utils::get_current_time() as f32);
+                        roll.set(true);
 
                         mouse_clic_x.set(event_x);
                         mouse_clic_y.set(event_y);
@@ -684,10 +602,18 @@ pub fn start() -> Result<(), JsValue> {
     }
 
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
-        if pressed.get() == false {
-            let next_dist = 0.95_f32 * last_dist.get();
-            sphere.borrow_mut().apply_rotation(-last_axis.get(), cgmath::Rad(next_dist));
-            last_dist.set(next_dist);
+        if !pressed.get() && roll.get() {
+            let next_dist = compute_speed(time_last_move.get(), last_dist.get() * 0.5_f32);
+            if next_dist > 1e-4 {
+                sphere.borrow_mut().apply_rotation(-last_axis.get(), cgmath::Rad(next_dist));
+
+                let model_mat = &sphere.as_ref().borrow().get_model_mat();
+                hips_sphere_mesh.borrow_mut().update_field_of_view(gl.clone(), &projection.as_ref().borrow(), &viewport.borrow(), model_mat);
+            }
+        } else if pressed.get() {
+            if (utils::get_current_time() as f32) - time_last_move.get() > 50_f32 {
+                roll.set(false);
+            }
         }
 
         // Render the scene

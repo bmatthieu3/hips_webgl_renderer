@@ -45,4 +45,6 @@ features = [
   'Response',
   'XmlHttpRequest',
   'XmlHttpRequestEventTarget',
+  'PerformanceTiming',
+  'Performance',
 ]

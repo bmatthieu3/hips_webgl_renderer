@@ -14,20 +14,26 @@ use crate::renderable::projection;
 use crate::renderable::projection::ProjectionType;
 
 use std::rc::Rc;
+use std::cell::Cell;
+use std::collections::VecDeque;
 
 use crate::renderable::Mesh;
 use crate::shader::Shader;
 
-const MAX_NUMBER_TEXTURE: usize = 12;
+pub const MAX_NUMBER_TEXTURE: usize = 12;
 const NUM_VERTICES_PER_STEP: usize = 70;
 const NUM_STEPS: usize = 40;
+
+use std::collections::HashSet;
 
 use std::cell::RefCell;
 
 pub struct HiPSSphere {
     idx_textures: Rc<RefCell<Vec<i32>>>,
-    depth: i32,
-    textures: Vec<Rc<Option<WebGlTexture>>>,
+    depth_textures: Rc<RefCell<Vec<i32>>>,
+    num_textures: Rc<Cell<i32>>,
+    depth_max: i32,
+    last_time: Rc<Cell<f64>>,
 }
 
 use crate::viewport::ViewPort;
@@ -40,17 +46,23 @@ use crate::texture;
 impl HiPSSphere {
     pub fn new(gl: Rc<WebGl2RenderingContext>) -> HiPSSphere {
         let depth = 0;
-        let idx_textures = (0..12).collect::<Vec<_>>();
+        let idx_textures = ((0 as i32)..(MAX_NUMBER_TEXTURE as i32)).collect::<Vec<_>>();
+        let depth_textures = iter::repeat(0).take(MAX_NUMBER_TEXTURE).collect::<Vec<_>>();
         let mut hips_sphere = HiPSSphere {
-            idx_textures: Rc::new(RefCell::new(idx_textures)),
-            depth: depth,
-            textures: vec![],
+            idx_textures: Rc::new(RefCell::new(vec![])),
+            depth_textures: Rc::new(RefCell::new(vec![])),
+            num_textures: Rc::new(Cell::new(0)),
+            depth_max: 0,
+            last_time: Rc::new(Cell::new(0_f64)),
         };
-        hips_sphere.load_healpix_tile_textures(gl, (0..12).collect::<Vec<_>>());
+        hips_sphere.load_healpix_tile_textures(gl, idx_textures, depth_textures);
         hips_sphere
     }
 
-    fn load_healpix_tile_textures(&mut self, gl: Rc<WebGl2RenderingContext>, idx_textures_next: Vec<i32>) {
+    fn load_healpix_tile_textures(&mut self,
+        gl: Rc<WebGl2RenderingContext>,
+        idx_textures_next: Vec<i32>,
+        depth_textures_next: Vec<i32>) {
         // Create the TEXTURE
         // 1. Update the FoV
 
@@ -60,24 +72,69 @@ impl HiPSSphere {
 
         // 3. At this point we have at least 15 tiles selected at a specific depth
         // Now we load the textures
-        self.textures.clear(); // TODO: do not clear the tiles that are still needed
-        let mut num_tile = 0;
-        for tile_idx_to_load in idx_textures_next.iter() {
-            let dir_idx = (tile_idx_to_load / 10000) * 10000;
 
-            let mut url = String::from("http://alasky.u-strasbg.fr/DSS/DSSColor/");
-            url = url + "Norder" + &self.depth.to_string() + "/";
-            url = url + "Dir" + &dir_idx.to_string() + "/";
-            url = url + "Npix" + &tile_idx_to_load.to_string() + ".jpg";
+        // Retrieve the time of loading
+        let window = web_sys::window().expect("should have a window in this context");
+        let performance = window
+            .performance()
+            .expect("performance should be available");
+        let time = performance.now();
+        self.last_time.set(time);
+        if self.idx_textures.borrow().len() < MAX_NUMBER_TEXTURE {
+            let mut slot_texture = 0;
+            for (tile_idx_to_load, tile_depth_to_load) in idx_textures_next.into_iter().zip(depth_textures_next.into_iter()) {
+                self.idx_textures.borrow_mut().push(tile_idx_to_load);
+                self.depth_textures.borrow_mut().push(tile_depth_to_load);
 
-            self.textures.push(texture::load(gl.clone(), &url, num_tile, tile_idx_to_load.clone(), self.idx_textures.clone()));
-            num_tile += 1;
+                let dir_idx = (tile_idx_to_load / 10000) * 10000;
+
+                let mut url = String::from("http://alasky.u-strasbg.fr/DSS/DSSColor/");
+                url = url + "Norder" + &tile_depth_to_load.to_string() + "/";
+                url = url + "Dir" + &dir_idx.to_string() + "/";
+                url = url + "Npix" + &tile_idx_to_load.to_string() + ".jpg";
+
+                texture::load(gl.clone(), &url, slot_texture, tile_idx_to_load, tile_depth_to_load, self.idx_textures.clone(), self.depth_textures.clone(), self.num_textures.clone(), time, self.last_time.clone());
+            
+                slot_texture += 1;
+            }
+        } else {
+            let mut slot_textures = ((0 as i32)..(MAX_NUMBER_TEXTURE as i32)).collect::<HashSet<_>>();
+            for (tile_idx_to_load, tile_depth_to_load) in idx_textures_next.iter().zip(depth_textures_next.iter()) {
+                let k = self.idx_textures.borrow().iter().position(|&idx_texture| idx_texture == *tile_idx_to_load);
+                if let Some(slot_texture) = k {
+                    if self.depth_textures.borrow()[slot_texture] == *tile_depth_to_load {
+                        slot_textures.remove(&(slot_texture as i32));
+                    }
+                }
+            }
+            let mut slot_textures = slot_textures.into_iter().collect::<Vec<_>>();
+            for (tile_idx_to_load, tile_depth_to_load) in idx_textures_next.into_iter().zip(depth_textures_next.into_iter()) {
+                let k = self.idx_textures.borrow().iter().position(|&idx_texture| idx_texture == tile_idx_to_load);
+                let mut not_found = k.is_none();
+                if !not_found {
+                    if let Some(slot_texture) = k {
+                        not_found = self.depth_textures.borrow()[slot_texture] != tile_depth_to_load;
+                    }
+                }
+
+                if not_found {
+                    let slot_texture = slot_textures.pop().unwrap();
+                    let dir_idx = (tile_idx_to_load / 10000) * 10000;
+
+                    let mut url = String::from("http://alasky.u-strasbg.fr/DSS/DSSColor/");
+                    url = url + "Norder" + &tile_depth_to_load.to_string() + "/";
+                    url = url + "Dir" + &dir_idx.to_string() + "/";
+                    url = url + "Npix" + &tile_idx_to_load.to_string() + ".jpg";
+
+                    texture::load(gl.clone(), &url, slot_texture, tile_idx_to_load, tile_depth_to_load, self.idx_textures.clone(), self.depth_textures.clone(), self.num_textures.clone(), time, self.last_time.clone());
+                }
+            }
         }
     }
 
     pub fn update_field_of_view(&mut self, gl: Rc<WebGl2RenderingContext>, projection: &ProjectionType, viewport: &ViewPort, model: &cgmath::Matrix4<f32>) {
-        let num_control_points_width = 4;
-        let num_control_points_height = 3;
+        let num_control_points_width = 5;
+        let num_control_points_height = 5;
         let num_control_points = 4 + 2*num_control_points_width + 2*num_control_points_height;
 
         let mut x_ss = itertools_num::linspace::<f32>(-1., 1., num_control_points_width + 2)
@@ -105,6 +162,8 @@ impl HiPSSphere {
             .collect::<Vec<_>>();
         
         let (depth, healpix_cells) = if pos_ws.len() == num_control_points {
+            let fov = math::angular_distance_xyz(pos_ws[0], pos_ws[num_control_points_width + 1]) / 2_f32;
+        
             let vertices = pos_ws.into_iter()
                 .map(|pos_world_space| {
                     // Take into account the rotation of the sphere
@@ -121,8 +180,20 @@ impl HiPSSphere {
                     (ra as f64, dec as f64)
                 })
                 .collect::<Vec<_>>();
-            
-            let mut depth = 1;
+
+            let depth = (4_f32 * std::f32::consts::PI) / (12_f32 * fov * fov);
+
+            let mut depth = (depth.log2() / 2_f32).floor() as i32;
+            if depth < 0 {
+                depth = 0;
+            }
+
+            let moc = healpix::nested::polygon_coverage(depth as u8, &vertices, true);
+            let healpix_cells_in_fov = moc.flat_iter()
+                    .map(|hpx_idx_u64| hpx_idx_u64 as i32)
+                    .collect::<Vec<_>>();
+            //console::log_1(&format!("current depth {:?}, num cells in fov {:?}", depth, healpix_cells_in_fov.len()).into());
+            /*let mut depth = 1;
             let mut num_healpix_cells_in_fov = 12;
             let mut healpix_cells_in_fov = (0..12).collect::<Vec<_>>();
             while num_healpix_cells_in_fov <= 12 {
@@ -141,7 +212,7 @@ impl HiPSSphere {
                 depth += 1;
                 num_healpix_cells_in_fov = healpix_cells.len();
                 healpix_cells_in_fov = healpix_cells;
-            }
+            }*/
 
             (depth, healpix_cells_in_fov)
         } else {
@@ -149,14 +220,13 @@ impl HiPSSphere {
             let healpix_cells_in_fov = (0..12).collect::<Vec<_>>(); 
             (depth, healpix_cells_in_fov)
         };
-        console::log_1(&format!("depth {:?}, healpix_cells {:?}", depth, healpix_cells).into());
 
         //self.idx_textures = healpix_cells;
-        
-        if depth != self.depth || self.depth != 0 {
-            self.depth = depth;
-            self.load_healpix_tile_textures(gl, healpix_cells);
-        }
+        //if depth != self.depth_max || self.depth_max != 0 {
+        self.depth_max = depth;
+        let healpix_depth_textures = std::iter::repeat(depth).take(healpix_cells.len()).collect::<Vec<_>>();
+        self.load_healpix_tile_textures(gl, healpix_cells, healpix_depth_textures);
+        //}
     }
 }
 
@@ -339,15 +409,20 @@ impl Mesh for HiPSSphere {
         let grid_uniform = shader.get_uniform_location(gl, "draw_grid").unwrap();
 
         // Get the attribute location of the matrices from the Vertex shader
+        let num_textures_uniform = shader.get_uniform_location(gl, "num_textures").unwrap();
+        // Get the attribute location of the matrices from the Vertex shader
         let textures_data_uniform = shader.get_uniform_location(gl, "texture_hips_tile").unwrap();
         // Array storing the visible HEALPix indexes
         let healpix_idx_uniform = shader.get_uniform_location(gl, "idx_textures").unwrap();
         // Depth of the visible HEALPix cells
-        let healpix_depth_uniform = shader.get_uniform_location(gl, "depth").unwrap();
+        let healpix_depth_uniform = shader.get_uniform_location(gl, "depth_textures").unwrap();
+        let healpix_depth_max_uniform = shader.get_uniform_location(gl, "depth_max").unwrap();
 
         Box::new([
+            num_textures_uniform,
             textures_data_uniform,
             healpix_depth_uniform,
+            healpix_depth_max_uniform,
             healpix_idx_uniform,
             grid_uniform
         ])
@@ -358,17 +433,26 @@ impl Mesh for HiPSSphere {
         gl: &WebGl2RenderingContext,
         uniform_locations: &Box<[WebGlUniformLocation]>,
     ) {
-        // Send textures
-        let sampler_idxs = ((0 as i32)..(MAX_NUMBER_TEXTURE as i32)).collect::<Vec<_>>();
-        gl.uniform1iv_with_i32_array(Some(uniform_locations[0].as_ref()), &sampler_idxs);
+        // Send number of textures
+        let num_textures = self.num_textures.get();
+        gl.uniform1i(Some(uniform_locations[0].as_ref()), num_textures);
+        //console::log_1(&format!("number of textures {:?}", num_textures).into());
 
+        // Send textures
+        let slot_textures = ((0 as i32)..(MAX_NUMBER_TEXTURE as i32)).collect::<Vec<_>>();
+        //let slot_textures = &self.slot_textures.borrow().clone().into_iter().collect::<Vec<_>>();
+        //console::log_1(&format!("slot_textures {:?}", slot_textures).into());
+        gl.uniform1iv_with_i32_array(Some(uniform_locations[1].as_ref()), &slot_textures);
+
+        // Send depth healpix tiles
+        gl.uniform1iv_with_i32_array(Some(uniform_locations[2].as_ref()), &self.depth_textures.borrow());
         // Send current depth
-        gl.uniform1i(Some(uniform_locations[1].as_ref()), self.depth);
+        gl.uniform1i(Some(uniform_locations[3].as_ref()), self.depth_max);
 
         // Send the HEALPix cell indexes
-        gl.uniform1iv_with_i32_array(Some(uniform_locations[2].as_ref()), &self.idx_textures.borrow());
+        gl.uniform1iv_with_i32_array(Some(uniform_locations[4].as_ref()), &self.idx_textures.borrow());
 
         // Send grid enable
-        gl.uniform1i(Some(uniform_locations[3].as_ref()), 1);
+        gl.uniform1i(Some(uniform_locations[5].as_ref()), 1);
     }
 }
