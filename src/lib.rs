@@ -1,4 +1,5 @@
 extern crate itertools_num;
+extern crate slab;
 
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -84,30 +85,6 @@ pub fn start() -> Result<(), JsValue> {
 
         uniform float zoom_factor;
 
-        /*vec3 orthographic_projection(vec4 pos) {
-            return pos.yzx;
-        }
-
-        vec3 aitoff_projection(vec4 pos) {
-            float r = length(pos.yz);
-            float w = sqrt(0.5f * r * (r + pos.z));
-
-            float tt = sqrt(0.5f * (1.f + w));
-
-            vec3 p = vec3(0.f);
-            p.y = pos.x / tt;
-            
-            float zz = sqrt(2.f * r * (r - pos.z)) / tt;
-            if (pos.y < 0.f) {
-                p.x = zz;
-            } else {
-                p.x = -zz;
-            }
-            p.z = pos.x;
-
-            return p;
-        }*/
-
         void main() {
             gl_Position = vec4(screen_position.x * zoom_factor, screen_position.y * zoom_factor, 0.0, 1.0);
             out_vert_pos = vec3(model * vec4(position, 1.f));
@@ -115,6 +92,7 @@ pub fn start() -> Result<(), JsValue> {
         r#"#version 300 es
         precision highp float;
         precision highp int;
+        precision highp sampler3D;
 
         in vec3 out_vert_pos;
 
@@ -123,11 +101,12 @@ pub fn start() -> Result<(), JsValue> {
         uniform int draw_grid;
         uniform int num_textures;
 
-        const uint NUM_MAX_TILES = 16U;
-        uniform sampler2D texture_hips_tile[NUM_MAX_TILES];
+        const uint NUM_MAX_TILES = 12U;
+        //uniform sampler2D texture_hips_tile[NUM_MAX_TILES];
         uniform int depth_textures[NUM_MAX_TILES];
         uniform int idx_textures[NUM_MAX_TILES];
         uniform int depth_max;
+        uniform sampler3D textures_buffer;
 
         const float PI = 3.1415926535897932384626433832795f;
 
@@ -278,12 +257,10 @@ pub fn start() -> Result<(), JsValue> {
                 // d0h: +8 if q0 | +4 if q3 | +5 if q1
                 d0h = ((q01 + q03) << 2) + ((q + q1) & 3U);
             }
-            
+
             // Coords inside the base cell
             float x = (half_nside * (p_proj.x + p_proj.y));
-            //debug_assert!(x <= (0.0 - 1e-5) || x < (nside as f32 + 1e-5), format!("x: {}, x_proj: {}; y_proj: {}", &x, &x_proj, &y_proj));
             float y = (half_nside * (p_proj.y - p_proj.x));
-            //debug_assert!(y <= (0.0 - 1e-5) || y < (nside as f32 + 1e-5), format!("y: {}", &y));
             uint i = uint(x);
             uint j = uint(y);
             // Deal with numerical inaccuracies, rare so branch miss-prediction negligible
@@ -294,11 +271,7 @@ pub fn start() -> Result<(), JsValue> {
             if (j == nside) {
                 j = j - 1U;
             }
-            //(
-            //    ((d0h as u32) << (depth << 1)) | ij2z(i, j),
-            //    (x - (i as f32)),
-            //    (y - (j as f32)),
-            //)
+
             return vec3(
                 float((d0h << (depth << 1)) | ij2z(i, j)),
                 x - float(i),
@@ -311,7 +284,7 @@ pub fn start() -> Result<(), JsValue> {
         void main() {
             vec3 frag_pos = normalize(out_vert_pos);
             // Get the HEALPix cell idx and the uv in the texture
-            vec3 r = hash_with_dxdy(uint(depth_max), frag_pos.zxy);
+            vec3 r = hash_with_dxdy(0U, frag_pos.zxy);
 
             int tile_idx = int(r.x);
             vec2 uv = clamp(r.zy, 0.f, 1.f);
@@ -319,45 +292,9 @@ pub fn start() -> Result<(), JsValue> {
             vec3 out_color = vec3(0.f);
             for(int i = 0; i < num_textures; i++) {
                 if (depth_textures[i] == depth_max && idx_textures[i] == tile_idx) {
-                    if (i == 0) {
-                        out_color = texture(texture_hips_tile[0], uv).rgb;
-                    } else if (i == 1) {
-                        out_color = texture(texture_hips_tile[1], uv).rgb;
-                    } else if (i == 2) {
-                        out_color = texture(texture_hips_tile[2], uv).rgb;
-                    } else if (i == 3) {
-                        out_color = texture(texture_hips_tile[3], uv).rgb;
-                    } else if (i == 4) {
-                        out_color = texture(texture_hips_tile[4], uv).rgb;
-                    } else if (i == 5) {
-                        out_color = texture(texture_hips_tile[5], uv).rgb;
-                    } else if (i == 6) {
-                        out_color = texture(texture_hips_tile[6], uv).rgb;
-                    } else if (i == 7) {
-                        out_color = texture(texture_hips_tile[7], uv).rgb;
-                    } else if (i == 8) {
-                        out_color = texture(texture_hips_tile[8], uv).rgb;
-                    } else if (i == 9) {
-                        out_color = texture(texture_hips_tile[9], uv).rgb;
-                    } else if (i == 10) {
-                        out_color = texture(texture_hips_tile[10], uv).rgb;
-                    } else if (i == 11) {
-                        out_color = texture(texture_hips_tile[11], uv).rgb;
-                    } else if (i == 12) {
-                        out_color = texture(texture_hips_tile[12], uv).rgb;
-                    } else if (i == 13) {
-                        out_color = texture(texture_hips_tile[13], uv).rgb;
-                    } else if (i == 14) {
-                        out_color = texture(texture_hips_tile[14], uv).rgb;
-                    } else {
-                        out_color = texture(texture_hips_tile[15], uv).rgb;
-                    }
+                    out_color = texture(textures_buffer, vec3(uv, float(tile_idx)/float(num_textures - 1))).rgb;
                 }
             }
-            //out_color.x = uv.x;
-            //out_color.y = uv.y;
-            //out_color.x += float(tile_idx)/20.f;
-            //out_color += frag_pos;
             out_frag_color = vec4(out_color, 1.0f);
 
             if(draw_grid == 1) {
@@ -378,6 +315,8 @@ pub fn start() -> Result<(), JsValue> {
             }
         }"#
     ));
+    console::log_1(&format!("sampler3D shader").into());
+
     /*let shader_direct_system = Rc::new(Shader::new(&gl,
         r#"#version 300 es
         in vec3 position;
@@ -588,7 +527,7 @@ pub fn start() -> Result<(), JsValue> {
             let delta_y = event.delta_y() as f32;
 
             if delta_y < 0_f32 {
-                viewport.borrow_mut().zoom();
+                viewport.borrow_mut().zoom(hips_sphere_mesh.borrow().depth_max);
             } else {
                 viewport.borrow_mut().unzoom();
             }

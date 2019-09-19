@@ -15,7 +15,7 @@ wasm-bindgen-futures = "0.3.27"
 cgmath = "*"
 itertools-num = "0.1.3"
 healpix = { package = "cdshealpix", git = 'https://github.com/cds-astro/cds-healpix-rust', branch = 'master' }
-
+slab = "*"
 
 [dependencies.web-sys]
 version = "0.3.4"
@@ -47,4 +47,6 @@ features = [
   'XmlHttpRequestEventTarget',
   'PerformanceTiming',
   'Performance',
+  'CanvasRenderingContext2d',
+  'ImageData',
 ]

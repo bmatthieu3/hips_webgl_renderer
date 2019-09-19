@@ -124,7 +124,7 @@ impl Projection for Aitoff {
                     (width/2_f32 - 1_f32) * radius * angle.cos(),
                     ((width/2_f32 - 1_f32) / 2_f32) * radius * angle.sin()
                 );
-                console::log_1(&format!("pos_screen {:?}", pos_screen_space).into());
+                //console::log_1(&format!("pos_screen {:?}", pos_screen_space).into());
 
                 pos_screen_space += Vector2::<f32>::new(width / 2_f32, height / 2_f32);
                 vertices_screen.push(

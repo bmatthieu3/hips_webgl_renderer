@@ -25,14 +25,15 @@ const NUM_VERTICES_PER_STEP: usize = 70;
 const NUM_STEPS: usize = 40;
 
 use std::collections::HashSet;
-
+use crate::texture::HEALPixTextureBuffer;
 use std::cell::RefCell;
 
 pub struct HiPSSphere {
+    buffer_textures: HEALPixTextureBuffer,
     idx_textures: Rc<RefCell<Vec<i32>>>,
     depth_textures: Rc<RefCell<Vec<i32>>>,
     num_textures: Rc<Cell<i32>>,
-    depth_max: i32,
+    pub depth_max: i32,
     last_time: Rc<Cell<f64>>,
 }
 
@@ -45,10 +46,12 @@ use std::iter;
 use crate::texture;
 impl HiPSSphere {
     pub fn new(gl: Rc<WebGl2RenderingContext>) -> HiPSSphere {
+        let buffer_textures = HEALPixTextureBuffer::new();
         let depth = 0;
         let idx_textures = ((0 as i32)..(MAX_NUMBER_TEXTURE as i32)).collect::<Vec<_>>();
         let depth_textures = iter::repeat(0).take(MAX_NUMBER_TEXTURE).collect::<Vec<_>>();
         let mut hips_sphere = HiPSSphere {
+            buffer_textures : buffer_textures,
             idx_textures: Rc::new(RefCell::new(vec![])),
             depth_textures: Rc::new(RefCell::new(vec![])),
             num_textures: Rc::new(Cell::new(0)),
@@ -93,8 +96,9 @@ impl HiPSSphere {
                 url = url + "Dir" + &dir_idx.to_string() + "/";
                 url = url + "Npix" + &tile_idx_to_load.to_string() + ".jpg";
 
-                texture::load(gl.clone(), &url, slot_texture, tile_idx_to_load, tile_depth_to_load, self.idx_textures.clone(), self.depth_textures.clone(), self.num_textures.clone(), time, self.last_time.clone());
-            
+                //texture::load(gl.clone(), &url, slot_texture, tile_idx_to_load, tile_depth_to_load, self.idx_textures.clone(), self.depth_textures.clone(), self.num_textures.clone(), time, self.last_time.clone());
+                self.buffer_textures.load(gl.clone(), &url);
+
                 slot_texture += 1;
             }
         } else {
@@ -181,18 +185,13 @@ impl HiPSSphere {
                 })
                 .collect::<Vec<_>>();
 
-            let depth = (4_f32 * std::f32::consts::PI) / (12_f32 * fov * fov);
-
-            let mut depth = (depth.log2() / 2_f32).floor() as i32;
-            if depth < 0 {
-                depth = 0;
-            }
+            let depth = math::resolution_to_depth(fov);
 
             let moc = healpix::nested::polygon_coverage(depth as u8, &vertices, true);
             let healpix_cells_in_fov = moc.flat_iter()
                     .map(|hpx_idx_u64| hpx_idx_u64 as i32)
                     .collect::<Vec<_>>();
-            //console::log_1(&format!("current depth {:?}, num cells in fov {:?}", depth, healpix_cells_in_fov.len()).into());
+            console::log_1(&format!("current depth {:?}, num cells in fov {:?}", depth, healpix_cells_in_fov.len()).into());
             /*let mut depth = 1;
             let mut num_healpix_cells_in_fov = 12;
             let mut healpix_cells_in_fov = (0..12).collect::<Vec<_>>();
@@ -223,9 +222,9 @@ impl HiPSSphere {
 
         //self.idx_textures = healpix_cells;
         //if depth != self.depth_max || self.depth_max != 0 {
-        self.depth_max = depth;
-        let healpix_depth_textures = std::iter::repeat(depth).take(healpix_cells.len()).collect::<Vec<_>>();
-        self.load_healpix_tile_textures(gl, healpix_cells, healpix_depth_textures);
+        //self.depth_max = depth;
+        //let healpix_depth_textures = std::iter::repeat(depth).take(healpix_cells.len()).collect::<Vec<_>>();
+        //self.load_healpix_tile_textures(gl, healpix_cells, healpix_depth_textures);
         //}
     }
 }
@@ -411,20 +410,21 @@ impl Mesh for HiPSSphere {
         // Get the attribute location of the matrices from the Vertex shader
         let num_textures_uniform = shader.get_uniform_location(gl, "num_textures").unwrap();
         // Get the attribute location of the matrices from the Vertex shader
-        let textures_data_uniform = shader.get_uniform_location(gl, "texture_hips_tile").unwrap();
+        //let textures_data_uniform = shader.get_uniform_location(gl, "texture_hips_tile").unwrap();
         // Array storing the visible HEALPix indexes
         let healpix_idx_uniform = shader.get_uniform_location(gl, "idx_textures").unwrap();
         // Depth of the visible HEALPix cells
         let healpix_depth_uniform = shader.get_uniform_location(gl, "depth_textures").unwrap();
         let healpix_depth_max_uniform = shader.get_uniform_location(gl, "depth_max").unwrap();
-
+        let textures_buffer_uniform = shader.get_uniform_location(gl, "textures_buffer").unwrap();
         Box::new([
             num_textures_uniform,
-            textures_data_uniform,
+            //textures_data_uniform,
             healpix_depth_uniform,
             healpix_depth_max_uniform,
             healpix_idx_uniform,
-            grid_uniform
+            grid_uniform,
+            textures_buffer_uniform,
         ])
     }
 
@@ -434,25 +434,30 @@ impl Mesh for HiPSSphere {
         uniform_locations: &Box<[WebGlUniformLocation]>,
     ) {
         // Send number of textures
-        let num_textures = self.num_textures.get();
-        gl.uniform1i(Some(uniform_locations[0].as_ref()), num_textures);
+        //let num_textures = self.num_textures.get();
+        gl.uniform1i(Some(uniform_locations[0].as_ref()), self.buffer_textures.len() as i32);
         //console::log_1(&format!("number of textures {:?}", num_textures).into());
 
         // Send textures
-        let slot_textures = ((0 as i32)..(MAX_NUMBER_TEXTURE as i32)).collect::<Vec<_>>();
+        //let slot_textures = ((0 as i32)..(MAX_NUMBER_TEXTURE as i32)).collect::<Vec<_>>();
         //let slot_textures = &self.slot_textures.borrow().clone().into_iter().collect::<Vec<_>>();
         //console::log_1(&format!("slot_textures {:?}", slot_textures).into());
-        gl.uniform1iv_with_i32_array(Some(uniform_locations[1].as_ref()), &slot_textures);
+        //gl.uniform1iv_with_i32_array(Some(uniform_locations[1].as_ref()), &slot_textures);
 
         // Send depth healpix tiles
-        gl.uniform1iv_with_i32_array(Some(uniform_locations[2].as_ref()), &self.depth_textures.borrow());
+        gl.uniform1iv_with_i32_array(Some(uniform_locations[1].as_ref()), &self.depth_textures.borrow());
         // Send current depth
-        gl.uniform1i(Some(uniform_locations[3].as_ref()), self.depth_max);
+        gl.uniform1i(Some(uniform_locations[2].as_ref()), self.depth_max);
 
         // Send the HEALPix cell indexes
-        gl.uniform1iv_with_i32_array(Some(uniform_locations[4].as_ref()), &self.idx_textures.borrow());
+        gl.uniform1iv_with_i32_array(Some(uniform_locations[3].as_ref()), &self.idx_textures.borrow());
 
         // Send grid enable
-        gl.uniform1i(Some(uniform_locations[5].as_ref()), 1);
+        gl.uniform1i(Some(uniform_locations[4].as_ref()), 1);
+
+        // Send sampler3D enable
+        //glActiveTexture(GL_TEXTURE0);
+        gl.uniform1i(Some(uniform_locations[5].as_ref()), 0);
+        //glBindTexture(GL_TEXTURE_3D,volumetext);
     }
 }

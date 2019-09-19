@@ -10,3 +10,18 @@ pub fn xyz_to_radec(v: cgmath::Vector3<f32>) -> (f32, f32) {
         v.y.asin(),
     )
 }
+
+pub fn resolution_to_depth(x: f32) -> i32 {
+    let depth = (4_f32 * std::f32::consts::PI) / (12_f32 * x * x);
+
+    let mut depth = (depth.log2() / 2_f32).floor() as i32;
+    if depth < 0 {
+        depth = 0;
+    }
+    depth
+}
+
+pub fn depth_to_resolution(depth: i32) -> f32 {
+    let resolution = (4_f32 * std::f32::consts::PI / (12_f32 * 4_f32.powf(depth as f32))).sqrt();
+    resolution
+}
