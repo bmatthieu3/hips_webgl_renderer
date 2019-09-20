@@ -105,6 +105,7 @@ pub fn start() -> Result<(), JsValue> {
         //uniform sampler2D texture_hips_tile[NUM_MAX_TILES];
         uniform int depth_textures[NUM_MAX_TILES];
         uniform int idx_textures[NUM_MAX_TILES];
+        uniform int idx_in_buffer[NUM_MAX_TILES];
         uniform int depth_max;
         uniform sampler3D textures_buffer;
 
@@ -284,7 +285,7 @@ pub fn start() -> Result<(), JsValue> {
         void main() {
             vec3 frag_pos = normalize(out_vert_pos);
             // Get the HEALPix cell idx and the uv in the texture
-            vec3 r = hash_with_dxdy(0U, frag_pos.zxy);
+            vec3 r = hash_with_dxdy(uint(depth_max), frag_pos.zxy);
 
             int tile_idx = int(r.x);
             vec2 uv = clamp(r.zy, 0.f, 1.f);
@@ -292,7 +293,8 @@ pub fn start() -> Result<(), JsValue> {
             vec3 out_color = vec3(0.f);
             for(int i = 0; i < num_textures; i++) {
                 if (depth_textures[i] == depth_max && idx_textures[i] == tile_idx) {
-                    out_color = texture(textures_buffer, vec3(uv, float(tile_idx)/float(num_textures - 1))).rgb;
+                    int idx = idx_in_buffer[i];
+                    out_color = texture(textures_buffer, vec3(uv, float(idx)/float(num_textures - 1))).rgb;
                 }
             }
             out_frag_color = vec4(out_color, 1.0f);
