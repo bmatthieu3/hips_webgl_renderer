@@ -20,7 +20,7 @@ use std::collections::VecDeque;
 use crate::renderable::Mesh;
 use crate::shader::Shader;
 
-pub const MAX_NUMBER_TEXTURE: usize = 32;
+pub const MAX_NUMBER_TEXTURE: usize = 48;
 const MAX_TILES_IN_FOV: usize = 12;
 const NUM_VERTICES_PER_STEP: usize = 70;
 const NUM_STEPS: usize = 40;

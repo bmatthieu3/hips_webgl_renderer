@@ -101,7 +101,7 @@ pub fn start() -> Result<(), JsValue> {
         uniform int draw_grid;
         uniform int num_textures;
 
-        const int BUFFER_TEX_SIZE = 32;
+        const int BUFFER_TEX_SIZE = 48;
         uniform int depth_textures[BUFFER_TEX_SIZE];
         uniform int idx_textures[BUFFER_TEX_SIZE];
         uniform int idx_in_buffer[BUFFER_TEX_SIZE];
@@ -113,10 +113,10 @@ pub fn start() -> Result<(), JsValue> {
         const float TRANSITION_Z = 2.0f / 3.0f;
         const float TRANSITION_Z_INV = 3.0f / 2.0f;
 
-        uint quarter(vec2 p) {
+        int quarter(vec2 p) {
             bool x_neg = (p.x < 0.0f);
             bool y_neg = (p.y < 0.0f);
-            uint q = (uint(x_neg) + uint(y_neg)) | (uint(y_neg) << 1);
+            int q = (int(x_neg) + int(y_neg)) | (int(y_neg) << 1);
             return q;
         }
 
@@ -140,7 +140,7 @@ pub fn start() -> Result<(), JsValue> {
         
         float one_minus_z_pos(vec3 p) {
             //debug_assert!(z > 0.0);
-            float d2 = p.x * p.x + p.y * p.y; // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256
+            float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256
 
             if (d2 < 1e-1f) { // <=> dec > 84.27 deg
                 return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));
@@ -150,7 +150,7 @@ pub fn start() -> Result<(), JsValue> {
 
         float one_minus_z_neg(vec3 p) {
             //debug_assert!(z < 0.0);
-            float d2 = p.x * p.x + p.y * p.y; // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256
+            float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256
             if (d2 < 1e-1f) { // <=> dec < -84.27 deg
                 // 0.5 * d2 + 0.125 * d2 * d2
                 return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));
@@ -159,20 +159,20 @@ pub fn start() -> Result<(), JsValue> {
         }
 
         // Z-Order curve projection.
-        uint ij2z(uint i, uint j) {
-            uint i1 = i | (j << 16);
+        int ij2z(int i, int j) {
+            int i1 = i | (j << 16);
 
-            uint j1 = (i1 ^ (i1 >> 8)) & 0x0000FF00U;
-            uint i2 = i1 ^ j1 ^ (j1 << 8);
+            int j1 = (i1 ^ (i1 >> 8)) & 0x0000FF00;
+            int i2 = i1 ^ j1 ^ (j1 << 8);
 
-            uint j2 = (i2 ^ (i2 >> 4)) & 0x00F000F0U;
-            uint i3 = i2 ^ j2 ^ (j2 << 4);
+            int j2 = (i2 ^ (i2 >> 4)) & 0x00F000F0;
+            int i3 = i2 ^ j2 ^ (j2 << 4);
 
-            uint j3 = (i3 ^ (i3 >> 2)) & 0x0C0C0C0CU;
-            uint i4 = i3 ^ j3 ^ (j3 << 2);
+            int j3 = (i3 ^ (i3 >> 2)) & 0x0C0C0C0C;
+            int i4 = i3 ^ j3 ^ (j3 << 2);
 
-            uint j4 = (i4 ^ (i4 >> 1)) & 0x22222222U;
-            uint i5 = i4 ^ j4 ^ (j4 << 1);
+            int j4 = (i4 ^ (i4 >> 1)) & 0x22222222;
+            int i5 = i4 ^ j4 ^ (j4 << 1);
 
             return i5;
         }
@@ -195,25 +195,24 @@ pub fn start() -> Result<(), JsValue> {
         //   (hence `x^2 + y^2 + z^2 = 1`) !!
         // - Operations being made on simple precision float, the precision is lower than `~0.2 arcsec` only!!
         // - At depth 13, the precision on `(dx, dy)` is better than `(1/512, 1/512)`, i.e. 2e-3.
-        vec3 hash_with_dxdy(uint depth, vec3 p) {
+        vec3 hash_with_dxdy(int depth, vec3 p) {
             //assert!(depth <= 14);
             //assert!(-1.0 <= x && x <= 1.0);
             //assert!(-1.0 <= y && y <= 1.0);
             //assert!(-1.0 <= z && z <= 1.0);
-            //debug_assert!(1.0 - (x *  x + y * y + z * z) < 1e-5);
+            //debug_assert!(1.0 - (x * x + y * y + z * z) < 1e-5);
             // A f32 mantissa contains 23 bits.
             // - it basically means that when storing (x, y) coordinates,
             //   we can go as deep as depth 24 (or maybe 25)
             //return vec3(0.f, 0.f, 0.f);
             
-            uint nside = 1U << depth;
+            int nside = 1 << depth;
             float half_nside = float(nside) * 0.5f;
-            
 
             float x_pm1 = xpm1(p.xy);
-            uint q = quarter(p.xy);
+            int q = quarter(p.xy);
 
-            uint d0h = 0U;
+            int d0h = 0;
             vec2 p_proj = vec2(0.f);
             if (p.z > TRANSITION_Z) {
                 // North polar cap, Collignon projection.
@@ -226,7 +225,7 @@ pub fn start() -> Result<(), JsValue> {
                 // - set the origin to (PI/4, -PI/2)
                 float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_neg(p));
                 p_proj = vec2(x_pm1 * sqrt_3_one_min_z, sqrt_3_one_min_z);
-                d0h = q + 8U;
+                d0h = q + 8;
             } else {
                 // Equatorial region, Cylindrical equal area projection
                 // - set the origin to (PI/4, 0)               if q = 2
@@ -238,38 +237,38 @@ pub fn start() -> Result<(), JsValue> {
                 // |\2/|
                 // .3X1.
                 // |/0\|
-                uint q01 = uint(x_pm1 > y_pm1);  // 0/1
+                int q01 = int(x_pm1 > y_pm1);  // 0/1
                 //debug_assert!(q01 == 0 || q01 == 1);
-                uint q12 = uint(x_pm1 >= -y_pm1); // 0\1
+                int q12 = int(x_pm1 >= -y_pm1); // 0\1
                 //debug_assert!(q12 == 0 || q12 == 1);
-                uint q03 = 1U - q12; // 1\0
+                int q03 = 1 - q12; // 1\0
                 //let q13 = q01 ^ q12; debug_assert!(q13 == 0 || q13 == 1);
-                uint q1 = q01 & q12; // = 1 if q1, 0 else
+                int q1 = q01 & q12; // = 1 if q1, 0 else
                 //debug_assert!( q1 == 0 ||  q1 == 1);
                 // x: xcea - 0 if q3 | xcea - 2 if q1 | xcea - 1 if q0 or q2
                 //let x_proj = x_pm1 - ((q01 + q12) as i8 - 1) as f32;
                 // y: y - 0 if q2 | y - 1 if q1 or q3 | y - 2 if q0 
                 //let y_proj = y_pm1 + (q01 + q03) as f32;
                 p_proj = vec2(
-                    x_pm1 - float(int(q01 + q12) - 1),
+                    x_pm1 - float(q01 + q12 - 1),
                     y_pm1 + float(q01 + q03)
                 );
                 // d0h: +8 if q0 | +4 if q3 | +5 if q1
-                d0h = ((q01 + q03) << 2) + ((q + q1) & 3U);
+                d0h = ((q01 + q03) << 2) + ((q + q1) & 3);
             }
 
             // Coords inside the base cell
             float x = (half_nside * (p_proj.x + p_proj.y));
             float y = (half_nside * (p_proj.y - p_proj.x));
-            uint i = uint(x);
-            uint j = uint(y);
+            int i = int(x);
+            int j = int(y);
             // Deal with numerical inaccuracies, rare so branch miss-prediction negligible
             if (i == nside) {
-                i = i - 1U;
+                i = i - 1;
             }
             // Deal with numerical inaccuracies, rare so branch miss-prediction negligible
             if (j == nside) {
-                j = j - 1U;
+                j = j - 1;
             }
 
             return vec3(
@@ -283,41 +282,38 @@ pub fn start() -> Result<(), JsValue> {
         uniform int num_tex_in_fov;
 
         vec3 compute_color_from_hips(int depth, vec3 pos) {
-            vec3 res = hash_with_dxdy(uint(depth), pos.zxy);
+            vec3 res = hash_with_dxdy(depth, pos.zxy);
 
             int tile_idx = int(res.x);
             vec2 uv = res.zy;
 
             int num_loaded_tile = min(num_tex_in_fov, num_textures);
-            if (depth == current_depth) {
+            /*if (depth == current_depth) {
                 for(int i = 0; i < num_loaded_tile; i++) {
                     if (depth_textures[i] == depth && idx_textures[i] == tile_idx) {
                         int idx = idx_in_buffer[i];
                         return texture(textures_buffer, vec3(uv, float(idx)/float(num_textures - 1))).rgb;
                     }
                 }
-            } else {
-                for(int i = 0; i < num_textures; i++) {
+            } else {*/
+                for(int i = 0; i < max(num_tex_in_fov, num_textures); i++) {
                     if (depth_textures[i] == depth && idx_textures[i] == tile_idx) {
                         int idx = idx_in_buffer[i];
                         return texture(textures_buffer, vec3(uv, float(idx)/float(num_textures - 1))).rgb;
                     }
                 }
-            }
+            //}
             return vec3(0.f);
         }
 
         void main() {
             vec3 frag_pos = normalize(out_vert_pos);
             // Get the HEALPix cell idx and the uv in the texture
-            vec3 out_color = vec3(0.f);
-            if (current_depth >= 1) {
-                out_color = compute_color_from_hips(current_depth - 1, frag_pos);
-            }
-            vec3 current_color = compute_color_from_hips(current_depth, frag_pos);
-            if (current_color != vec3(0.f)) {
-                out_color = current_color;
-            }
+            vec3 out_color = compute_color_from_hips(current_depth, frag_pos);
+            //if (out_color == vec3(0.f)) {
+            //    out_color = compute_color_from_hips(current_depth - 1, frag_pos);
+            //}
+
             out_frag_color = vec4(out_color, 1.0f);
 
             if(draw_grid == 1) {
