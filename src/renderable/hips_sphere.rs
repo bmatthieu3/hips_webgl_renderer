@@ -20,7 +20,8 @@ use std::collections::VecDeque;
 use crate::renderable::Mesh;
 use crate::shader::Shader;
 
-pub const MAX_NUMBER_TEXTURE: usize = 12;
+pub const MAX_NUMBER_TEXTURE: usize = 32;
+const MAX_TILES_IN_FOV: usize = 12;
 const NUM_VERTICES_PER_STEP: usize = 70;
 const NUM_STEPS: usize = 40;
 
@@ -48,8 +49,8 @@ impl HiPSSphere {
     pub fn new(gl: Rc<WebGl2RenderingContext>) -> HiPSSphere {
         let buffer_textures = HEALPixTextureBuffer::new();
         let depth = 0;
-        let idx_textures = ((0 as i32)..(MAX_NUMBER_TEXTURE as i32)).collect::<Vec<_>>();
-        let depth_textures = iter::repeat(0).take(MAX_NUMBER_TEXTURE).collect::<Vec<_>>();
+        let idx_textures = ((0 as i32)..(12 as i32)).collect::<Vec<_>>();
+        let depth_textures = iter::repeat(0).take(12).collect::<Vec<_>>();
         let mut hips_sphere = HiPSSphere {
             buffer_textures : buffer_textures,
             idx_textures: Rc::new(RefCell::new(vec![])),
@@ -165,10 +166,10 @@ impl HiPSSphere {
                 pos_world_space
             })
             .collect::<Vec<_>>();
-        
+
         let (depth, healpix_cells) = if pos_ws.len() == num_control_points {
-            let fov = math::angular_distance_xyz(pos_ws[0], pos_ws[num_control_points_width + 1]) / 2_f32;
-        
+            //let fov = math::angular_distance_xyz(pos_ws[0], pos_ws[num_control_points_width + 1]) / 4_f32;
+
             let vertices = pos_ws.into_iter()
                 .map(|pos_world_space| {
                     // Take into account the rotation of the sphere
@@ -186,25 +187,23 @@ impl HiPSSphere {
                 })
                 .collect::<Vec<_>>();
 
-            let depth = math::resolution_to_depth(fov);
+            /*let depth = math::resolution_to_depth(fov);
 
             let moc = healpix::nested::polygon_coverage(depth as u8, &vertices, true);
             let healpix_cells_in_fov = moc.flat_iter()
                     .map(|hpx_idx_u64| hpx_idx_u64 as i32)
                     .collect::<Vec<_>>();
-            console::log_1(&format!("current depth {:?}, num cells in fov {:?}", depth, healpix_cells_in_fov.len()).into());
-            /*let mut depth = 1;
+            console::log_1(&format!("current depth {:?}, num cells in fov {:?}", depth, healpix_cells_in_fov.len()).into());*/
+            let mut depth = 1;
             let mut num_healpix_cells_in_fov = 12;
             let mut healpix_cells_in_fov = (0..12).collect::<Vec<_>>();
-            while num_healpix_cells_in_fov <= 12 {
+            while num_healpix_cells_in_fov <= MAX_TILES_IN_FOV {
                 let moc = healpix::nested::polygon_coverage(depth as u8, &vertices, true);
                 let healpix_cells = moc.flat_iter()
                     .map(|hpx_idx_u64| hpx_idx_u64 as i32)
                     .collect::<Vec<_>>();
-                
-                console::log_1(&format!("current depth {:?}, current healpix_cells {:?}", depth, healpix_cells.len()).into());
 
-                if healpix_cells.len() > 12 {
+                if healpix_cells.len() > MAX_TILES_IN_FOV {
                     depth -= 1;
                     break;
                 }
@@ -212,7 +211,8 @@ impl HiPSSphere {
                 depth += 1;
                 num_healpix_cells_in_fov = healpix_cells.len();
                 healpix_cells_in_fov = healpix_cells;
-            }*/
+            }
+            console::log_1(&format!("current depth {:?}, current healpix_cells {:?}", depth, healpix_cells_in_fov.len()).into());
 
             (depth, healpix_cells_in_fov)
         } else {
@@ -417,17 +417,20 @@ impl Mesh for HiPSSphere {
         // Depth of the visible HEALPix cells
         let healpix_depth_uniform = shader.get_uniform_location(gl, "depth_textures").unwrap();
         let healpix_idx_in_buffer_uniform = shader.get_uniform_location(gl, "idx_in_buffer").unwrap();
-        let healpix_depth_max_uniform = shader.get_uniform_location(gl, "depth_max").unwrap();
+        let healpix_current_depth_uniform = shader.get_uniform_location(gl, "current_depth").unwrap();
         let textures_buffer_uniform = shader.get_uniform_location(gl, "textures_buffer").unwrap();
+        let num_textures_in_fov_uniform = shader.get_uniform_location(gl, "num_tex_in_fov").unwrap();
+        
         Box::new([
             num_textures_uniform,
             //textures_data_uniform,
             healpix_depth_uniform,
-            healpix_depth_max_uniform,
+            healpix_current_depth_uniform,
             healpix_idx_uniform,
             healpix_idx_in_buffer_uniform,
             grid_uniform,
             textures_buffer_uniform,
+            num_textures_in_fov_uniform,
         ])
     }
 
@@ -461,11 +464,13 @@ impl Mesh for HiPSSphere {
         gl.uniform1iv_with_i32_array(Some(uniform_locations[4].as_ref()), &idx_textures_in_buffer);
 
         // Send grid enable
-        gl.uniform1i(Some(uniform_locations[5].as_ref()), 1);
+        gl.uniform1i(Some(uniform_locations[5].as_ref()), 0);
 
         // Send sampler3D enable
         //glActiveTexture(GL_TEXTURE0);
         gl.uniform1i(Some(uniform_locations[6].as_ref()), 0);
         //glBindTexture(GL_TEXTURE_3D,volumetext);
+
+        gl.uniform1i(Some(uniform_locations[7].as_ref()), MAX_TILES_IN_FOV as i32);
     }
 }

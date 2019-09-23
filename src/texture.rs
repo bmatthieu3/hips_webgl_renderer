@@ -17,7 +17,7 @@ use std::collections::VecDeque;
 const HEIGHT_TEXTURE: f64 = 512_f64;
 const WIDTH_TEXTURE: f64 = 512_f64;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct HEALPixCellRequest {
     texture: Rc<RefCell<HtmlImageElement>>,
     idx: i32,
@@ -133,18 +133,25 @@ impl HEALPixTextureBuffer {
             let mut tmp_buffer = self.buffer.borrow_mut().clone()
                 .into_sorted_vec();
 
-            let idx_hpx_cell = tmp_buffer.iter().position(|x| x.eq(&healpix_cell));
+            let idx_hpx_cell = tmp_buffer.iter().position(|x| x.idx == healpix_cell.idx && x.depth == healpix_cell.depth);
 
             if let Some(idx_hpx_cell) = idx_hpx_cell {
+                //console::log_1(&format!("found cell: {:?}", healpix_cell).into());
                 // Found
                 let mut healpix_cell_to_change_priority = tmp_buffer.remove(idx_hpx_cell);
                 healpix_cell_to_change_priority.time_request = healpix_cell.time_request;
                 // Change time priority
 
-                let tmp_buffer = tmp_buffer.into_iter().collect::<BinaryHeap<_>>();
-                self.buffer = Rc::new(RefCell::new(tmp_buffer));
+                //let tmp_buffer = tmp_buffer.into_iter().collect::<BinaryHeap<_>>();
+                self.buffer.borrow_mut().clear();
+                for hpx_cell in tmp_buffer {
+                    self.buffer.borrow_mut().push(hpx_cell);
+                }
+                //self.buffer = Rc::new(RefCell::new(tmp_buffer));
 
                 self.buffer.borrow_mut().push(healpix_cell_to_change_priority);
+
+                //console::log_1(&format!("BUFFER STATE: {:?}", self.buffer.borrow().clone().into_sorted_vec()).into());
             }
         } else {
             // Add it to the loaded cells hashset
@@ -170,20 +177,30 @@ impl HEALPixTextureBuffer {
                 let healpix_cell = healpix_cell.clone();
 
                 Closure::wrap(Box::new(move || {
-                    console::log_1(&format!("{:?} loaded", url).into());
-                    if buffer.borrow().len() == MAX_NUMBER_TEXTURE {
+                    //console::log_1(&format!("{:?} loaded", url).into());
+                    //console::log_1(&format!("buffer, {:?}", buffer.borrow().clone().into_sorted_vec()).into());
+                    let idx_y = if buffer.borrow().len() == MAX_NUMBER_TEXTURE {
                         // Remove the oldest tile from the buffer and from the
                         // hashset
                         let oldest_healpix_cell = buffer.borrow_mut().pop().unwrap();
                         loaded_cells.borrow_mut().remove(&oldest_healpix_cell);
-                    }
-                    let idx_y = num_load_tile.get() % MAX_NUMBER_TEXTURE;
+
+                        //console::log_1(&format!("remove oldies, {:?}", oldest_healpix_cell).into());
+
+                        oldest_healpix_cell.idx_in_buffer
+                    } else {
+                        let idx = num_load_tile.get() % MAX_NUMBER_TEXTURE;
+                        idx as i32
+                    };
+                    //let idx_y = num_load_tile.get() % MAX_NUMBER_TEXTURE;
                     num_load_tile.set(num_load_tile.get() + 1);
                     let mut healpix_indexed = healpix_cell.clone();
                     healpix_indexed.idx_in_buffer = idx_y as i32;
 
                     buffer.borrow_mut().push(healpix_indexed);
                     let current_buffer_length = buffer.borrow().len();
+
+                    //console::log_1(&format!("buffer after, {:?}", buffer.borrow().clone().into_sorted_vec()).into());
 
                     // Create the canvas containing the data
                     let dy = idx_y * 512;

@@ -101,12 +101,11 @@ pub fn start() -> Result<(), JsValue> {
         uniform int draw_grid;
         uniform int num_textures;
 
-        const uint NUM_MAX_TILES = 12U;
-        //uniform sampler2D texture_hips_tile[NUM_MAX_TILES];
-        uniform int depth_textures[NUM_MAX_TILES];
-        uniform int idx_textures[NUM_MAX_TILES];
-        uniform int idx_in_buffer[NUM_MAX_TILES];
-        uniform int depth_max;
+        const int BUFFER_TEX_SIZE = 32;
+        uniform int depth_textures[BUFFER_TEX_SIZE];
+        uniform int idx_textures[BUFFER_TEX_SIZE];
+        uniform int idx_in_buffer[BUFFER_TEX_SIZE];
+        uniform int current_depth;
         uniform sampler3D textures_buffer;
 
         const float PI = 3.1415926535897932384626433832795f;
@@ -281,21 +280,43 @@ pub fn start() -> Result<(), JsValue> {
         }
 
         uniform float zoom_factor;
+        uniform int num_tex_in_fov;
+
+        vec3 compute_color_from_hips(int depth, vec3 pos) {
+            vec3 res = hash_with_dxdy(uint(depth), pos.zxy);
+
+            int tile_idx = int(res.x);
+            vec2 uv = res.zy;
+
+            int num_loaded_tile = min(num_tex_in_fov, num_textures);
+            if (depth == current_depth) {
+                for(int i = 0; i < num_loaded_tile; i++) {
+                    if (depth_textures[i] == depth && idx_textures[i] == tile_idx) {
+                        int idx = idx_in_buffer[i];
+                        return texture(textures_buffer, vec3(uv, float(idx)/float(num_textures - 1))).rgb;
+                    }
+                }
+            } else {
+                for(int i = 0; i < num_textures; i++) {
+                    if (depth_textures[i] == depth && idx_textures[i] == tile_idx) {
+                        int idx = idx_in_buffer[i];
+                        return texture(textures_buffer, vec3(uv, float(idx)/float(num_textures - 1))).rgb;
+                    }
+                }
+            }
+            return vec3(0.f);
+        }
 
         void main() {
             vec3 frag_pos = normalize(out_vert_pos);
             // Get the HEALPix cell idx and the uv in the texture
-            vec3 r = hash_with_dxdy(uint(depth_max), frag_pos.zxy);
-
-            int tile_idx = int(r.x);
-            vec2 uv = clamp(r.zy, 0.f, 1.f);
-            
             vec3 out_color = vec3(0.f);
-            for(int i = 0; i < num_textures; i++) {
-                if (depth_textures[i] == depth_max && idx_textures[i] == tile_idx) {
-                    int idx = idx_in_buffer[i];
-                    out_color = texture(textures_buffer, vec3(uv, float(idx)/float(num_textures - 1))).rgb;
-                }
+            if (current_depth >= 1) {
+                out_color = compute_color_from_hips(current_depth - 1, frag_pos);
+            }
+            vec3 current_color = compute_color_from_hips(current_depth, frag_pos);
+            if (current_color != vec3(0.f)) {
+                out_color = current_color;
             }
             out_frag_color = vec4(out_color, 1.0f);
 
@@ -543,7 +564,7 @@ pub fn start() -> Result<(), JsValue> {
     }
 
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
-        if !pressed.get() && roll.get() {
+        /*if !pressed.get() && roll.get() {
             let next_dist = compute_speed(time_last_move.get(), last_dist.get() * 0.5_f32);
             if next_dist > 1e-4 {
                 sphere.borrow_mut().apply_rotation(-last_axis.get(), cgmath::Rad(next_dist));
@@ -555,7 +576,7 @@ pub fn start() -> Result<(), JsValue> {
             if (utils::get_current_time() as f32) - time_last_move.get() > 50_f32 {
                 roll.set(false);
             }
-        }
+        }*/
 
         // Render the scene
         gl.clear_color(0.08, 0.08, 0.08, 1.0);
