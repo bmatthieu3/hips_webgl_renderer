@@ -280,6 +280,7 @@ pub fn start() -> Result<(), JsValue> {
 
         uniform float zoom_factor;
         uniform int num_tex_in_fov;
+        uniform int max_depth;
 
         vec3 compute_color_from_hips(int depth, vec3 pos) {
             vec3 res = hash_with_dxdy(depth, pos.zxy);
@@ -287,32 +288,34 @@ pub fn start() -> Result<(), JsValue> {
             int tile_idx = int(res.x);
             vec2 uv = res.zy;
 
-            int num_loaded_tile = min(num_tex_in_fov, num_textures);
-            /*if (depth == current_depth) {
-                for(int i = 0; i < num_loaded_tile; i++) {
-                    if (depth_textures[i] == depth && idx_textures[i] == tile_idx) {
-                        int idx = idx_in_buffer[i];
-                        return texture(textures_buffer, vec3(uv, float(idx)/float(num_textures - 1))).rgb;
-                    }
+            float tex_step = 1.f / float(BUFFER_TEX_SIZE - 1);
+
+            int min_textures = 0;
+            int max_textures = min(num_tex_in_fov, num_textures);
+            if(depth != current_depth) {
+                max_textures = max(num_tex_in_fov, num_textures);
+            } 
+            for(int i = min_textures; i < max_textures; i++) {
+                if (depth_textures[i] == depth && idx_textures[i] == tile_idx) {
+                    int idx = idx_in_buffer[i];
+                    return texture(textures_buffer, vec3(uv, float(idx)*tex_step)).rgb;
                 }
-            } else {*/
-                for(int i = 0; i < max(num_tex_in_fov, num_textures); i++) {
-                    if (depth_textures[i] == depth && idx_textures[i] == tile_idx) {
-                        int idx = idx_in_buffer[i];
-                        return texture(textures_buffer, vec3(uv, float(idx)/float(num_textures - 1))).rgb;
-                    }
-                }
-            //}
+            }
+
             return vec3(0.f);
         }
 
         void main() {
             vec3 frag_pos = normalize(out_vert_pos);
             // Get the HEALPix cell idx and the uv in the texture
-            vec3 out_color = compute_color_from_hips(current_depth, frag_pos);
-            //if (out_color == vec3(0.f)) {
-            //    out_color = compute_color_from_hips(current_depth - 1, frag_pos);
-            //}
+            vec3 out_color = compute_color_from_hips(min(current_depth, max_depth), frag_pos);
+            /*if (current_depth > 0) {
+                out_color = compute_color_from_hips(current_depth - 1, frag_pos);
+            }
+            if (current_depth < max_depth) {
+                out_color = compute_color_from_hips(current_depth + 1, frag_pos);
+            }*/
+
 
             out_frag_color = vec4(out_color, 1.0f);
 
@@ -375,6 +378,9 @@ pub fn start() -> Result<(), JsValue> {
         projection.clone(),
         hips_sphere_mesh.clone(),
     )));
+
+    let model_mat = &sphere.as_ref().borrow().get_model_mat();
+    hips_sphere_mesh.borrow_mut().update_field_of_view(gl.clone(), &projection.as_ref().borrow(), &viewport.borrow(), model_mat);
 
     // Definition of the model matrix
     /*let mut direct_system = Rc::new(
@@ -546,7 +552,7 @@ pub fn start() -> Result<(), JsValue> {
             let delta_y = event.delta_y() as f32;
 
             if delta_y < 0_f32 {
-                viewport.borrow_mut().zoom(hips_sphere_mesh.borrow().depth_max);
+                viewport.borrow_mut().zoom(hips_sphere_mesh.borrow().current_depth);
             } else {
                 viewport.borrow_mut().unzoom();
             }

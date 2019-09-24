@@ -11,10 +11,10 @@ pub fn xyz_to_radec(v: cgmath::Vector3<f32>) -> (f32, f32) {
     )
 }
 
-pub fn resolution_to_depth(x: f32) -> i32 {
-    let depth = (4_f32 * std::f32::consts::PI) / (12_f32 * x * x);
+pub fn ang_per_pixel_to_depth(x: f32) -> i32 {
+    let depth_pixel = (((4_f32 * std::f32::consts::PI) / (12_f32 * x * x)).log2() / 2_f32).floor() as i32;
 
-    let mut depth = (depth.log2() / 2_f32).floor() as i32;
+    let mut depth = depth_pixel - 9;
     if depth < 0 {
         depth = 0;
     }

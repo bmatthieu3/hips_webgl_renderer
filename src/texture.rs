@@ -97,7 +97,7 @@ pub struct HEALPixTextureBuffer {
 use web_sys::console;
 
 impl HEALPixTextureBuffer {
-    pub fn new() -> HEALPixTextureBuffer {
+    pub fn new(gl: Rc<WebGl2RenderingContext>) -> HEALPixTextureBuffer {
         let buffer = Rc::new(RefCell::new(BinaryHeap::with_capacity(MAX_NUMBER_TEXTURE)));
         let loaded_cells = Rc::new(RefCell::new(HashSet::with_capacity(MAX_NUMBER_TEXTURE)));
 
@@ -108,6 +108,7 @@ impl HEALPixTextureBuffer {
         let canvas: web_sys::HtmlCanvasElement = canvas.dyn_into::<web_sys::HtmlCanvasElement>().unwrap();
         canvas.set_width(512);
         canvas.set_height(512 * (MAX_NUMBER_TEXTURE as u32));
+        
         let ctx = Rc::new(
             RefCell::new(
                 canvas.get_context("2d")
@@ -116,7 +117,37 @@ impl HEALPixTextureBuffer {
                     .dyn_into::<CanvasRenderingContext2d>().unwrap()
             )
         );
+        //ctx.borrow().set_fill_style(&"red".into());
+        //ctx.borrow().fill_rect(0_f64, 0_f64, 512_f64, 512_f64 * (MAX_NUMBER_TEXTURE as f64));
+        let webgl_texture = gl.create_texture();
+        gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+        gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, webgl_texture.as_ref());
+
+        gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::NEAREST as i32);
+        gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::NEAREST as i32);
+
+        // Prevents s-coordinate wrapping (repeating)
+        gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
+        // Prevents t-coordinate wrapping (repeating)
+        gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_WRAP_T, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
+        // Prevents r-coordinate wrapping (repeating)
+        gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_WRAP_R, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
+
+        gl.tex_image_3d_with_html_canvas_element(
+            WebGl2RenderingContext::TEXTURE_3D,
+            0,
+            WebGl2RenderingContext::RGBA as i32,
+            512,
+            512,
+            MAX_NUMBER_TEXTURE as i32,
+            0,
+            WebGl2RenderingContext::RGBA,
+            WebGl2RenderingContext::UNSIGNED_BYTE,
+            &ctx.borrow().canvas().unwrap(),
+        )
+        .expect("Texture 3d");
         let num_load_tile = Rc::new(Cell::new(0));
+
         HEALPixTextureBuffer {
             buffer,
             loaded_cells,
@@ -170,74 +201,53 @@ impl HEALPixTextureBuffer {
             let onload = {
                 let buffer = self.buffer.clone();
                 let loaded_cells = self.loaded_cells.clone();
-                let ctx = self.ctx.clone();
                 let num_load_tile = self.num_load_tile.clone();
                 let texture_clone = healpix_cell.texture.clone();
-                let url = url.clone();
                 let healpix_cell = healpix_cell.clone();
+                let url = url.clone();
 
                 Closure::wrap(Box::new(move || {
-                    //console::log_1(&format!("{:?} loaded", url).into());
+                    console::log_1(&format!("{:?} loaded", url).into());
                     //console::log_1(&format!("buffer, {:?}", buffer.borrow().clone().into_sorted_vec()).into());
-                    let idx_y = if buffer.borrow().len() == MAX_NUMBER_TEXTURE {
+                    let idx = if buffer.borrow().len() == MAX_NUMBER_TEXTURE {
                         // Remove the oldest tile from the buffer and from the
                         // hashset
                         let oldest_healpix_cell = buffer.borrow_mut().pop().unwrap();
                         loaded_cells.borrow_mut().remove(&oldest_healpix_cell);
 
-                        //console::log_1(&format!("remove oldies, {:?}", oldest_healpix_cell).into());
-
                         oldest_healpix_cell.idx_in_buffer
                     } else {
-                        let idx = num_load_tile.get() % MAX_NUMBER_TEXTURE;
-                        idx as i32
+                        buffer.borrow().len() as i32
                     };
-                    //let idx_y = num_load_tile.get() % MAX_NUMBER_TEXTURE;
-                    num_load_tile.set(num_load_tile.get() + 1);
-                    let mut healpix_indexed = healpix_cell.clone();
-                    healpix_indexed.idx_in_buffer = idx_y as i32;
-
-                    buffer.borrow_mut().push(healpix_indexed);
-                    let current_buffer_length = buffer.borrow().len();
-
-                    //console::log_1(&format!("buffer after, {:?}", buffer.borrow().clone().into_sorted_vec()).into());
-
-                    // Create the canvas containing the data
-                    let dy = idx_y * 512;
-                    let dx = 0;
-
-                    ctx.borrow().draw_image_with_html_image_element(&texture_clone.borrow(), dx as f64, dy as f64).unwrap();
-
-                    let width_texture_3d = WIDTH_TEXTURE;
-                    let height_texture_3d = HEIGHT_TEXTURE * (current_buffer_length as f64);
-                    let image_data = ctx.borrow().get_image_data(0_f64, 0_f64, width_texture_3d, height_texture_3d).unwrap();
-
-                    let webgl_texture = gl.create_texture();
-                    gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-                    gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, webgl_texture.as_ref());
-
-                    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::NEAREST as i32);
-                    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::NEAREST as i32);
-
-                    // Prevents s-coordinate wrapping (repeating)
-                    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
-                    // Prevents t-coordinate wrapping (repeating)
-                    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_WRAP_T, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
-                    // Prevents r-coordinate wrapping (repeating)
-                    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_WRAP_R, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
-                    gl.tex_image_3d_with_image_data(
+                    gl.tex_sub_image_3d_with_html_image_element(
                         WebGl2RenderingContext::TEXTURE_3D,
                         0,
-                        WebGl2RenderingContext::RGBA as i32,
-                        512,
-                        512,
-                        current_buffer_length as i32,
                         0,
+                        0,
+                        idx,
+                        512,
+                        512,
+                        1,
                         WebGl2RenderingContext::RGBA,
                         WebGl2RenderingContext::UNSIGNED_BYTE,
-                        &image_data,
+                        &texture_clone.borrow(),
                     )
                     .expect("Texture 3d");
+                    //let idx_y = num_load_tile.get() % MAX_NUMBER_TEXTURE;
+                    //num_load_tile.set(num_load_tile.get() + 1);
+                    let mut healpix_indexed = healpix_cell.clone();
+                    healpix_indexed.idx_in_buffer = idx as i32;
+
+                    buffer.borrow_mut().push(healpix_indexed);
+                    //console::log_1(&format!("BUFFER {:?}", buffer.borrow().clone().into_sorted_vec()).into());
+                    console::log_1(&format!("buffer after, {:?}", buffer.borrow().clone().into_sorted_vec()).into());
+
+                    // Create the canvas containing the data
+
+                    //let width_texture_3d = WIDTH_TEXTURE;
+                    //let height_texture_3d = HEIGHT_TEXTURE * (current_buffer_length as f64);
+                    //let image_data = ctx.borrow().get_image_data(0_f64, 0_f64, width_texture_3d, height_texture_3d).unwrap();
+                    console::log_1(&format!("{:?} idx", idx).into());
                 }) as Box<dyn Fn()>)
             };
 
@@ -267,7 +277,6 @@ impl HEALPixTextureBuffer {
                 (hpx.depth, hpx.idx)
             })
             .unzip();
-
         (depth_tiles, idx_tiles)
     }
 
