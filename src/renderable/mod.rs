@@ -37,12 +37,7 @@ pub trait Mesh {
     fn create_color_array() -> js_sys::Float32Array;
     fn create_index_array() -> js_sys::Uint32Array;
 
-    fn init_uniforms(gl: &WebGl2RenderingContext, shader: &Shader) -> Box<[WebGlUniformLocation]>;
-    fn send_uniforms(
-        &self,
-        gl: &WebGl2RenderingContext,
-        uniform_locations: &Box<[WebGlUniformLocation]>,
-    );
+    fn send_uniforms(&self, gl: &WebGl2RenderingContext, shader: &Shader);
 }
 
 pub mod hips_sphere;
@@ -71,9 +66,6 @@ where T: Mesh {
     // Buffers id
     buffers: Box<[(u32, i32, WebGlBuffer)]>,
 
-    // Uniforms
-    uniforms: Box<[WebGlUniformLocation]>,
-
     num_vertices: i32,
     mesh: Rc<RefCell<T>>
 }
@@ -88,8 +80,6 @@ where T: Mesh {
 
         let (buffers, num_vertices, vao) = T::create_buffers(gl, &projection.as_ref().borrow());
         T::link_buffers_to_vertex_shader(gl, &buffers);
-        
-        let uniforms = T::init_uniforms(gl, shader.borrow());
 
         let model_mat = cgmath::Matrix4::identity();
 
@@ -111,8 +101,6 @@ where T: Mesh {
             vao,
             // Buffers indexes
             buffers,
-            // Uniforms indexes
-            uniforms,
             // Num of vertices to draw
             num_vertices,
             mesh
@@ -149,7 +137,7 @@ where T: Mesh {
 
         // Send Uniforms
         viewport.send_to_vertex_shader(gl, self.shader.borrow());
-        self.mesh.as_ref().borrow().send_uniforms(gl, &self.uniforms);
+        self.mesh.as_ref().borrow().send_uniforms(gl, &self.shader);
 
         // Get the attribute location of the model matrix from the Vertex shader
         let model_mat_location = self.shader.get_uniform_location(gl, "model");

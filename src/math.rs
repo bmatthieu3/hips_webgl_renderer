@@ -20,8 +20,3 @@ pub fn ang_per_pixel_to_depth(x: f32) -> i32 {
     }
     depth
 }
-
-pub fn depth_to_resolution(depth: i32) -> f32 {
-    let resolution = (4_f32 * std::f32::consts::PI / (12_f32 * 4_f32.powf(depth as f32))).sqrt();
-    resolution
-}

@@ -147,13 +147,6 @@ impl Mesh for DirectSystem {
         vao)
     }
 
-    fn init_uniforms(gl: &WebGl2RenderingContext, shader: &Shader) -> Box<[WebGlUniformLocation]> {
-        Box::new([])
+    fn send_uniforms(&self, gl: &WebGl2RenderingContext, shader: &Shader) {
     }
-
-    fn send_uniforms(
-        &self,
-        gl: &WebGl2RenderingContext,
-        uniform_locations: &Box<[WebGlUniformLocation]>,
-    ) {}
 }

@@ -98,18 +98,7 @@ pub fn start() -> Result<(), JsValue> {
 
         out vec4 out_frag_color;
 
-        uniform int draw_grid;
-        uniform int num_textures;
-
-        const int BUFFER_TEX_SIZE = 48;
-        uniform int depth_textures[BUFFER_TEX_SIZE];
-        uniform int idx_textures[BUFFER_TEX_SIZE];
-        uniform int idx_in_buffer[BUFFER_TEX_SIZE];
-        uniform int current_depth;
-        uniform sampler3D textures_buffer;
-
         const float PI = 3.1415926535897932384626433832795f;
-
         const float TRANSITION_Z = 2.0f / 3.0f;
         const float TRANSITION_Z_INV = 3.0f / 2.0f;
 
@@ -279,44 +268,160 @@ pub fn start() -> Result<(), JsValue> {
         }
 
         uniform float zoom_factor;
-        uniform int num_tex_in_fov;
-        uniform int max_depth;
+        uniform int draw_grid;
+        uniform sampler3D textures_buffer;
+        uniform sampler3D textures_zero_depth_buffer;
 
-        vec3 compute_color_from_hips(int depth, vec3 pos) {
-            vec3 res = hash_with_dxdy(depth, pos.zxy);
+        const int BUFFER_TEX_SIZE = 48;
+        const int BUFFER_ZERO_TEX_SIZE = 12;
+
+        struct HEALPixCell {
+            int idx; // Healpix cell
+            int buf_idx; // Index in the texture buffer
+            float time_received; // Absolute time that the load has been done in ms
+        };
+
+        uniform int current_depth;
+        uniform HEALPixCell hpx_current_depth[BUFFER_TEX_SIZE];
+        uniform int num_current_depth_hpx_tiles;
+
+        uniform int prev_depth;
+        uniform HEALPixCell hpx_prev_depth[BUFFER_TEX_SIZE];
+        uniform int num_prev_depth_hpx_tiles;
+
+        uniform int next_depth;
+        uniform HEALPixCell hpx_next_depth[BUFFER_TEX_SIZE];
+        uniform int num_next_depth_hpx_tiles;
+
+        uniform HEALPixCell hpx_zero_depth[BUFFER_ZERO_TEX_SIZE];
+
+        const HEALPixCell no_cell = HEALPixCell(-1, -1, 0.f);
+        struct HEALPixCellContrib {
+            HEALPixCell cell;
+            vec3 color;
+        };
+
+        HEALPixCellContrib compute_current_depth_color_from_hips(vec3 pos) {
+            vec3 res = hash_with_dxdy(current_depth, pos.zxy);
+            float tex_step = 1.f / float(BUFFER_TEX_SIZE - 1);
 
             int tile_idx = int(res.x);
             vec2 uv = res.zy;
 
-            float tex_step = 1.f / float(BUFFER_TEX_SIZE - 1);
+            for(int i = 0; i < num_current_depth_hpx_tiles; i++) {
+                if (hpx_current_depth[i].idx == tile_idx) {
+                    HEALPixCell cell = hpx_current_depth[i];
+                    int idx = cell.buf_idx;
+                    vec3 color = texture(textures_buffer, vec3(uv, float(idx)*tex_step)).rgb;
 
-            int min_textures = 0;
-            int max_textures = min(num_tex_in_fov, num_textures);
-            if(depth != current_depth) {
-                max_textures = max(num_tex_in_fov, num_textures);
-            } 
-            for(int i = min_textures; i < max_textures; i++) {
-                if (depth_textures[i] == depth && idx_textures[i] == tile_idx) {
-                    int idx = idx_in_buffer[i];
-                    return texture(textures_buffer, vec3(uv, float(idx)*tex_step)).rgb;
+                    return HEALPixCellContrib(cell, color);
                 }
             }
 
-            return vec3(0.f);
+            return HEALPixCellContrib(no_cell, vec3(0.f));
         }
+        HEALPixCellContrib compute_prev_depth_color_from_hips(vec3 pos) {
+            vec3 res = hash_with_dxdy(prev_depth, pos.zxy);
+            float tex_step = 1.f / float(BUFFER_TEX_SIZE - 1);
+
+            int tile_idx = int(res.x);
+            vec2 uv = res.zy;
+
+            for(int i = 0; i < num_prev_depth_hpx_tiles; i++) {
+                if (hpx_prev_depth[i].idx == tile_idx) {
+                    HEALPixCell cell = hpx_prev_depth[i];
+                    int idx = cell.buf_idx;
+                    vec3 color = texture(textures_buffer, vec3(uv, float(idx)*tex_step)).rgb;
+
+                    return HEALPixCellContrib(cell, color);
+                }
+            }
+
+            return HEALPixCellContrib(no_cell, vec3(0.f));
+        }
+        HEALPixCellContrib compute_next_depth_color_from_hips(vec3 pos) {
+            vec3 res = hash_with_dxdy(next_depth, pos.zxy);
+            float tex_step = 1.f / float(BUFFER_TEX_SIZE - 1);
+
+            int tile_idx = int(res.x);
+            vec2 uv = res.zy;
+
+            for(int i = 0; i < num_next_depth_hpx_tiles; i++) {
+                if (hpx_next_depth[i].idx == tile_idx) {
+                    HEALPixCell cell = hpx_next_depth[i];
+                    int idx = cell.buf_idx;
+                    vec3 color = texture(textures_buffer, vec3(uv, float(idx)*tex_step)).rgb;
+
+                    return HEALPixCellContrib(cell, color);
+                }
+            }
+
+            return HEALPixCellContrib(no_cell, vec3(0.f));
+        }
+        HEALPixCellContrib compute_zero_depth_color_from_hips(vec3 pos) {
+            vec3 res = hash_with_dxdy(0, pos.zxy);
+            float tex_step = 1.f / float(BUFFER_ZERO_TEX_SIZE - 1);
+
+            int tile_idx = int(res.x);
+            vec2 uv = res.zy;
+
+            for(int i = 0; i < 12; i++) {
+                if (hpx_zero_depth[i].idx == tile_idx) {
+                    HEALPixCell cell = hpx_zero_depth[i];
+                    int idx = cell.buf_idx;
+                    vec3 color = texture(textures_zero_depth_buffer, vec3(uv, float(idx)*tex_step)).rgb;
+
+                    return HEALPixCellContrib(cell, color);
+                }
+            }
+
+            // code unreachable
+            return HEALPixCellContrib(no_cell, vec3(0.f));
+        }
+
+        const float duration = 500.f; // 1000 ms
+        uniform float current_time; // current time in ms
 
         void main() {
             vec3 frag_pos = normalize(out_vert_pos);
             // Get the HEALPix cell idx and the uv in the texture
-            vec3 out_color = compute_color_from_hips(min(current_depth, max_depth), frag_pos);
-            /*if (current_depth > 0) {
-                out_color = compute_color_from_hips(current_depth - 1, frag_pos);
+            HEALPixCellContrib current_cell = compute_current_depth_color_from_hips(frag_pos);
+            float alpha = 0.f;
+            if (current_cell.cell.idx > -1) { // tile downloaded
+                alpha = clamp((current_time - current_cell.cell.time_received) / duration, 0.f, 1.f);
             }
-            if (current_depth < max_depth) {
-                out_color = compute_color_from_hips(current_depth + 1, frag_pos);
-            }*/
 
+            vec3 out_color = vec3(0.f);
 
+            HEALPixCellContrib prev_depth_cell = HEALPixCellContrib(no_cell, vec3(0.f));
+            HEALPixCellContrib next_depth_cell = HEALPixCellContrib(no_cell, vec3(0.f));
+            if (current_depth > 0) {
+                prev_depth_cell = compute_prev_depth_color_from_hips(frag_pos);
+            }
+            if (current_depth < 9) {
+                next_depth_cell = compute_next_depth_color_from_hips(frag_pos);
+            }
+
+            HEALPixCellContrib past_cell = HEALPixCellContrib(no_cell, vec3(0.f));
+            if (prev_depth_cell.cell.idx == -1 && next_depth_cell.cell.idx != -1) {
+                past_cell = next_depth_cell;
+            } else if (next_depth_cell.cell.idx == -1 && prev_depth_cell.cell.idx != -1) {
+                past_cell = prev_depth_cell;
+            } else if (next_depth_cell.cell.idx != -1 && prev_depth_cell.cell.idx != -1) {
+                // the two are in the buffer
+                if (prev_depth_cell.cell.time_received > next_depth_cell.cell.time_received) {
+                    past_cell = prev_depth_cell;
+                } else {
+                    past_cell = next_depth_cell;
+                }
+            } else {
+                // neither are in the buffer
+                // We get an HEALPix tile at the depth 0 as for the past_cell
+
+                past_cell = compute_zero_depth_color_from_hips(frag_pos);
+            }
+
+            out_color = mix(past_cell.color, current_cell.color, alpha);
             out_frag_color = vec4(out_color, 1.0f);
 
             if(draw_grid == 1) {
@@ -380,7 +485,7 @@ pub fn start() -> Result<(), JsValue> {
     )));
 
     let model_mat = &sphere.as_ref().borrow().get_model_mat();
-    hips_sphere_mesh.borrow_mut().update_field_of_view(gl.clone(), &projection.as_ref().borrow(), &viewport.borrow(), model_mat);
+    //hips_sphere_mesh.borrow_mut().update_field_of_view(gl.clone(), &projection.as_ref().borrow(), &viewport.borrow(), model_mat);
 
     // Definition of the model matrix
     /*let mut direct_system = Rc::new(
@@ -530,7 +635,7 @@ pub fn start() -> Result<(), JsValue> {
                         last_dist.set(dist);
 
                         // update the fov
-                        hips_sphere_mesh.borrow_mut().update_field_of_view(context.clone(), &projection.as_ref().borrow(), &viewport.borrow(), model_mat);
+                        hips_sphere_mesh.borrow_mut().update_field_of_view(context.clone(), &projection.as_ref().borrow(), &viewport.borrow(), model_mat, false);
                     }
                 }
             }
@@ -559,26 +664,26 @@ pub fn start() -> Result<(), JsValue> {
 
             // update the fov
             let model_mat = &sphere.as_ref().borrow().get_model_mat();
-            hips_sphere_mesh.borrow_mut().update_field_of_view(context.clone(), &projection.as_ref().borrow(), &viewport.borrow(), model_mat);
+            hips_sphere_mesh.borrow_mut().update_field_of_view(context.clone(), &projection.as_ref().borrow(), &viewport.borrow(), model_mat, true);
         }) as Box<dyn FnMut(_)>);
         canvas.add_event_listener_with_callback("wheel", closure.as_ref().unchecked_ref())?;
         closure.forget();
     }
 
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
-        /*if !pressed.get() && roll.get() {
+        if !pressed.get() && roll.get() {
             let next_dist = compute_speed(time_last_move.get(), last_dist.get() * 0.5_f32);
             if next_dist > 1e-4 {
                 sphere.borrow_mut().apply_rotation(-last_axis.get(), cgmath::Rad(next_dist));
 
                 let model_mat = &sphere.as_ref().borrow().get_model_mat();
-                hips_sphere_mesh.borrow_mut().update_field_of_view(gl.clone(), &projection.as_ref().borrow(), &viewport.borrow(), model_mat);
+                hips_sphere_mesh.borrow_mut().update_field_of_view(gl.clone(), &projection.as_ref().borrow(), &viewport.borrow(), model_mat, false);
             }
         } else if pressed.get() {
             if (utils::get_current_time() as f32) - time_last_move.get() > 50_f32 {
                 roll.set(false);
             }
-        }*/
+        }
 
         // Render the scene
         gl.clear_color(0.08, 0.08, 0.08, 1.0);

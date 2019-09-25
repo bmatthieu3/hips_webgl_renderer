@@ -21,22 +21,16 @@ use crate::renderable::Mesh;
 use crate::shader::Shader;
 
 pub const MAX_NUMBER_TEXTURE: usize = 48;
-const MAX_TILES_IN_FOV: usize = 12;
 const NUM_VERTICES_PER_STEP: usize = 70;
 const NUM_STEPS: usize = 40;
 
-use std::collections::HashSet;
 use crate::texture::{HEALPixTextureBuffer, HEALPixCellRequest};
 use std::cell::RefCell;
 
 pub struct HiPSSphere {
     buffer_textures: HEALPixTextureBuffer,
-    idx_textures: Rc<RefCell<Vec<i32>>>,
-    depth_textures: Rc<RefCell<Vec<i32>>>,
-    num_textures: Rc<Cell<i32>>,
     pub current_depth: i32,
     pub hpx_cells_in_fov: i32,
-    last_time: Rc<Cell<f64>>,
 }
 
 use crate::viewport::ViewPort;
@@ -54,28 +48,25 @@ impl HiPSSphere {
         let depth_textures = iter::repeat(0).take(12).collect::<Vec<_>>();
         let mut hips_sphere = HiPSSphere {
             buffer_textures : buffer_textures,
-            idx_textures: Rc::new(RefCell::new(vec![])),
-            depth_textures: Rc::new(RefCell::new(vec![])),
-            num_textures: Rc::new(Cell::new(0)),
             current_depth: 0,
             hpx_cells_in_fov: 0,
-            last_time: Rc::new(Cell::new(0_f64)),
         };
-        hips_sphere.load_healpix_tile_textures(gl, idx_textures, depth_textures);
+        hips_sphere.load_healpix_tile_textures(gl, idx_textures, depth_textures, false);
         hips_sphere
     }
 
     fn load_healpix_tile_textures(&mut self,
         gl: Rc<WebGl2RenderingContext>,
         idx_textures_next: Vec<i32>,
-        depth_textures_next: Vec<i32>) {
+        depth_textures_next: Vec<i32>,
+        zoom: bool) {
         for (tile_idx_to_load, tile_depth_to_load) in idx_textures_next.into_iter().zip(depth_textures_next.into_iter()) {
             let new_healpix_cell = HEALPixCellRequest::new(tile_depth_to_load, tile_idx_to_load);
-            self.buffer_textures.load(gl.clone(), new_healpix_cell);
+            self.buffer_textures.load(gl.clone(), new_healpix_cell, zoom);
         }
     }
 
-    pub fn update_field_of_view(&mut self, gl: Rc<WebGl2RenderingContext>, projection: &ProjectionType, viewport: &ViewPort, model: &cgmath::Matrix4<f32>) {
+    pub fn update_field_of_view(&mut self, gl: Rc<WebGl2RenderingContext>, projection: &ProjectionType, viewport: &ViewPort, model: &cgmath::Matrix4<f32>, zoom: bool) {
         let num_control_points_width = 5;
         let num_control_points_height = 5;
         let num_control_points = 4 + 2*num_control_points_width + 2*num_control_points_height;
@@ -129,9 +120,6 @@ impl HiPSSphere {
             let mut depth = math::ang_per_pixel_to_depth(fov / (width as f32));
             let healpix_cells = if depth == 0 {
                 (0..12).collect::<Vec<_>>()
-            } else if depth == 1 {
-                depth = 0;
-                (0..12).collect::<Vec<_>>()
             } else {
                 let moc = healpix::nested::polygon_coverage(depth as u8, &vertices, true);
                 let healpix_cells = moc.flat_iter()
@@ -152,10 +140,11 @@ impl HiPSSphere {
         self.hpx_cells_in_fov = healpix_cells.len() as i32;
         let healpix_depth_textures = std::iter::repeat(depth).take(healpix_cells.len()).collect::<Vec<_>>();
 
-        self.load_healpix_tile_textures(gl, healpix_cells, healpix_depth_textures);
+        self.load_healpix_tile_textures(gl, healpix_cells, healpix_depth_textures, zoom);
     }
 }
 
+use crate::utils;
 impl Mesh for HiPSSphere {
     fn create_color_array() -> js_sys::Float32Array {
         unreachable!()
@@ -330,74 +319,124 @@ impl Mesh for HiPSSphere {
         vao)
     }
 
-    fn init_uniforms(gl: &WebGl2RenderingContext, shader: &Shader) -> Box<[WebGlUniformLocation]> {
-        // Enable (lon, lat) grid
-        let grid_uniform = shader.get_uniform_location(gl, "draw_grid").unwrap();
-
-        // Get the attribute location of the matrices from the Vertex shader
-        let num_textures_uniform = shader.get_uniform_location(gl, "num_textures").unwrap();
-        // Get the attribute location of the matrices from the Vertex shader
-        //let textures_data_uniform = shader.get_uniform_location(gl, "texture_hips_tile").unwrap();
-        // Array storing the visible HEALPix indexes
-        let healpix_idx_uniform = shader.get_uniform_location(gl, "idx_textures").unwrap();
-        // Depth of the visible HEALPix cells
-        let healpix_depth_uniform = shader.get_uniform_location(gl, "depth_textures").unwrap();
-        let healpix_idx_in_buffer_uniform = shader.get_uniform_location(gl, "idx_in_buffer").unwrap();
-        let healpix_current_depth_uniform = shader.get_uniform_location(gl, "current_depth").unwrap();
-        let textures_buffer_uniform = shader.get_uniform_location(gl, "textures_buffer").unwrap();
-        let num_textures_in_fov_uniform = shader.get_uniform_location(gl, "num_tex_in_fov").unwrap();
-        let max_depth_uniform = shader.get_uniform_location(gl, "max_depth").unwrap();
-        
-        Box::new([
-            num_textures_uniform,
-            //textures_data_uniform,
-            healpix_depth_uniform,
-            healpix_current_depth_uniform,
-            healpix_idx_uniform,
-            healpix_idx_in_buffer_uniform,
-            grid_uniform,
-            textures_buffer_uniform,
-            num_textures_in_fov_uniform,
-            max_depth_uniform,
-        ])
-    }
-
-    fn send_uniforms(
-        &self,
-        gl: &WebGl2RenderingContext,
-        uniform_locations: &Box<[WebGlUniformLocation]>,
-    ) {
-        // Send number of textures
-        //let num_textures = self.num_textures.get();
-        gl.uniform1i(Some(uniform_locations[0].as_ref()), self.buffer_textures.len() as i32);
-        //console::log_1(&format!("number of textures {:?}", self.buffer_textures.len()).into());
-
-        // Send depth healpix tiles
-        let (depth_textures, idx_textures) = self.buffer_textures.get_tiles();
-        gl.uniform1iv_with_i32_array(Some(uniform_locations[1].as_ref()), &depth_textures);
-        // Send current depth
-        gl.uniform1i(Some(uniform_locations[2].as_ref()), self.current_depth);
-
-        // Send the HEALPix cell indexes
-        gl.uniform1iv_with_i32_array(Some(uniform_locations[3].as_ref()), &idx_textures);
-
-        // Send HEALPix idx in buffer
-        let idx_textures_in_buffer = self.buffer_textures.get_idx_tiles();
-        gl.uniform1iv_with_i32_array(Some(uniform_locations[4].as_ref()), &idx_textures_in_buffer);
-
+    fn send_uniforms(&self, gl: &WebGl2RenderingContext, shader: &Shader) {
         // Send grid enable
-        gl.uniform1i(Some(uniform_locations[5].as_ref()), 0);
+        let location_enable_grid = shader.get_uniform_location(gl, "draw_grid").unwrap();
+        gl.uniform1i(Some(&location_enable_grid), 1);
+        // Send sampler 3D
+        // textures buffer
+        let location_textures_buf = shader.get_uniform_location(gl, "textures_buffer").unwrap();
+        gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+        gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, self.buffer_textures.webgl_texture0.as_ref());
+        gl.uniform1i(Some(&location_textures_buf), 0);
+        // base cell textures
+        let location_textures_zero_depth_buf = shader.get_uniform_location(gl, "textures_zero_depth_buffer").unwrap();
+        gl.active_texture(WebGl2RenderingContext::TEXTURE1);
+        gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, self.buffer_textures.webgl_texture1.as_ref());
+        gl.uniform1i(Some(&location_textures_zero_depth_buf), 1);
+        let hpx_zero_depth_tiles = self.buffer_textures.get_zero_depth_tiles();
+        for (i, hpx) in hpx_zero_depth_tiles.iter().enumerate() {
+            let mut name = String::from("hpx_zero_depth");
+            name += "[";
+            name += &i.to_string();
+            name += "].";
 
-        // Send sampler3D enable
-        //glActiveTexture(GL_TEXTURE0);
-        gl.uniform1i(Some(uniform_locations[6].as_ref()), 0);
-        //glBindTexture(GL_TEXTURE_3D,volumetext);
+            let location_hpx_idx = shader.get_uniform_location(gl, &(name.clone() + "idx")).unwrap();
+            gl.uniform1i(Some(location_hpx_idx.as_ref()), hpx.idx);
 
-        gl.uniform1i(Some(uniform_locations[7].as_ref()), self.hpx_cells_in_fov);
-        console::log_1(&format!("num textures {:?}", self.buffer_textures.len() as i32).into());
-        console::log_1(&format!("num textures in fov {:?}", self.hpx_cells_in_fov).into());
-        
-        // depth max
-        gl.uniform1i(Some(uniform_locations[8].as_ref()), 9);
+            let location_buf_idx = shader.get_uniform_location(gl, &(name.clone() + "buf_idx")).unwrap();
+            gl.uniform1i(Some(location_buf_idx.as_ref()), hpx.buf_idx);
+
+            let location_time_received = shader.get_uniform_location(gl, &(name + "time_received")).unwrap();
+            gl.uniform1f(Some(location_time_received.as_ref()), hpx.time_received);
+        }
+
+        // Send current time in ms
+        let location_current_time = shader.get_uniform_location(gl, "current_time").unwrap();
+        gl.uniform1f(Some(&location_current_time), utils::get_current_time());
+
+        let hpx_tiles = self.buffer_textures.get_tiles(self.current_depth);
+        for (i, hpx) in hpx_tiles.iter().enumerate() {
+            let mut name = String::from("hpx_current_depth");
+            name += "[";
+            name += &i.to_string();
+            name += "].";
+
+            let location_hpx_idx = shader.get_uniform_location(gl, &(name.clone() + "idx")).unwrap();
+            gl.uniform1i(Some(location_hpx_idx.as_ref()), hpx.idx);
+
+            let location_buf_idx = shader.get_uniform_location(gl, &(name.clone() + "buf_idx")).unwrap();
+            gl.uniform1i(Some(location_buf_idx.as_ref()), hpx.buf_idx);
+
+            let location_time_received = shader.get_uniform_location(gl, &(name + "time_received")).unwrap();
+            gl.uniform1f(Some(location_time_received.as_ref()), hpx.time_received);
+        }
+
+        // Send number of HEALPix cells in the buffer whose depth equals current_depth
+        let location_num_current_depth_tiles = shader.get_uniform_location(gl, "num_current_depth_hpx_tiles").unwrap();
+        gl.uniform1i(Some(&location_num_current_depth_tiles), hpx_tiles.len() as i32);
+
+        // Send current depth
+        let location_current_depth = shader.get_uniform_location(gl, "current_depth").unwrap();
+        gl.uniform1i(Some(&location_current_depth), self.current_depth);
+
+        // PREVIOUS DEPTH TILES
+        if self.current_depth > 0 {
+            let prev_depth = self.current_depth - 1;
+
+            let hpx_tiles = self.buffer_textures.get_tiles(prev_depth);
+            for (i, hpx) in hpx_tiles.iter().enumerate() {
+                let mut name = String::from("hpx_prev_depth");
+                name += "[";
+                name += &i.to_string();
+                name += "].";
+
+                let location_hpx_idx = shader.get_uniform_location(gl, &(name.clone() + "idx")).unwrap();
+                gl.uniform1i(Some(location_hpx_idx.as_ref()), hpx.idx);
+
+                let location_buf_idx = shader.get_uniform_location(gl, &(name.clone() + "buf_idx")).unwrap();
+                gl.uniform1i(Some(location_buf_idx.as_ref()), hpx.buf_idx);
+
+                let location_time_received = shader.get_uniform_location(gl, &(name + "time_received")).unwrap();
+                gl.uniform1f(Some(location_time_received.as_ref()), hpx.time_received);
+            }
+
+            // Send number of HEALPix cells in the buffer whose depth equals current_depth
+            let location_num_prev_depth_tiles = shader.get_uniform_location(gl, "num_prev_depth_hpx_tiles").unwrap();
+            gl.uniform1i(Some(&location_num_prev_depth_tiles), hpx_tiles.len() as i32);
+
+            // Send current depth
+            let location_prev_depth = shader.get_uniform_location(gl, "prev_depth").unwrap();
+            gl.uniform1i(Some(&location_prev_depth), prev_depth);
+        }
+        // NEXT DEPTH TILES
+        if self.current_depth < 9 {
+            let next_depth = self.current_depth + 1;
+
+            let hpx_tiles = self.buffer_textures.get_tiles(next_depth);
+            for (i, hpx) in hpx_tiles.iter().enumerate() {
+                let mut name = String::from("hpx_next_depth");
+                name += "[";
+                name += &i.to_string();
+                name += "].";
+
+                let location_hpx_idx = shader.get_uniform_location(gl, &(name.clone() + "idx")).unwrap();
+                gl.uniform1i(Some(location_hpx_idx.as_ref()), hpx.idx);
+
+                let location_buf_idx = shader.get_uniform_location(gl, &(name.clone() + "buf_idx")).unwrap();
+                gl.uniform1i(Some(location_buf_idx.as_ref()), hpx.buf_idx);
+
+                let location_time_received = shader.get_uniform_location(gl, &(name + "time_received")).unwrap();
+                gl.uniform1f(Some(location_time_received.as_ref()), hpx.time_received);
+            }
+
+            // Send number of HEALPix cells in the buffer whose depth equals current_depth
+            let location_num_next_depth_tiles = shader.get_uniform_location(gl, "num_next_depth_hpx_tiles").unwrap();
+            gl.uniform1i(Some(&location_num_next_depth_tiles), hpx_tiles.len() as i32);
+
+            // Send current depth
+            let location_next_depth = shader.get_uniform_location(gl, "next_depth").unwrap();
+            gl.uniform1i(Some(&location_next_depth), next_depth);
+        }
     }
 }
