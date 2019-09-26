@@ -201,8 +201,8 @@ impl HEALPixTextureBuffer {
         onload.forget();
     }
 
-    pub fn load(&mut self, gl: Rc<WebGl2RenderingContext>, healpix_cell: HEALPixCellRequest, zoom: bool) {
-        // discard base cells, they are stored in buffer_zero_depth
+    pub fn load(&mut self, gl: Rc<WebGl2RenderingContext>, mut healpix_cell: HEALPixCellRequest, zoom: bool) {
+        // discard base cells, they are stored in the buffer_zero_depth
         if healpix_cell.depth == 0 {
             return;
         }
@@ -232,6 +232,26 @@ impl HEALPixTextureBuffer {
 
                 self.buffer.borrow_mut().push(healpix_cell_to_change_priority);
             }
+
+            /*let mut tmp_buffer = self.buffer.borrow_mut().clone()
+                .into_sorted_vec()
+                .into_iter()
+                .collect::<HashSet<_>>();
+            if let Some(hpx_cell) = tmp_buffer.get(&healpix_cell) {
+                healpix_cell.idx_in_buffer = hpx_cell.idx_in_buffer;
+                if zoom {
+                    healpix_cell.time_received = Some(utils::get_current_time());
+                }
+
+                tmp_buffer.remove(&healpix_cell);
+
+                self.buffer.borrow_mut().clear();
+                for hpx_cell in tmp_buffer {
+                    self.buffer.borrow_mut().push(hpx_cell);
+                }
+
+                self.buffer.borrow_mut().push(healpix_cell);
+            }*/
         } else {
             // Add it to the loaded cells hashset
             self.loaded_cells.borrow_mut().insert(healpix_cell.clone());

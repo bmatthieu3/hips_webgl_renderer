@@ -311,8 +311,8 @@ pub fn start() -> Result<(), JsValue> {
             for(int i = 0; i < num_current_depth_hpx_tiles; i++) {
                 if (hpx_current_depth[i].idx == tile_idx) {
                     HEALPixCell cell = hpx_current_depth[i];
-                    int idx = cell.buf_idx;
-                    vec3 color = texture(textures_buffer, vec3(uv, float(idx)*tex_step)).rgb;
+                    float idx_texture = float(cell.buf_idx)*tex_step;
+                    vec3 color = texture(textures_buffer, vec3(uv, idx_texture)).rgb;
 
                     return HEALPixCellContrib(cell, color);
                 }
@@ -330,8 +330,8 @@ pub fn start() -> Result<(), JsValue> {
             for(int i = 0; i < num_prev_depth_hpx_tiles; i++) {
                 if (hpx_prev_depth[i].idx == tile_idx) {
                     HEALPixCell cell = hpx_prev_depth[i];
-                    int idx = cell.buf_idx;
-                    vec3 color = texture(textures_buffer, vec3(uv, float(idx)*tex_step)).rgb;
+                    float idx_texture = float(cell.buf_idx)*tex_step;
+                    vec3 color = texture(textures_buffer, vec3(uv, idx_texture)).rgb;
 
                     return HEALPixCellContrib(cell, color);
                 }
@@ -349,8 +349,8 @@ pub fn start() -> Result<(), JsValue> {
             for(int i = 0; i < num_next_depth_hpx_tiles; i++) {
                 if (hpx_next_depth[i].idx == tile_idx) {
                     HEALPixCell cell = hpx_next_depth[i];
-                    int idx = cell.buf_idx;
-                    vec3 color = texture(textures_buffer, vec3(uv, float(idx)*tex_step)).rgb;
+                    float idx_texture = float(cell.buf_idx)*tex_step;
+                    vec3 color = texture(textures_buffer, vec3(uv, idx_texture)).rgb;
 
                     return HEALPixCellContrib(cell, color);
                 }
@@ -368,8 +368,8 @@ pub fn start() -> Result<(), JsValue> {
             for(int i = 0; i < 12; i++) {
                 if (hpx_zero_depth[i].idx == tile_idx) {
                     HEALPixCell cell = hpx_zero_depth[i];
-                    int idx = cell.buf_idx;
-                    vec3 color = texture(textures_zero_depth_buffer, vec3(uv, float(idx)*tex_step)).rgb;
+                    float idx_texture = float(cell.buf_idx)*tex_step;
+                    vec3 color = texture(textures_zero_depth_buffer, vec3(uv, idx_texture)).rgb;
 
                     return HEALPixCellContrib(cell, color);
                 }
@@ -381,6 +381,7 @@ pub fn start() -> Result<(), JsValue> {
 
         const float duration = 500.f; // 1000 ms
         uniform float current_time; // current time in ms
+        uniform int max_depth; // max depth of the HiPS
 
         void main() {
             vec3 frag_pos = normalize(out_vert_pos);
@@ -401,7 +402,7 @@ pub fn start() -> Result<(), JsValue> {
                 if (current_depth > 0) {
                     prev_depth_cell = compute_prev_depth_color_from_hips(frag_pos);
                 }
-                if (current_depth < 9) {
+                if (current_depth < max_depth) {
                     next_depth_cell = compute_next_depth_color_from_hips(frag_pos);
                 }
 
@@ -426,8 +427,18 @@ pub fn start() -> Result<(), JsValue> {
 
                 out_color = mix(past_cell.color, current_cell.color, alpha);
             }
-            out_color = out_color.brg;
-            out_frag_color = vec4(out_color, 1.0f);
+            // reinhard tone mapping
+            //vec3 mapped = out_color / (out_color + vec3(1.0));
+            // Exposure tone mapping
+            //float exposure = 1.5f;
+            //vec3 mapped = vec3(1.0f) - exp(-out_color * exposure);
+            vec3 mapped = out_color;
+
+            out_frag_color = vec4(mapped, 1.0f);
+            float lambda = sin(current_time/1000.f)*0.5f + 0.5f;
+            //out_frag_color.rgb = sqrt(out_frag_color.rgb);
+            //out_frag_color = mix(out_frag_color.rgb, out_frag_color.gbr, lambda);
+            // gamma correction
 
             if(draw_grid == 1) {
                 vec2 lonlat = vec2(atan(frag_pos.x, frag_pos.z), atan(frag_pos.y, sqrt(frag_pos.x*frag_pos.x + frag_pos.z*frag_pos.z)));
@@ -447,7 +458,6 @@ pub fn start() -> Result<(), JsValue> {
             }
         }"#
     ));
-    console::log_1(&format!("sampler3D shader").into());
 
     /*let shader_direct_system = Rc::new(Shader::new(&gl,
         r#"#version 300 es
@@ -669,6 +679,7 @@ pub fn start() -> Result<(), JsValue> {
 
             // update the fov
             let model_mat = &sphere.as_ref().borrow().get_model_mat();
+            
             hips_sphere_mesh.borrow_mut().update_field_of_view(context.clone(), &projection.as_ref().borrow(), &viewport.borrow(), model_mat, true);
         }) as Box<dyn FnMut(_)>);
         canvas.add_event_listener_with_callback("wheel", closure.as_ref().unchecked_ref())?;

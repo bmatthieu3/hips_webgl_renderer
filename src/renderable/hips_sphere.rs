@@ -23,6 +23,7 @@ use crate::shader::Shader;
 pub const MAX_NUMBER_TEXTURE: usize = 48;
 const NUM_VERTICES_PER_STEP: usize = 70;
 const NUM_STEPS: usize = 40;
+const MAX_DEPTH: i32 = 9;
 
 use crate::texture::{HEALPixTextureBuffer, HEALPixCellRequest};
 use std::cell::RefCell;
@@ -120,7 +121,8 @@ impl HiPSSphere {
             let width = window.inner_width().unwrap()
                 .as_f64()
                 .unwrap();
-            let depth = math::ang_per_pixel_to_depth(fov / (width as f32));
+            let depth = std::cmp::min(math::ang_per_pixel_to_depth(fov / (width as f32)), MAX_DEPTH);
+            //let depth = math::ang_per_pixel_to_depth(fov / (width as f32));
             let healpix_cells = if depth == 0 {
                 (0..12).collect::<Vec<_>>()
             } else {
@@ -128,7 +130,6 @@ impl HiPSSphere {
                 let healpix_cells = moc.flat_iter()
                         .map(|hpx_idx_u64| hpx_idx_u64 as i32)
                         .collect::<Vec<_>>();
-                console::log_1(&format!("current depth {:?}, num cells in fov {:?}", depth, healpix_cells.len()).into());
                 healpix_cells
             };
             console::log_1(&format!("current depth {:?}, num cells in fov {:?}", depth, healpix_cells.len()).into());
@@ -325,6 +326,9 @@ impl Mesh for HiPSSphere {
         // Send grid enable
         let location_enable_grid = shader.get_uniform_location(gl, "draw_grid").unwrap();
         gl.uniform1i(Some(&location_enable_grid), 1);
+        // Send max depth of the current HiPS
+        let location_max_depth = shader.get_uniform_location(gl, "max_depth").unwrap();
+        gl.uniform1i(Some(&location_max_depth), MAX_DEPTH);
         // Send sampler 3D
         // textures buffer
         let location_textures_buf = shader.get_uniform_location(gl, "textures_buffer").unwrap();
@@ -412,7 +416,7 @@ impl Mesh for HiPSSphere {
             gl.uniform1i(Some(&location_prev_depth), prev_depth);
         }
         // NEXT DEPTH TILES
-        if self.current_depth < 9 {
+        if self.current_depth < MAX_DEPTH {
             let next_depth = self.current_depth + 1;
 
             let hpx_tiles = self.buffer_textures.get_tiles(next_depth);
