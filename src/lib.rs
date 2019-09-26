@@ -393,35 +393,40 @@ pub fn start() -> Result<(), JsValue> {
 
             vec3 out_color = vec3(0.f);
 
-            HEALPixCellContrib prev_depth_cell = HEALPixCellContrib(no_cell, vec3(0.f));
-            HEALPixCellContrib next_depth_cell = HEALPixCellContrib(no_cell, vec3(0.f));
-            if (current_depth > 0) {
-                prev_depth_cell = compute_prev_depth_color_from_hips(frag_pos);
-            }
-            if (current_depth < 9) {
-                next_depth_cell = compute_next_depth_color_from_hips(frag_pos);
-            }
-
-            HEALPixCellContrib past_cell = HEALPixCellContrib(no_cell, vec3(0.f));
-            if (prev_depth_cell.cell.idx == -1 && next_depth_cell.cell.idx != -1) {
-                past_cell = next_depth_cell;
-            } else if (next_depth_cell.cell.idx == -1 && prev_depth_cell.cell.idx != -1) {
-                past_cell = prev_depth_cell;
-            } else if (next_depth_cell.cell.idx != -1 && prev_depth_cell.cell.idx != -1) {
-                // the two are in the buffer
-                if (prev_depth_cell.cell.time_received > next_depth_cell.cell.time_received) {
-                    past_cell = prev_depth_cell;
-                } else {
-                    past_cell = next_depth_cell;
-                }
+            if (alpha == 1.f) {
+                out_color = current_cell.color;
             } else {
-                // neither are in the buffer
-                // We get an HEALPix tile at the depth 0 as for the past_cell
+                HEALPixCellContrib prev_depth_cell = HEALPixCellContrib(no_cell, vec3(0.f));
+                HEALPixCellContrib next_depth_cell = HEALPixCellContrib(no_cell, vec3(0.f));
+                if (current_depth > 0) {
+                    prev_depth_cell = compute_prev_depth_color_from_hips(frag_pos);
+                }
+                if (current_depth < 9) {
+                    next_depth_cell = compute_next_depth_color_from_hips(frag_pos);
+                }
 
-                past_cell = compute_zero_depth_color_from_hips(frag_pos);
+                HEALPixCellContrib past_cell = HEALPixCellContrib(no_cell, vec3(0.f));
+                if (prev_depth_cell.cell.idx == -1 && next_depth_cell.cell.idx != -1) {
+                    past_cell = next_depth_cell;
+                } else if (next_depth_cell.cell.idx == -1 && prev_depth_cell.cell.idx != -1) {
+                    past_cell = prev_depth_cell;
+                } else if (next_depth_cell.cell.idx != -1 && prev_depth_cell.cell.idx != -1) {
+                    // the two are in the buffer
+                    if (prev_depth_cell.cell.time_received > next_depth_cell.cell.time_received) {
+                        past_cell = prev_depth_cell;
+                    } else {
+                        past_cell = next_depth_cell;
+                    }
+                } else {
+                    // neither are in the buffer
+                    // We get an HEALPix tile at the depth 0 as for the past_cell
+
+                    past_cell = compute_zero_depth_color_from_hips(frag_pos);
+                }
+
+                out_color = mix(past_cell.color, current_cell.color, alpha);
             }
-
-            out_color = mix(past_cell.color, current_cell.color, alpha);
+            out_color = out_color.brg;
             out_frag_color = vec4(out_color, 1.0f);
 
             if(draw_grid == 1) {
@@ -671,7 +676,7 @@ pub fn start() -> Result<(), JsValue> {
     }
 
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
-        if !pressed.get() && roll.get() {
+        /*if !pressed.get() && roll.get() {
             let next_dist = compute_speed(time_last_move.get(), last_dist.get() * 0.5_f32);
             if next_dist > 1e-4 {
                 sphere.borrow_mut().apply_rotation(-last_axis.get(), cgmath::Rad(next_dist));
@@ -683,7 +688,7 @@ pub fn start() -> Result<(), JsValue> {
             if (utils::get_current_time() as f32) - time_last_move.get() > 50_f32 {
                 roll.set(false);
             }
-        }
+        }*/
 
         // Render the scene
         gl.clear_color(0.08, 0.08, 0.08, 1.0);

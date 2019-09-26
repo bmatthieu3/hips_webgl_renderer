@@ -43,25 +43,23 @@ use crate::texture;
 impl HiPSSphere {
     pub fn new(gl: Rc<WebGl2RenderingContext>) -> HiPSSphere {
         let buffer_textures = HEALPixTextureBuffer::new(gl.clone());
-        let depth = 0;
         let idx_textures = ((0 as i32)..(12 as i32)).collect::<Vec<_>>();
-        let depth_textures = iter::repeat(0).take(12).collect::<Vec<_>>();
         let mut hips_sphere = HiPSSphere {
             buffer_textures : buffer_textures,
             current_depth: 0,
             hpx_cells_in_fov: 0,
         };
-        hips_sphere.load_healpix_tile_textures(gl, idx_textures, depth_textures, false);
+        hips_sphere.load_healpix_tile_textures(gl, idx_textures, 0, false);
         hips_sphere
     }
 
     fn load_healpix_tile_textures(&mut self,
         gl: Rc<WebGl2RenderingContext>,
         idx_textures_next: Vec<i32>,
-        depth_textures_next: Vec<i32>,
+        depth: i32,
         zoom: bool) {
-        for (tile_idx_to_load, tile_depth_to_load) in idx_textures_next.into_iter().zip(depth_textures_next.into_iter()) {
-            let new_healpix_cell = HEALPixCellRequest::new(tile_depth_to_load, tile_idx_to_load);
+        for tile_idx_to_load in idx_textures_next.into_iter() {
+            let new_healpix_cell = HEALPixCellRequest::new(depth, tile_idx_to_load);
             self.buffer_textures.load(gl.clone(), new_healpix_cell, zoom);
         }
     }
@@ -96,7 +94,12 @@ impl HiPSSphere {
             .collect::<Vec<_>>();
 
         let (depth, healpix_cells) = if pos_ws.len() == num_control_points {
-            let fov = math::angular_distance_xyz(pos_ws[0], pos_ws[num_control_points_width + 1]);
+            let first_idx = num_control_points_width + 1 + (((num_control_points_height as f32)/2_f32).ceil() as usize);
+            let second_idx = 2 * num_control_points_width + 3 + num_control_points_height + (((num_control_points_height as f32)/2_f32).ceil() as usize);
+            
+            let fov = math::angular_distance_xyz(pos_ws[first_idx], pos_ws[second_idx]);
+            console::log_1(&format!("fov {:?}", fov).into());
+
             let vertices = pos_ws.into_iter()
                 .map(|pos_world_space| {
                     // Take into account the rotation of the sphere
@@ -117,7 +120,7 @@ impl HiPSSphere {
             let width = window.inner_width().unwrap()
                 .as_f64()
                 .unwrap();
-            let mut depth = math::ang_per_pixel_to_depth(fov / (width as f32));
+            let depth = math::ang_per_pixel_to_depth(fov / (width as f32));
             let healpix_cells = if depth == 0 {
                 (0..12).collect::<Vec<_>>()
             } else {
@@ -138,9 +141,8 @@ impl HiPSSphere {
 
         self.current_depth = depth;
         self.hpx_cells_in_fov = healpix_cells.len() as i32;
-        let healpix_depth_textures = std::iter::repeat(depth).take(healpix_cells.len()).collect::<Vec<_>>();
 
-        self.load_healpix_tile_textures(gl, healpix_cells, healpix_depth_textures, zoom);
+        self.load_healpix_tile_textures(gl, healpix_cells, depth, zoom);
     }
 }
 
