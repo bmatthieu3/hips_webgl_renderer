@@ -8,13 +8,17 @@ use crate::renderable::projection::ProjectionType;
 use std::rc::Rc;
 use std::borrow::Borrow;
 
+mod buffers;
+pub mod hips_sphere;
+pub mod projection;
+
 trait VertexBufferObject {
     fn bind(&self);
     fn unbind(&self);
 }
 
-use buffer_data::BufferData;
-use vertex_array_object::VertexArrayObject;
+use buffers::buffer_data::BufferData;
+use buffers::vertex_array_object::VertexArrayObject;
 pub trait Mesh {
     fn create_buffers(gl: Rc<WebGl2RenderingContext>, projection: &ProjectionType) -> VertexArrayObject;
 
@@ -23,14 +27,6 @@ pub trait Mesh {
 
     fn send_uniforms(&self, gl: &WebGl2RenderingContext, shader: &Shader);
 }
-
-pub mod hips_sphere;
-pub mod projection;
-
-mod array_buffer;
-mod element_array_buffer;
-mod buffer_data;
-mod vertex_array_object;
 
 use std::cell::RefCell;
 

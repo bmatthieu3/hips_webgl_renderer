@@ -137,9 +137,9 @@ impl HiPSSphere {
 
 use crate::utils;
 use crate::renderable::VertexArrayObject;
-use crate::renderable::array_buffer::ArrayBuffer;
-use crate::renderable::buffer_data::BufferData;
-use crate::renderable::element_array_buffer::ElementArrayBuffer;
+use crate::renderable::buffers::array_buffer::ArrayBuffer;
+use crate::renderable::buffers::buffer_data::BufferData;
+use crate::renderable::buffers::element_array_buffer::ElementArrayBuffer;
 
 impl Mesh for HiPSSphere {
     fn create_vertices_array(projection: &ProjectionType) -> BufferData<f32> {

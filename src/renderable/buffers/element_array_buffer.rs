@@ -22,7 +22,7 @@ impl VertexBufferObject for ElementArrayBuffer {
 }
 
 use std::convert::TryInto;
-use crate::renderable::buffer_data::BufferData;
+use crate::renderable::buffers::buffer_data::BufferData;
 impl ElementArrayBuffer {
     pub fn new(gl: Rc<WebGl2RenderingContext>, data: BufferData<u32>) -> ElementArrayBuffer {
         let buffer = gl.create_buffer()

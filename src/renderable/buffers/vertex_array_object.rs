@@ -1,8 +1,8 @@
 use web_sys::WebGl2RenderingContext;
 use web_sys::WebGlVertexArrayObject;
 
-use crate::renderable::array_buffer::ArrayBuffer;
-use crate::renderable::element_array_buffer::ElementArrayBuffer;
+use crate::renderable::buffers::array_buffer::ArrayBuffer;
+use crate::renderable::buffers::element_array_buffer::ElementArrayBuffer;
 
 use std::rc::Rc;
 

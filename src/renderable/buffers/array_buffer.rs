@@ -20,7 +20,7 @@ impl VertexBufferObject for ArrayBuffer {
     }
 }
 
-use crate::renderable::buffer_data::BufferData;
+use crate::renderable::buffers::buffer_data::BufferData;
 use std::convert::TryInto;
 impl ArrayBuffer {
     pub fn new(gl: Rc<WebGl2RenderingContext>, stride: usize, sizes: &[usize], offsets: &[usize], data: BufferData<f32>) -> ArrayBuffer {
