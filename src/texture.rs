@@ -4,15 +4,11 @@ use std::cell::{Cell, RefCell};
 use wasm_bindgen::prelude::Closure;
 use wasm_bindgen::JsCast;
 
-use web_sys::{HtmlImageElement, HtmlCanvasElement, CanvasRenderingContext2d};
+use web_sys::{HtmlImageElement, CanvasRenderingContext2d};
 use web_sys::WebGl2RenderingContext;
 
-use web_sys::WebGlTexture;
 use crate::renderable::hips_sphere::MAX_NUMBER_TEXTURE;
 use std::collections::{BinaryHeap, HashSet};
-
-use std::str;
-use std::collections::VecDeque;
 
 const HEIGHT_TEXTURE: i32 = 512;
 const WIDTH_TEXTURE: i32 = 512;

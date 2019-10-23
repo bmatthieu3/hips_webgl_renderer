@@ -1,21 +1,11 @@
 use web_sys::console;
 
-use wasm_bindgen::JsCast;
-
-use js_sys::WebAssembly;
-
 use web_sys::WebGl2RenderingContext;
-use web_sys::WebGlBuffer;
-use web_sys::WebGlTexture;
-use web_sys::WebGlUniformLocation;
 use web_sys::WebGlVertexArrayObject;
 
-use crate::renderable::projection;
 use crate::renderable::projection::ProjectionType;
 
 use std::rc::Rc;
-use std::cell::Cell;
-use std::collections::VecDeque;
 
 use crate::renderable::Mesh;
 use crate::shader::Shader;
@@ -26,7 +16,6 @@ const NUM_STEPS: usize = 40;
 const MAX_DEPTH: i32 = 9;
 
 use crate::texture::{HEALPixTextureBuffer, HEALPixCellRequest};
-use std::cell::RefCell;
 
 pub struct HiPSSphere {
     buffer_textures: HEALPixTextureBuffer,
@@ -40,7 +29,6 @@ use healpix;
 use itertools_num;
 use std::iter;
 
-use crate::texture;
 impl HiPSSphere {
     pub fn new(gl: Rc<WebGl2RenderingContext>) -> HiPSSphere {
         let buffer_textures = HEALPixTextureBuffer::new(gl.clone());
@@ -148,20 +136,17 @@ impl HiPSSphere {
 }
 
 use crate::utils;
+use crate::renderable::VertexArrayObject;
+use crate::renderable::array_buffer::ArrayBuffer;
+use crate::renderable::buffer_data::BufferData;
+use crate::renderable::element_array_buffer::ElementArrayBuffer;
+
 impl Mesh for HiPSSphere {
-    fn create_color_array() -> js_sys::Float32Array {
-        unreachable!()
-    }
+    fn create_vertices_array(projection: &ProjectionType) -> BufferData<f32> {
+        let vertex_screen_space_positions = projection.build_screen_map();
 
-    fn create_uv_array() -> js_sys::Float32Array {
-        unreachable!()
-    }
-
-    fn create_vertices_array(projection: &ProjectionType) -> js_sys::Float32Array {
-        let vertices_screen_space = projection.build_screen_map();
-
-        let vertices_world_space = vertices_screen_space
-            .iter()
+        let vertices_data = vertex_screen_space_positions
+            .into_iter()
             .map(|pos_screen_space| {
                 // Perform the inverse projection that converts
                 // screen position to the 3D space position
@@ -169,24 +154,15 @@ impl Mesh for HiPSSphere {
                     pos_screen_space.x, pos_screen_space.y,
                 ).unwrap();
 
-                vec![pos_world_space.x, pos_world_space.y, pos_world_space.z]
+                vec![pos_screen_space.x, pos_screen_space.y, pos_world_space.x, pos_world_space.y, pos_world_space.z]
             })
             .flatten()
             .collect::<Vec<_>>();
 
-        let vertices_world_space_array = {
-            let memory_buffer = wasm_bindgen::memory()
-                .dyn_into::<WebAssembly::Memory>().unwrap()
-                .buffer();
-            let vertices_location = vertices_world_space.as_ptr() as u32 / 4;
-            js_sys::Float32Array::new(&memory_buffer)
-                .subarray(vertices_location, vertices_location + vertices_world_space.len() as u32)
-        };
-
-        vertices_world_space_array
+        BufferData(vertices_data)
     }
 
-    fn create_index_array() -> js_sys::Uint32Array {
+    fn create_index_array() -> BufferData<u32> {
         let mut indices = Vec::with_capacity(3 * NUM_VERTICES_PER_STEP * NUM_STEPS);
 
         for j in 0..NUM_STEPS {
@@ -228,98 +204,37 @@ impl Mesh for HiPSSphere {
             }
         }
 
-        let indices_array = {
-            let memory_buffer = wasm_bindgen::memory()
-                .dyn_into::<WebAssembly::Memory>().unwrap()
-                .buffer();
-            let indices_location = indices.as_ptr() as u32 / 4;
-            js_sys::Uint32Array::new(&memory_buffer)
-                .subarray(indices_location, indices_location + indices.len() as u32)
-        };
-
-        indices_array
+        BufferData(indices)
     }
 
-    fn create_buffers(gl: &WebGl2RenderingContext, projection: &ProjectionType) -> (Box<[(u32, i32, WebGlBuffer)]>, i32, WebGlVertexArrayObject) {
-        let vao = gl.create_vertex_array()
-            .ok_or("failed to create the vertex array buffer")
-            .unwrap();
-        gl.bind_vertex_array(Some(&vao));
+    fn create_buffers(gl: Rc<WebGl2RenderingContext>, projection: &ProjectionType) -> VertexArrayObject {
+        let mut vertex_array_object = VertexArrayObject::new(gl.clone());
+        vertex_array_object.bind();
 
-        let vertices_world_space = Self::create_vertices_array(projection);
-
-        // VERTEX buffer creation
-        let vertex_buffer = gl.create_buffer()
-            .ok_or("failed to create buffer")
-            .unwrap();
-        gl.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, Some(&vertex_buffer));
-        // Pass the vertices data to the buffer
-        gl.buffer_data_with_array_buffer_view(
-            WebGl2RenderingContext::ARRAY_BUFFER,
-            &vertices_world_space,
-            WebGl2RenderingContext::STATIC_DRAW,
+        // ARRAY buffer creation
+        let vertices_data = Self::create_vertices_array(projection);
+        let array_buffer = ArrayBuffer::new(
+            gl.clone(),
+            5 * std::mem::size_of::<f32>(),
+            &[2, 3],
+            &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
+            vertices_data
         );
 
-        // Unbind the buffer
-        gl.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, None);
-        
-        let vertices_screen_space = {
-            let vertices_screen = projection
-                .build_screen_map()
-                .iter()
-                .map(|pos_screen_space| {
-                    vec![pos_screen_space.x, pos_screen_space.y]
-                })
-                .flatten()
-                .collect::<Vec<_>>();
-
-            let memory_buffer = wasm_bindgen::memory()
-                .dyn_into::<WebAssembly::Memory>().unwrap()
-                .buffer();
-            let vertices_location = vertices_screen.as_ptr() as u32 / 4;
-            js_sys::Float32Array::new(&memory_buffer)
-                .subarray(vertices_location, vertices_location + vertices_screen.len() as u32)
-        };
-
-        // SCREEN VERTICES buffer creation
-        let screen_vertices_buffer = gl.create_buffer()
-            .ok_or("failed to create buffer")
-            .unwrap();
-        gl.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, Some(&screen_vertices_buffer));
-        // Pass the vertices data to the buffer
-        gl.buffer_data_with_array_buffer_view(
-            WebGl2RenderingContext::ARRAY_BUFFER,
-            &vertices_screen_space,
-            WebGl2RenderingContext::STATIC_DRAW,
+        // ELEMENT ARRAY buffer creation
+        let indexes_data = Self::create_index_array();
+        let indexes_buffer = ElementArrayBuffer::new(
+            gl,
+            indexes_data
         );
 
-        // Unbind the buffer
-        gl.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, None);
-        
-        // INDEX buffer creation
-        let indices_array = Self::create_index_array();
-        let index_buffer = gl.create_buffer()
-            .ok_or("failed to create buffer")
-            .unwrap();
-        gl.bind_buffer(WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER, Some(&index_buffer));
-        // Pass the indices data to the buffer
-        gl.buffer_data_with_array_buffer_view(
-            WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
-            &indices_array,
-            WebGl2RenderingContext::STATIC_DRAW,
-        );
+        vertex_array_object.set_array_buffer(array_buffer);
+        vertex_array_object.set_element_array_buffer(indexes_buffer);
 
+        vertex_array_object.unbind();
         // Unbind the buffer
         //gl.bind_buffer(WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER, None);
-        let num_indices = indices_array.length() as i32;
-        console::log_1(&format!("num indices {:?}", num_indices).into());
-        (Box::new([
-            (WebGl2RenderingContext::ARRAY_BUFFER, 3, vertex_buffer),
-            (WebGl2RenderingContext::ARRAY_BUFFER, 2, screen_vertices_buffer),
-            (WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER, 1, index_buffer),
-        ]),
-        num_indices,
-        vao)
+        vertex_array_object
     }
 
     fn send_uniforms(&self, gl: &WebGl2RenderingContext, shader: &Shader) {

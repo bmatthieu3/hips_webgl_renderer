@@ -1,6 +1,4 @@
 use cgmath::{Vector3, InnerSpace};
-use web_sys::console;
-
 use crate::viewport::ViewPort;
 
 pub fn screen_pixels_to_homogeous(x: f32, y: f32, viewport: &ViewPort) -> (f32, f32) {

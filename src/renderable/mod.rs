@@ -1,8 +1,6 @@
 use web_sys::WebGl2RenderingContext;
 use web_sys::WebGlVertexArrayObject;
-use web_sys::WebGlTexture;
 use crate::shader::Shader;
-use web_sys::console;
 
 use crate::viewport::ViewPort;
 use crate::renderable::projection::ProjectionType;
@@ -10,50 +8,35 @@ use crate::renderable::projection::ProjectionType;
 use std::rc::Rc;
 use std::borrow::Borrow;
 
+trait VertexBufferObject {
+    fn bind(&self);
+    fn unbind(&self);
+}
+
+use buffer_data::BufferData;
+use vertex_array_object::VertexArrayObject;
 pub trait Mesh {
-    fn create_buffers(gl: &WebGl2RenderingContext, projection: &ProjectionType) -> (Box<[(u32, i32, WebGlBuffer)]>, i32, WebGlVertexArrayObject);
-    fn link_buffers_to_vertex_shader(gl: &WebGl2RenderingContext, buffers: &Box<[(u32, i32, WebGlBuffer)]>) {
-        let mut indx = 0;
-        for (target, size, buffer_idx) in buffers.iter() {
-            if *target == WebGl2RenderingContext::ARRAY_BUFFER {
-                gl.bind_buffer(*target, Some(&buffer_idx));
+    fn create_buffers(gl: Rc<WebGl2RenderingContext>, projection: &ProjectionType) -> VertexArrayObject;
 
-                gl.vertex_attrib_pointer_with_i32(indx, *size, WebGl2RenderingContext::FLOAT, false, 0, 0);
-                gl.enable_vertex_attrib_array(indx);
-
-                indx += 1;
-            }
-        }
-    }
-
-    fn bind_buffers_to_vertex_shader(gl: &WebGl2RenderingContext, buffers: &Box<[(u32, i32, WebGlBuffer)]>) {
-        for (target, _, buffer_idx) in buffers.iter() {
-            gl.bind_buffer(*target, Some(buffer_idx));
-        }
-    }
-
-    fn create_vertices_array(projection: &ProjectionType) -> js_sys::Float32Array;
-    fn create_uv_array() -> js_sys::Float32Array;
-    fn create_color_array() -> js_sys::Float32Array;
-    fn create_index_array() -> js_sys::Uint32Array;
+    fn create_vertices_array(projection: &ProjectionType) -> BufferData<f32>;
+    fn create_index_array() -> BufferData<u32>;
 
     fn send_uniforms(&self, gl: &WebGl2RenderingContext, shader: &Shader);
 }
 
 pub mod hips_sphere;
-pub mod direct_system;
 pub mod projection;
 
-use std::marker::PhantomData;
-use web_sys::WebGlBuffer;
-use web_sys::WebGlUniformLocation;
+mod array_buffer;
+mod element_array_buffer;
+mod buffer_data;
+mod vertex_array_object;
+
 use std::cell::RefCell;
 
 pub struct Renderable<T>
 where T: Mesh {
     shader: Rc<Shader>,
-    projection: Rc<RefCell<ProjectionType>>,
-
     model_mat: cgmath::Matrix4::<f32>,
 
     scale_mat: cgmath::Matrix4::<f32>,
@@ -61,13 +44,11 @@ where T: Mesh {
     translation_mat: cgmath::Matrix4::<f32>,
 
     // VAO index
-    vao: WebGlVertexArrayObject,
+    vertex_array_object: VertexArrayObject,
 
-    // Buffers id
-    buffers: Box<[(u32, i32, WebGlBuffer)]>,
+    mesh: Rc<RefCell<T>>,
 
-    num_vertices: i32,
-    mesh: Rc<RefCell<T>>
+    gl: Rc<WebGl2RenderingContext>
 }
 
 use cgmath;
@@ -75,22 +56,20 @@ use cgmath::SquareMatrix;
 
 impl<T> Renderable<T>
 where T: Mesh {
-    pub fn new(gl: &WebGl2RenderingContext, shader: Rc<Shader>, projection: Rc<RefCell<ProjectionType>>, mesh: Rc<RefCell<T>>) -> Renderable<T> {
-        shader.bind(gl);
+    pub fn new(gl: Rc<WebGl2RenderingContext>, shader: Rc<Shader>, projection: Rc<RefCell<ProjectionType>>, mesh: Rc<RefCell<T>>) -> Renderable<T> {
+        shader.bind(&gl);
 
-        let (buffers, num_vertices, vao) = T::create_buffers(gl, &projection.as_ref().borrow());
-        T::link_buffers_to_vertex_shader(gl, &buffers);
+        let vertex_array_object = T::create_buffers(gl.clone(), &projection.as_ref().borrow());
 
         let model_mat = cgmath::Matrix4::identity();
 
         let scale_mat = cgmath::Matrix4::identity();
         let rotation_mat = cgmath::Matrix4::identity();
         let translation_mat = cgmath::Matrix4::identity();
+
         Renderable {
             // The shader to bind when drawing the renderable
             shader,
-            // The type of projection
-            projection,
             // The model matrix of the Renderable
             model_mat,
             // And its submatrices
@@ -98,12 +77,9 @@ where T: Mesh {
             rotation_mat,
             translation_mat,
             // Vertex-Array Object index
-            vao,
-            // Buffers indexes
-            buffers,
-            // Num of vertices to draw
-            num_vertices,
-            mesh
+            vertex_array_object,
+            mesh,
+            gl,
         }
     }
 
@@ -127,28 +103,30 @@ where T: Mesh {
     }
 
     pub fn get_model_mat(&self) -> cgmath::Matrix4<f32> {
-        return self.model_mat.clone();
+        return self.model_mat.clone(); 
     }
 
-    pub fn draw(&self, gl: &WebGl2RenderingContext, mode: u32, viewport: &ViewPort) {
-        self.shader.bind(gl);
+    pub fn draw(&self, mode: u32, viewport: &ViewPort) {
+        self.shader.bind(&self.gl);
 
-        gl.bind_vertex_array(Some(&self.vao));
+        self.vertex_array_object.bind();
 
         // Send Uniforms
-        viewport.send_to_vertex_shader(gl, self.shader.borrow());
-        self.mesh.as_ref().borrow().send_uniforms(gl, &self.shader);
+        viewport.send_to_vertex_shader(&self.gl, self.shader.borrow());
+        self.mesh.as_ref().borrow().send_uniforms(&self.gl, &self.shader);
 
         // Get the attribute location of the model matrix from the Vertex shader
-        let model_mat_location = self.shader.get_uniform_location(gl, "model");
+        let model_mat_location = self.shader.get_uniform_location(&self.gl, "model");
         let model_mat_f32_slice: &[f32; 16] = self.model_mat.as_ref();
-        gl.uniform_matrix4fv_with_f32_array(model_mat_location.as_ref(), false, model_mat_f32_slice);
+        self.gl.uniform_matrix4fv_with_f32_array(model_mat_location.as_ref(), false, model_mat_f32_slice);
 
-        gl.draw_elements_with_i32(
+        self.gl.draw_elements_with_i32(
             mode,
-            self.num_vertices,
+            self.vertex_array_object.num_vertices() as i32,
             WebGl2RenderingContext::UNSIGNED_INT,
             0,
         );
+
+        self.vertex_array_object.unbind();
     }
 }
