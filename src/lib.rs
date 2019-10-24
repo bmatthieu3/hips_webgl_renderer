@@ -19,8 +19,11 @@ use shader::Shader;
 use renderable::Renderable;
 use renderable::hips_sphere::HiPSSphere;
 use renderable::projection;
-use renderable::projection::{ProjectionType, Aitoff, Orthographic};
+use renderable::projection::{ProjectionType, Aitoff};
 use viewport::ViewPort;
+
+use std::sync::Mutex;
+use std::sync::Arc;
 
 fn request_animation_frame(f: &Closure<FnMut()>) {
     web_sys::window()
@@ -42,25 +45,14 @@ fn compute_speed(t_start: f32, speed_max: f32) -> f32 {
     }
 }
 
-use std::time::SystemTime;
-
 use std::rc::Rc;
 use std::cell::{RefCell, Cell};
 #[wasm_bindgen(start)]
 pub fn start() -> Result<(), JsValue> {
-    let window = web_sys::window().unwrap();
+    let window = Rc::new(web_sys::window().unwrap());
     let document = window.document().unwrap();
     let canvas = document.get_element_by_id("canvas").unwrap();
-    let canvas: web_sys::HtmlCanvasElement = canvas.dyn_into::<web_sys::HtmlCanvasElement>()?;
-
-    let inner_width = window.inner_width()?
-        .as_f64()
-        .unwrap();
-    let inner_height = window.inner_height()?
-        .as_f64()
-        .unwrap();
-    canvas.set_width(inner_width as u32);
-    canvas.set_height(inner_height as u32);
+    let canvas = Rc::new(canvas.dyn_into::<web_sys::HtmlCanvasElement>()?);
 
     //let context_attributes = js_sys::Map::new();
     //let context_attributes2 = context_attributes.set(&"antialias".into(), &false.into());
@@ -71,15 +63,23 @@ pub fn start() -> Result<(), JsValue> {
             .unwrap()
             .dyn_into::<WebGl2RenderingContext>()?
     );
+    // Enable the depth test
+    //gl.enable(WebGl2RenderingContext::DEPTH_TEST);
+    // Enable back face culling
+    //gl.enable(WebGl2RenderingContext::CULL_FACE);
+    //gl.cull_face(WebGl2RenderingContext::BACK);
+    gl.enable(WebGl2RenderingContext::BLEND);
+    gl.blend_func(WebGl2RenderingContext::SRC_ALPHA, WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA);
+    //gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
+
+    // Viewport
+    let viewport = Rc::new(RefCell::new(ViewPort::new(&gl, window.clone(), canvas.clone())));
+    let projection = Rc::new(RefCell::new(ProjectionType::Aitoff(Aitoff {})));
 
     let shader_2d_proj = Rc::new(Shader::new(&gl,
         shaders::proj_vert::CONTENT,
         shaders::proj_frag::CONTENT
     ));
-
-    // Viewport
-    let viewport = Rc::new(RefCell::new(ViewPort::new()));
-    let projection = Rc::new(RefCell::new(ProjectionType::Aitoff(Aitoff {})));
 
     let hips_sphere_mesh = Rc::new(RefCell::new(HiPSSphere::new(gl.clone())));
     let sphere = Rc::new(RefCell::new(Renderable::<HiPSSphere>::new(
@@ -88,14 +88,6 @@ pub fn start() -> Result<(), JsValue> {
         projection.clone(),
         hips_sphere_mesh.clone(),
     )));
-    // Enable the depth test
-    //gl.enable(WebGl2RenderingContext::DEPTH_TEST);
-    // Enable back face culling
-    //gl.enable(WebGl2RenderingContext::CULL_FACE);
-    //gl.cull_face(WebGl2RenderingContext::BACK);
-
-    gl.enable(WebGl2RenderingContext::BLEND);
-    gl.blend_func(WebGl2RenderingContext::SRC_ALPHA, WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA);
 
     let f = Rc::new(RefCell::new(None));
     let g = f.clone();
@@ -132,7 +124,7 @@ pub fn start() -> Result<(), JsValue> {
             mouse_clic_x.set(event_x);
             mouse_clic_y.set(event_y);
 
-            let (x_screen_homogeous_space, y_screen_homogeous_space) = projection::screen_pixels_to_homogeous(event_x, event_y, &viewport.borrow());
+            let (x_screen_homogeous_space, y_screen_homogeous_space) = projection::screen_pixels_to_homogenous(event_x, event_y, &viewport.borrow());
             let result = projection.as_ref().borrow().screen_to_world_space(x_screen_homogeous_space, y_screen_homogeous_space);
             if let Some(pos) = result {
                 let pos = pos.normalize();
@@ -145,6 +137,19 @@ pub fn start() -> Result<(), JsValue> {
         canvas.add_event_listener_with_callback("mousedown", closure.as_ref().unchecked_ref())?;
         closure.forget();
     }
+
+    // Resize event
+    let onresize = {
+        let viewport = viewport.clone();
+        let gl = gl.clone();
+        Closure::wrap(Box::new(move || {
+            console::log_1(&format!("resize").into());
+            viewport.borrow_mut().resize(&gl);
+        }) as Box<dyn FnMut()>)
+    };
+    window.set_onresize(Some(onresize.as_ref().unchecked_ref()));
+    //canvas.add_event_listener_with_callback("mouseup", closure.as_ref().unchecked_ref())?;
+    onresize.forget();
 
     // Mouse up pression event
     {
@@ -185,7 +190,7 @@ pub fn start() -> Result<(), JsValue> {
                 let event_y = event.offset_y() as f32;
                 let model_mat = &sphere.as_ref().borrow().get_model_mat();
 
-                let (x_screen_homogeous_space, y_screen_homogeous_space) = projection::screen_pixels_to_homogeous(event_x, event_y, &viewport.borrow());
+                let (x_screen_homogeous_space, y_screen_homogeous_space) = projection::screen_pixels_to_homogenous(event_x, event_y, &viewport.borrow());
                 let result = projection.as_ref().borrow().screen_to_world_space(x_screen_homogeous_space, y_screen_homogeous_space);
                 if let Some(pos) = result {
                     let pos = pos.normalize();
@@ -285,7 +290,7 @@ pub fn start() -> Result<(), JsValue> {
             gl.clear_color(0.08, 0.08, 0.08, 1.0);
             // Clear the color buffer bit
             // Clear the depth buffer bit
-            gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT | WebGl2RenderingContext::DEPTH_BUFFER_BIT);
+            gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
             
             sphere.as_ref().borrow().draw(WebGl2RenderingContext::TRIANGLES, &viewport.as_ref().borrow());
             //direct_system.as_ref().borrow().draw(&gl, WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());

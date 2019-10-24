@@ -8,23 +8,19 @@ use crate::renderable::projection::ProjectionType;
 use std::rc::Rc;
 use std::borrow::Borrow;
 
-mod buffers;
+pub mod buffers;
 pub mod hips_sphere;
 pub mod projection;
+pub mod grid;
 
 trait VertexBufferObject {
     fn bind(&self);
     fn unbind(&self);
 }
 
-use buffers::buffer_data::BufferData;
 use buffers::vertex_array_object::VertexArrayObject;
 pub trait Mesh {
     fn create_buffers(gl: Rc<WebGl2RenderingContext>, projection: &ProjectionType) -> VertexArrayObject;
-
-    fn create_vertices_array(projection: &ProjectionType) -> BufferData<f32>;
-    fn create_index_array() -> BufferData<u32>;
-
     fn send_uniforms(&self, gl: &WebGl2RenderingContext, shader: &Shader);
 }
 

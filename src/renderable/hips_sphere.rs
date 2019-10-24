@@ -133,15 +133,7 @@ impl HiPSSphere {
 
         self.load_healpix_tile_textures(gl, healpix_cells, depth, zoom);
     }
-}
 
-use crate::utils;
-use crate::renderable::VertexArrayObject;
-use crate::renderable::buffers::array_buffer::ArrayBuffer;
-use crate::renderable::buffers::buffer_data::BufferData;
-use crate::renderable::buffers::element_array_buffer::ElementArrayBuffer;
-
-impl Mesh for HiPSSphere {
     fn create_vertices_array(projection: &ProjectionType) -> BufferData<f32> {
         let vertex_screen_space_positions = projection.build_screen_map();
 
@@ -206,7 +198,15 @@ impl Mesh for HiPSSphere {
 
         BufferData(indices)
     }
+}
 
+use crate::utils;
+use crate::renderable::VertexArrayObject;
+use crate::renderable::buffers::array_buffer::ArrayBuffer;
+use crate::renderable::buffers::buffer_data::BufferData;
+use crate::renderable::buffers::element_array_buffer::ElementArrayBuffer;
+
+impl Mesh for HiPSSphere {
     fn create_buffers(gl: Rc<WebGl2RenderingContext>, projection: &ProjectionType) -> VertexArrayObject {
         let mut vertex_array_object = VertexArrayObject::new(gl.clone());
         vertex_array_object.bind();
@@ -239,8 +239,8 @@ impl Mesh for HiPSSphere {
 
     fn send_uniforms(&self, gl: &WebGl2RenderingContext, shader: &Shader) {
         // Send grid enable
-        let location_enable_grid = shader.get_uniform_location(gl, "draw_grid").unwrap();
-        gl.uniform1i(Some(&location_enable_grid), 1);
+        //let location_enable_grid = shader.get_uniform_location(gl, "draw_grid").unwrap();
+        //gl.uniform1i(Some(&location_enable_grid), 1);
         // Send max depth of the current HiPS
         let location_max_depth = shader.get_uniform_location(gl, "max_depth").unwrap();
         gl.uniform1i(Some(&location_max_depth), MAX_DEPTH);
@@ -358,6 +358,9 @@ impl Mesh for HiPSSphere {
             // Send current depth
             let location_next_depth = shader.get_uniform_location(gl, "next_depth").unwrap();
             gl.uniform1i(Some(&location_next_depth), next_depth);
+
+            //uniform vec2 window_size_default;
+            //uniform vec2 current_window_size;
         }
     }
 }

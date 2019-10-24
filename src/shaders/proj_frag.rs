@@ -177,7 +177,6 @@ pub static CONTENT: &'static str = r#"#version 300 es
     }
 
     uniform float zoom_factor;
-    uniform int draw_grid;
     uniform sampler3D textures_buffer;
     uniform sampler3D textures_zero_depth_buffer;
 
@@ -349,7 +348,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
         //out_frag_color = mix(out_frag_color.rgb, out_frag_color.gbr, lambda);
         // gamma correction
 
-        if(draw_grid == 1) {
+        /*if(draw_grid == 1) {
             vec2 lonlat = vec2(atan(frag_pos.x, frag_pos.z), atan(frag_pos.y, sqrt(frag_pos.x*frag_pos.x + frag_pos.z*frag_pos.z)));
             lonlat *= 180.0/PI;
 
@@ -364,5 +363,5 @@ pub static CONTENT: &'static str = r#"#version 300 es
                 vec4 color_grid = vec4(1.f, 0.f, 0.f, 1.f);
                 out_frag_color = mix(out_frag_color, color_grid, (0.4 * max(linePos.x, linePos.y)));
             }
-        }
+        }*/
     }"#;

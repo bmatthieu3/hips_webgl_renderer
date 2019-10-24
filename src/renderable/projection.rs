@@ -1,24 +1,25 @@
 use cgmath::{Vector3, InnerSpace};
 use crate::viewport::ViewPort;
 
-pub fn screen_pixels_to_homogeous(x: f32, y: f32, viewport: &ViewPort) -> (f32, f32) {
+use web_sys::console;
+
+pub fn screen_pixels_to_homogenous(x: f32, y: f32, viewport: &ViewPort) -> (f32, f32) {
     // Screen space in pixels to homogeneous screen space (values between [-1, 1])
-    let window = web_sys::window().unwrap();
-    let width = window.inner_width()
-        .unwrap()
-        .as_f64()
-        .unwrap() as f32;
-    let height = window.inner_height()
-        .unwrap()
-        .as_f64()
-        .unwrap() as f32;
+    let (width, height) = viewport.get_window_size();
+    let (start_width, start_height) = viewport.get_starting_window_size();
     // Change of origin
     let xo = x - width/2_f32;
     let yo = y - height/2_f32;
 
+    let width_resize_ratio = width / start_width;
+    let height_resize_ratio = height / start_height;
+    //vec2 screen_ratio = current_window_size / window_size_default;
+
     // Scale to fit in [-1, 1]
     let xh = 2_f32*(xo/width);
     let yh = -2_f32*(yo/height);
+
+    console::log_1(&format!("Homogenous {:?} {:?}", xh, yh).into());
 
     let zoom_f = viewport.get_zoom_factor();
     (xh / zoom_f, yh / zoom_f)
