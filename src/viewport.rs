@@ -24,7 +24,7 @@ use web_sys::WebGl2RenderingContext;
 use cgmath::SquareMatrix;
 use web_sys::console;
 
-fn get_window_size(window: &web_sys::Window) -> (f32, f32) {
+pub fn get_window_size(window: &web_sys::Window) -> (f32, f32) {
     let width = window.inner_width()
         .unwrap()
         .as_f64()
@@ -153,10 +153,16 @@ impl ViewPort {
         gl.uniform1f(zoom_factor_location.as_ref(), self.zoom_factor);
 
         // Send window size
-        let location_resize_factor_x = shader.get_uniform_location(gl, "resize_factor_x").unwrap();
-        gl.uniform1f(Some(&location_resize_factor_x), self.resize_factor_x);
-        let location_resize_factor_y = shader.get_uniform_location(gl, "resize_factor_y").unwrap();
-        gl.uniform1f(Some(&location_resize_factor_y), self.resize_factor_y);
+        let location_resize_factor_x = shader.get_uniform_location(gl, "resize_factor_x");
+        gl.uniform1f(location_resize_factor_x.as_ref(), self.resize_factor_x);
+        
+        let location_resize_factor_y = shader.get_uniform_location(gl, "resize_factor_y");
+        gl.uniform1f(location_resize_factor_y.as_ref(), self.resize_factor_y);
+
+        let location_aspect = shader.get_uniform_location(gl, "aspect");
+        let (width, height) = self.get_window_size();
+        let aspect = width / height;
+        gl.uniform1f(location_aspect.as_ref(), aspect);
         /*let location_starting_window = shader.get_uniform_location(gl, "window_size_default").unwrap();
         gl.uniform2f(Some(&location_starting_window), self.starting_width, self.starting_height);
         let location_current_window = shader.get_uniform_location(gl, "current_window_size").unwrap();

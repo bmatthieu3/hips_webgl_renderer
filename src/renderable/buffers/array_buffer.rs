@@ -23,7 +23,7 @@ impl VertexBufferObject for ArrayBuffer {
 use crate::renderable::buffers::buffer_data::BufferData;
 use std::convert::TryInto;
 impl ArrayBuffer {
-    pub fn new(gl: Rc<WebGl2RenderingContext>, stride: usize, sizes: &[usize], offsets: &[usize], data: BufferData<f32>) -> ArrayBuffer {
+    pub fn new(gl: Rc<WebGl2RenderingContext>, stride: usize, sizes: &[usize], offsets: &[usize], data: BufferData<f32>, usage: u32) -> ArrayBuffer {
         let buffer = gl.create_buffer()
             .ok_or("failed to create buffer")
             .unwrap();
@@ -34,7 +34,7 @@ impl ArrayBuffer {
         gl.buffer_data_with_array_buffer_view(
             WebGl2RenderingContext::ARRAY_BUFFER,
             &data,
-            WebGl2RenderingContext::STATIC_DRAW,
+            usage,
         );
         // Link to the shader
         for (idx, (size, offset)) in sizes.iter().zip(offsets.iter()).enumerate() {
@@ -50,6 +50,19 @@ impl ArrayBuffer {
             num_packed_data,
             gl,
         }
+    }
+
+    pub fn update(&self, data: BufferData<f32>) {
+        let data: js_sys::Float32Array = data.try_into().unwrap();
+
+        // offset expressed in bytes where data replacement will begin in the buffer
+        let offset = (0 * std::mem::size_of::<f32>()) as i32; 
+
+        self.gl.buffer_sub_data_with_i32_and_array_buffer_view(
+            WebGl2RenderingContext::ARRAY_BUFFER,
+            offset,
+            &data,
+        );
     }
 }
 

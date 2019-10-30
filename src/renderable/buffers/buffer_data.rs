@@ -31,3 +31,9 @@ impl TryFrom<BufferData<u32>> for js_sys::Uint32Array {
         Ok(data)
     }
 }
+
+impl<T> From<Vec<T>> for BufferData<T> {
+    fn from(data: Vec<T>) -> Self {
+        BufferData(data)
+    }
+}

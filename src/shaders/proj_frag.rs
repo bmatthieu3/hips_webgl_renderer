@@ -291,6 +291,29 @@ pub static CONTENT: &'static str = r#"#version 300 es
     uniform float current_time; // current time in ms
     uniform int max_depth; // max depth of the HiPS
 
+    float f(vec2 lonlat) {
+        float step = 10.f; // 10 deg step
+        lonlat /= vec2(step);
+        vec2 y = fract(lonlat + 0.5f) - 0.5f;
+        vec2 r = max(vec2(0.f), vec2(1.f - abs(y)*100.f));
+
+        return max(r.x, r.y); 
+    }
+
+    vec2 grad_f(vec2 x) {
+        vec2 h = vec2(0.01f, 0.f);
+        return vec2(f(x + h.xy) - f(x - h.xy), f(x + h.yx) - f(x - h.yx))/(2.f*h.x);
+    }
+
+    float col(vec2 x)
+    {
+        float v = f( x );
+        vec2  g = grad_f( x );
+        float de = abs(v)/length(g);
+        float eps = 0.01f;
+        return smoothstep( 1.0*eps, 2.0*eps, de );
+    }
+
     void main() {
         vec3 frag_pos = normalize(out_vert_pos);
         // Get the HEALPix cell idx and the uv in the texture
@@ -348,20 +371,17 @@ pub static CONTENT: &'static str = r#"#version 300 es
         //out_frag_color = mix(out_frag_color.rgb, out_frag_color.gbr, lambda);
         // gamma correction
 
-        /*if(draw_grid == 1) {
-            vec2 lonlat = vec2(atan(frag_pos.x, frag_pos.z), atan(frag_pos.y, sqrt(frag_pos.x*frag_pos.x + frag_pos.z*frag_pos.z)));
-            lonlat *= 180.0/PI;
+        /*if(draw_grid == 1) {*/
+        /*vec2 lonlat = vec2(atan(frag_pos.x, frag_pos.z), asin(frag_pos.y));
+        lonlat *= 180.f/PI;
 
-            if(abs(lonlat.y) < 80.0) {
-                lonlat /= vec2(10.0, 10.0);
+        if(abs(lonlat.y) < 80.f) {
+            //vec2 der = vec2(60.0f);
+            //der = min(der, der / (abs(lonlat.y) * 0.25f));
+            //linePos = max((1.0 - abs(linePos)*10.f), 0.0);
 
-                vec2 linePos = fract(lonlat + 0.5) - 0.5;
-                vec2 der = vec2(60.0f) * zoom_factor;
-                der = min(der, der / (abs(lonlat.y) * 0.25f));
-                linePos = max((1.0 - der*abs(linePos)), 0.0);
-
-                vec4 color_grid = vec4(1.f, 0.f, 0.f, 1.f);
-                out_frag_color = mix(out_frag_color, color_grid, (0.4 * max(linePos.x, linePos.y)));
-            }
+            vec4 color_grid = vec4(1.f, 0.f, 0.f, 1.f);
+            out_frag_color = mix(out_frag_color, color_grid, col(lonlat));
         }*/
+        /*}*/
     }"#;

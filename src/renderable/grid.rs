@@ -1,60 +1,120 @@
-struct Grid;
-
 use crate::math;
 use crate::renderable::buffers::buffer_data::BufferData;
 
+use std::convert::TryInto;
+
+const NUM_POINTS: usize = 50;
+
+const ISOLON_NUM_POINTS: usize = 50;
+const ISOLAT_NUM_POINTS: usize = 50;
+
+pub struct Grid;
 impl Grid {
-    fn new() -> Grid {
+    pub fn new() -> Grid {
         Grid {}
     }
 
-    /*fn create_iso_lon() -> BufferData<f32> {
-        let num_points = 10;
-        let screen_space_pos = (0..num_points).into_iter()
-            .map(|i| {
-                let theta = (2_f32 * 3.14_f32 * (i as f32)) / (num_points as f32);
-                let delta = 0_f32;
+    fn create_vertices_array() -> BufferData<f32> {
+        let lon_step = 2_f32 * std::f32::consts::PI / (ISOLON_NUM_POINTS as f32);
+        let lat_step = std::f32::consts::PI / (ISOLAT_NUM_POINTS as f32);
 
-                let pos = math::radec_to_xyz(theta, delta);
-                // TODO world space to screen space
-                let screen_space_pos = pos;
-                screen_space_pos
-            })
-            .flatten()
-            .collect::<Vec<_>>();
-        screen_space_pos.try_into().unwrap()
-    }*/
+        let mut pos_world_space = Vec::with_capacity((ISOLAT_NUM_POINTS + 1) * (ISOLON_NUM_POINTS + 1) * 3);
+
+        for i in 0..(ISOLAT_NUM_POINTS + 1) {
+            let delta = (std::f32::consts::PI/2_f32) - (i as f32)*lat_step;
+
+            let y = delta.sin();
+            let xz = delta.cos();
+
+            for j in 0..(ISOLON_NUM_POINTS + 1) {
+                let theta = -(j as f32) * lon_step;
+                let x = xz * theta.sin();
+                let z = xz * theta.cos();
+
+                pos_world_space.push(x);
+                pos_world_space.push(y);
+                pos_world_space.push(z);
+            }
+        }
+
+        pos_world_space.into()
+    }
+
+    fn create_index_array() -> BufferData<u32> {
+        let mut indices = Vec::with_capacity(NUM_POINTS * 2);
+
+        for i in 0..ISOLAT_NUM_POINTS {
+            let mut k1 = (i * (ISOLON_NUM_POINTS + 1)) as u32;
+            let mut k2 = (k1 + (ISOLON_NUM_POINTS as u32) + 1) as u32;
+
+            for j in 0..ISOLON_NUM_POINTS {
+                // k1 => k2 => k1+1
+                if i != 0 {
+                    indices.push(k1);
+                    indices.push(k2);
+                    indices.push(k1 + 1);
+                }
+
+                // k1+1 => k2 => k2+1
+                if i != ISOLAT_NUM_POINTS - 1 {
+                    indices.push(k1 + 1);
+                    indices.push(k2);
+                    indices.push(k2 + 1);
+                }
+
+                k1 += 1;
+                k2 += 1;
+            }
+        }
+
+        BufferData(indices)
+    }
 }
 
 use crate::renderable::Mesh;
 use std::rc::Rc;
 use web_sys::WebGl2RenderingContext;
-/*
+
+use crate::ProjectionType;
+
+use crate::renderable::buffers::vertex_array_object::VertexArrayObject;
+use crate::renderable::buffers::array_buffer::ArrayBuffer;
+use crate::renderable::buffers::element_array_buffer::ElementArrayBuffer;
+
+use crate::Shader;
+
+use web_sys::console;
+
 impl Mesh for Grid {
-    fn create_buffers(gl: Rc<WebGl2RenderingContext>, projection: &ProjectionType) -> VertexArrayObject {
+    fn create_buffers(&self, gl: Rc<WebGl2RenderingContext>, projection: &ProjectionType) -> VertexArrayObject {
         let mut vertex_array_object = VertexArrayObject::new(gl.clone());
         vertex_array_object.bind();
 
         // ARRAY buffer creation
-        let vertices_data = Self::create_vertices_array(projection);
+        let vertices_data = Self::create_vertices_array();
+        console::log_1(&format!("vertices: {:?}", vertices_data.0).into());
+
         let array_buffer = ArrayBuffer::new(
             gl.clone(),
-            5 * std::mem::size_of::<f32>(),
-            &[2, 3],
-            &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
-            vertices_data
+            3 * std::mem::size_of::<f32>(),
+            &[3],
+            &[0 * std::mem::size_of::<f32>()],
+            vertices_data,
+            WebGl2RenderingContext::STATIC_DRAW,
         );
 
         // ELEMENT ARRAY buffer creation
         let indexes_data = Self::create_index_array();
+        console::log_1(&format!("indexes: {:?}", indexes_data.0).into());
         let indexes_buffer = ElementArrayBuffer::new(
             gl,
-            indexes_data
+            indexes_data,
+            WebGl2RenderingContext::STATIC_DRAW,
         );
 
         vertex_array_object.set_array_buffer(array_buffer);
         vertex_array_object.set_element_array_buffer(indexes_buffer);
-
+        console::log_1(&format!("grid init").into());
         vertex_array_object.unbind();
         // Unbind the buffer
         //gl.bind_buffer(WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER, None);
@@ -62,126 +122,155 @@ impl Mesh for Grid {
     }
 
     fn send_uniforms(&self, gl: &WebGl2RenderingContext, shader: &Shader) {
-        // Send grid enable
-        //let location_enable_grid = shader.get_uniform_location(gl, "draw_grid").unwrap();
-        //gl.uniform1i(Some(&location_enable_grid), 1);
-        // Send max depth of the current HiPS
-        let location_max_depth = shader.get_uniform_location(gl, "max_depth").unwrap();
-        gl.uniform1i(Some(&location_max_depth), MAX_DEPTH);
-        // Send sampler 3D
-        // textures buffer
-        let location_textures_buf = shader.get_uniform_location(gl, "textures_buffer").unwrap();
-        gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-        gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, self.buffer_textures.webgl_texture0.as_ref());
-        gl.uniform1i(Some(&location_textures_buf), 0);
-        // base cell textures
-        let location_textures_zero_depth_buf = shader.get_uniform_location(gl, "textures_zero_depth_buffer").unwrap();
-        gl.active_texture(WebGl2RenderingContext::TEXTURE1);
-        gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, self.buffer_textures.webgl_texture1.as_ref());
-        gl.uniform1i(Some(&location_textures_zero_depth_buf), 1);
-        let hpx_zero_depth_tiles = self.buffer_textures.get_zero_depth_tiles();
-        for (i, hpx) in hpx_zero_depth_tiles.iter().enumerate() {
-            let mut name = String::from("hpx_zero_depth");
-            name += "[";
-            name += &i.to_string();
-            name += "].";
+        let location_color = shader.get_uniform_location(gl, "location_color");
+        gl.uniform4f(location_color.as_ref(), 1_f32, 1_f32, 1_f32, 0.2_f32);
+    }
 
-            let location_hpx_idx = shader.get_uniform_location(gl, &(name.clone() + "idx")).unwrap();
-            gl.uniform1i(Some(location_hpx_idx.as_ref()), hpx.idx);
+    fn update_vertex_and_element_arrays(&self, model: &cgmath::Matrix4::<f32>, projection: &ProjectionType) -> (BufferData<f32>, BufferData<u32>) {
+        unreachable!();
+    }
+}
 
-            let location_buf_idx = shader.get_uniform_location(gl, &(name.clone() + "buf_idx")).unwrap();
-            gl.uniform1i(Some(location_buf_idx.as_ref()), hpx.buf_idx);
+use std::ops::Range;
+pub struct IsoLatitudeLine {
+    lat: f32,
+    delta_lon: Range<f32>,
 
-            let location_time_received = shader.get_uniform_location(gl, &(name + "time_received")).unwrap();
-            gl.uniform1f(Some(location_time_received.as_ref()), hpx.time_received);
-        }
+    data: Vec<cgmath::Vector4<f32>>,
+}
+fn build_world_space_vertices(lat: f32, delta_lon: Range<f32>) -> Vec<cgmath::Vector4<f32>> {
+    //let ang = math::angular_distance_lonlat(delta_lon.start, lat, delta_lon.end, lat);
+    let theta_step = 2_f32 * std::f32::consts::PI / ((ISOLAT_NUM_POINTS - 1) as f32);
 
-        // Send current time in ms
-        let location_current_time = shader.get_uniform_location(gl, "current_time").unwrap();
-        gl.uniform1f(Some(&location_current_time), utils::get_current_time());
+    let mut pos_local_space = Vec::with_capacity(ISOLAT_NUM_POINTS);
 
-        let hpx_tiles = self.buffer_textures.get_tiles(self.current_depth);
-        for (i, hpx) in hpx_tiles.iter().enumerate() {
-            let mut name = String::from("hpx_current_depth");
-            name += "[";
-            name += &i.to_string();
-            name += "].";
+    let delta = lat;
+    let y = delta.sin();
+    let xz = delta.cos();
 
-            let location_hpx_idx = shader.get_uniform_location(gl, &(name.clone() + "idx")).unwrap();
-            gl.uniform1i(Some(location_hpx_idx.as_ref()), hpx.idx);
+    let theta_start = -std::f32::consts::PI;
+    for i in 0..ISOLAT_NUM_POINTS {
+        let theta = theta_start + (i as f32) * theta_step;
 
-            let location_buf_idx = shader.get_uniform_location(gl, &(name.clone() + "buf_idx")).unwrap();
-            gl.uniform1i(Some(location_buf_idx.as_ref()), hpx.buf_idx);
+        let x = xz * theta.sin();
+        let z = xz * theta.cos();
 
-            let location_time_received = shader.get_uniform_location(gl, &(name + "time_received")).unwrap();
-            gl.uniform1f(Some(location_time_received.as_ref()), hpx.time_received);
-        }
+        pos_local_space.push(cgmath::Vector4::new(x, y, z, 1_f32));
+    }
+    pos_local_space
+}
 
-        // Send number of HEALPix cells in the buffer whose depth equals current_depth
-        let location_num_current_depth_tiles = shader.get_uniform_location(gl, "num_current_depth_hpx_tiles").unwrap();
-        gl.uniform1i(Some(&location_num_current_depth_tiles), hpx_tiles.len() as i32);
+use crate::viewport::get_window_size;
+use cgmath::{SquareMatrix, InnerSpace};
+impl IsoLatitudeLine {
+    pub fn new(lat: f32, delta_lon: Range<f32>) -> IsoLatitudeLine {
+        let data = build_world_space_vertices(lat, delta_lon.clone());
 
-        // Send current depth
-        let location_current_depth = shader.get_uniform_location(gl, "current_depth").unwrap();
-        gl.uniform1i(Some(&location_current_depth), self.current_depth);
-
-        // PREVIOUS DEPTH TILES
-        if self.current_depth > 0 {
-            let prev_depth = self.current_depth - 1;
-
-            let hpx_tiles = self.buffer_textures.get_tiles(prev_depth);
-            for (i, hpx) in hpx_tiles.iter().enumerate() {
-                let mut name = String::from("hpx_prev_depth");
-                name += "[";
-                name += &i.to_string();
-                name += "].";
-
-                let location_hpx_idx = shader.get_uniform_location(gl, &(name.clone() + "idx")).unwrap();
-                gl.uniform1i(Some(location_hpx_idx.as_ref()), hpx.idx);
-
-                let location_buf_idx = shader.get_uniform_location(gl, &(name.clone() + "buf_idx")).unwrap();
-                gl.uniform1i(Some(location_buf_idx.as_ref()), hpx.buf_idx);
-
-                let location_time_received = shader.get_uniform_location(gl, &(name + "time_received")).unwrap();
-                gl.uniform1f(Some(location_time_received.as_ref()), hpx.time_received);
-            }
-
-            // Send number of HEALPix cells in the buffer whose depth equals current_depth
-            let location_num_prev_depth_tiles = shader.get_uniform_location(gl, "num_prev_depth_hpx_tiles").unwrap();
-            gl.uniform1i(Some(&location_num_prev_depth_tiles), hpx_tiles.len() as i32);
-
-            // Send current depth
-            let location_prev_depth = shader.get_uniform_location(gl, "prev_depth").unwrap();
-            gl.uniform1i(Some(&location_prev_depth), prev_depth);
-        }
-        // NEXT DEPTH TILES
-        if self.current_depth < MAX_DEPTH {
-            let next_depth = self.current_depth + 1;
-
-            let hpx_tiles = self.buffer_textures.get_tiles(next_depth);
-            for (i, hpx) in hpx_tiles.iter().enumerate() {
-                let mut name = String::from("hpx_next_depth");
-                name += "[";
-                name += &i.to_string();
-                name += "].";
-
-                let location_hpx_idx = shader.get_uniform_location(gl, &(name.clone() + "idx")).unwrap();
-                gl.uniform1i(Some(location_hpx_idx.as_ref()), hpx.idx);
-
-                let location_buf_idx = shader.get_uniform_location(gl, &(name.clone() + "buf_idx")).unwrap();
-                gl.uniform1i(Some(location_buf_idx.as_ref()), hpx.buf_idx);
-
-                let location_time_received = shader.get_uniform_location(gl, &(name + "time_received")).unwrap();
-                gl.uniform1f(Some(location_time_received.as_ref()), hpx.time_received);
-            }
-
-            // Send number of HEALPix cells in the buffer whose depth equals current_depth
-            let location_num_next_depth_tiles = shader.get_uniform_location(gl, "num_next_depth_hpx_tiles").unwrap();
-            gl.uniform1i(Some(&location_num_next_depth_tiles), hpx_tiles.len() as i32);
-
-            // Send current depth
-            let location_next_depth = shader.get_uniform_location(gl, "next_depth").unwrap();
-            gl.uniform1i(Some(&location_next_depth), next_depth);
+        IsoLatitudeLine {
+            lat,
+            delta_lon,
+            data,
         }
     }
-}*/
+
+    fn update_arrays(&self, model: &cgmath::Matrix4::<f32>, projection: &ProjectionType) -> (BufferData<f32>, BufferData<u32>) {
+        let pos_screen_space = self.data.iter()
+            .map(|pos_local_space| {
+                let pos_world_space = model * pos_local_space;
+                let pos_screen_space = projection.world_to_screen_space(pos_world_space).unwrap();
+
+                //vec![pos_screen_space.x, pos_screen_space.y]
+                pos_screen_space
+            })
+            .collect::<Vec<_>>();
+        
+        let mut indices = Vec::with_capacity(ISOLAT_NUM_POINTS * 2);
+
+        let (width, _) = get_window_size(&web_sys::window().unwrap());
+        let threshold_px = 2_f32 * (100_f32 / (width as f32));
+
+        for idx in 0..ISOLAT_NUM_POINTS {
+            let next_idx = (idx + 1) % ISOLAT_NUM_POINTS;
+
+            let cur_to_next_screen_pos = pos_screen_space[next_idx] - pos_screen_space[idx];
+
+            if cur_to_next_screen_pos.magnitude() < threshold_px {
+                indices.push(idx as u32);
+                indices.push(next_idx as u32);
+            }
+        }
+
+        //console::log_1(&format!("update line").into());
+
+        /*let mut idx = 0;
+        while idx < 2*ISOLAT_NUM_POINTS {
+            let next_idx = (idx + 2) % (2*ISOLAT_NUM_POINTS);
+
+            let cur_to_next_screen_pos = cgmath::Vector2::new(
+                pos_screen_space[next_idx] - pos_screen_space[idx],
+                pos_screen_space[next_idx + 1] - pos_screen_space[idx + 1],
+            );
+
+            if cur_to_next_screen_pos.magnitude() < threshold_px {
+                indices.push((idx/2) as u32);
+                indices.push((next_idx/2) as u32);
+            }
+
+            idx += 2;
+        }*/
+
+        let pos_screen_space = pos_screen_space.into_iter()
+            .map(|p| {
+                vec![p.x, p.y]
+            })
+            .flatten()
+            .collect::<Vec<_>>();
+
+        (pos_screen_space.into(), indices.into())
+    }
+}
+
+impl Mesh for IsoLatitudeLine {
+    fn create_buffers(&self, gl: Rc<WebGl2RenderingContext>, projection: &ProjectionType) -> VertexArrayObject {
+        let mut vertex_array_object = VertexArrayObject::new(gl.clone());
+        vertex_array_object.bind();
+
+        // ARRAY buffer creation
+        let (vertices_data, indexes_data) = self.update_arrays(&cgmath::Matrix4::identity(), projection);
+        console::log_1(&format!("vertices: {:?}", vertices_data.0).into());
+
+        let array_buffer = ArrayBuffer::new(
+            gl.clone(),
+            2 * std::mem::size_of::<f32>(),
+            &[2],
+            &[0 * std::mem::size_of::<f32>()],
+            vertices_data,
+            WebGl2RenderingContext::DYNAMIC_DRAW,
+        );
+
+        // ELEMENT ARRAY buffer creation
+        console::log_1(&format!("indexes: {:?}", indexes_data.0).into());
+        let indexes_buffer = ElementArrayBuffer::new(
+            gl,
+            indexes_data,
+            WebGl2RenderingContext::DYNAMIC_DRAW,
+        );
+
+        vertex_array_object.set_array_buffer(array_buffer);
+        vertex_array_object.set_element_array_buffer(indexes_buffer);
+        console::log_1(&format!("grid init").into());
+        vertex_array_object.unbind();
+        // Unbind the buffer
+        //gl.bind_buffer(WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER, None);
+        vertex_array_object
+    }
+
+    fn send_uniforms(&self, gl: &WebGl2RenderingContext, shader: &Shader) {
+        let location_color = shader.get_uniform_location(gl, "location_color");
+        gl.uniform4f(location_color.as_ref(), 0_f32, 1_f32, 0_f32, 0.2_f32);
+    }
+
+    fn update_vertex_and_element_arrays(&self, model: &cgmath::Matrix4::<f32>, projection: &ProjectionType) -> (BufferData<f32>, BufferData<u32>) {
+        self.update_arrays(model, projection)
+    }
+}

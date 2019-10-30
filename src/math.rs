@@ -4,6 +4,11 @@ pub fn angular_distance_xyz(v1: cgmath::Vector3<f32>, v2: cgmath::Vector3<f32>) 
     v1.cross(v2).magnitude().atan2(v1.dot(v2))
 }
 
+pub fn angular_distance_lonlat(lon1: f32, lat1: f32, lon2: f32, lat2: f32) -> f32 {
+    let abs_diff_lon = (lon1 - lon2).abs();
+    (lat1.sin()*lat2.sin() + lat1.cos()*lat2.cos()*abs_diff_lon.cos()).acos()
+}
+
 pub fn xyz_to_radec(v: cgmath::Vector3<f32>) -> (f32, f32) {
     (
         v.x.atan2(v.z),

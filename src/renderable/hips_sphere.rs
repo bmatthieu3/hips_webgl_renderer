@@ -146,6 +146,8 @@ impl HiPSSphere {
                     pos_screen_space.x, pos_screen_space.y,
                 ).unwrap();
 
+                console::log_1(&format!("pos world space {:?}", pos_world_space).into());
+
                 vec![pos_screen_space.x, pos_screen_space.y, pos_world_space.x, pos_world_space.y, pos_world_space.z]
             })
             .flatten()
@@ -207,7 +209,7 @@ use crate::renderable::buffers::buffer_data::BufferData;
 use crate::renderable::buffers::element_array_buffer::ElementArrayBuffer;
 
 impl Mesh for HiPSSphere {
-    fn create_buffers(gl: Rc<WebGl2RenderingContext>, projection: &ProjectionType) -> VertexArrayObject {
+    fn create_buffers(&self, gl: Rc<WebGl2RenderingContext>, projection: &ProjectionType) -> VertexArrayObject {
         let mut vertex_array_object = VertexArrayObject::new(gl.clone());
         vertex_array_object.bind();
 
@@ -218,14 +220,16 @@ impl Mesh for HiPSSphere {
             5 * std::mem::size_of::<f32>(),
             &[2, 3],
             &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
-            vertices_data
+            vertices_data,
+            WebGl2RenderingContext::STATIC_DRAW,
         );
 
         // ELEMENT ARRAY buffer creation
         let indexes_data = Self::create_index_array();
         let indexes_buffer = ElementArrayBuffer::new(
             gl,
-            indexes_data
+            indexes_data,
+            WebGl2RenderingContext::STATIC_DRAW,
         );
 
         vertex_array_object.set_array_buffer(array_buffer);
@@ -362,5 +366,9 @@ impl Mesh for HiPSSphere {
             //uniform vec2 window_size_default;
             //uniform vec2 current_window_size;
         }
+    }
+
+    fn update_vertex_and_element_arrays(&self, model: &cgmath::Matrix4::<f32>, projection: &ProjectionType) -> (BufferData<f32>, BufferData<u32>) {
+        unreachable!();
     }
 }

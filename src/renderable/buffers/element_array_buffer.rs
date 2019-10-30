@@ -24,7 +24,7 @@ impl VertexBufferObject for ElementArrayBuffer {
 use std::convert::TryInto;
 use crate::renderable::buffers::buffer_data::BufferData;
 impl ElementArrayBuffer {
-    pub fn new(gl: Rc<WebGl2RenderingContext>, data: BufferData<u32>) -> ElementArrayBuffer {
+    pub fn new(gl: Rc<WebGl2RenderingContext>, data: BufferData<u32>, usage: u32) -> ElementArrayBuffer {
         let buffer = gl.create_buffer()
             .ok_or("failed to create buffer")
             .unwrap();
@@ -36,7 +36,7 @@ impl ElementArrayBuffer {
         gl.buffer_data_with_array_buffer_view(
             WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
             &data,
-            WebGl2RenderingContext::STATIC_DRAW,
+            usage,
         );
         //gl.bind_buffer(WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER, None);
         // Returns an instance that keeps only the buffer
@@ -50,5 +50,18 @@ impl ElementArrayBuffer {
     // Returns the number of vertices stored in the array buffer
     pub fn size(&self) -> usize {
         self.buffer_size
+    }
+
+    pub fn update(&self, data: BufferData<u32>) {
+        let data: js_sys::Uint32Array = data.try_into().unwrap();
+
+        // offset expressed in bytes where data replacement will begin in the buffer
+        let offset = (0 * std::mem::size_of::<u32>()) as i32; 
+
+        self.gl.buffer_sub_data_with_i32_and_array_buffer_view(
+            WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
+            offset,
+            &data,
+        );
     }
 }

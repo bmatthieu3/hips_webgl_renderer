@@ -3,6 +3,7 @@ use web_sys::WebGlVertexArrayObject;
 
 use crate::renderable::buffers::array_buffer::ArrayBuffer;
 use crate::renderable::buffers::element_array_buffer::ElementArrayBuffer;
+use crate::renderable::buffers::buffer_data::BufferData;
 
 use std::rc::Rc;
 
@@ -30,6 +31,13 @@ impl VertexArrayObject {
             vao,
             gl
         }
+    }
+
+    pub fn update_array_and_element_buffer(&self, array_data: BufferData<f32>, element_data: BufferData<u32>) {
+        self.bind();
+        self.array_buffer.as_ref().unwrap().update(array_data);
+        self.element_array_buffer.as_ref().unwrap().update(element_data);
+        self.unbind();
     }
 
     pub fn set_array_buffer(&mut self, array_buffer: ArrayBuffer) {

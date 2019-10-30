@@ -47,6 +47,8 @@ fn compute_speed(t_start: f32, speed_max: f32) -> f32 {
 
 use std::rc::Rc;
 use std::cell::{RefCell, Cell};
+use crate::renderable::grid::{Grid, IsoLatitudeLine};
+
 #[wasm_bindgen(start)]
 pub fn start() -> Result<(), JsValue> {
     let window = Rc::new(web_sys::window().unwrap());
@@ -67,7 +69,7 @@ pub fn start() -> Result<(), JsValue> {
     //gl.enable(WebGl2RenderingContext::DEPTH_TEST);
     // Enable back face culling
     //gl.enable(WebGl2RenderingContext::CULL_FACE);
-    //gl.cull_face(WebGl2RenderingContext::BACK);
+    //gl.cull_face(WebGl2RenderingContext::FRONT);
     gl.enable(WebGl2RenderingContext::BLEND);
     gl.blend_func(WebGl2RenderingContext::SRC_ALPHA, WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA);
     //gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
@@ -80,6 +82,14 @@ pub fn start() -> Result<(), JsValue> {
         shaders::proj_vert::CONTENT,
         shaders::proj_frag::CONTENT
     ));
+    let shader_grid = Rc::new(Shader::new(&gl,
+        shaders::grid_vert::CONTENT,
+        shaders::grid_frag::CONTENT
+    ));
+    let shader_projeted_grid = Rc::new(Shader::new(&gl,
+        shaders::grid_projeted_vert::CONTENT,
+        shaders::grid_frag::CONTENT
+    ));
 
     let hips_sphere_mesh = Rc::new(RefCell::new(HiPSSphere::new(gl.clone())));
     let sphere = Rc::new(RefCell::new(Renderable::<HiPSSphere>::new(
@@ -87,6 +97,20 @@ pub fn start() -> Result<(), JsValue> {
         shader_2d_proj.clone(),
         projection.clone(),
         hips_sphere_mesh.clone(),
+    )));
+    let grid_mesh = Rc::new(RefCell::new(Grid::new()));
+    let grid = Rc::new(RefCell::new(Renderable::<Grid>::new(
+        gl.clone(),
+        shader_grid.clone(),
+        projection.clone(),
+        grid_mesh.clone(),
+    )));
+    let iso_lat_0_mesh = Rc::new(RefCell::new(IsoLatitudeLine::new(0_f32, (0_f32..(180_f32*3.14_f32/180_f32)))));
+    let iso_lat_0 = Rc::new(RefCell::new(Renderable::<IsoLatitudeLine>::new(
+        gl.clone(),
+        shader_projeted_grid.clone(),
+        projection.clone(),
+        iso_lat_0_mesh.clone(),
     )));
 
     let f = Rc::new(RefCell::new(None));
@@ -169,6 +193,8 @@ pub fn start() -> Result<(), JsValue> {
 
         let start_pos = start_pos.clone();
         let sphere = sphere.clone();
+        let grid = grid.clone();
+        let iso_lat_0 = iso_lat_0.clone();
 
         let mouse_clic_x = mouse_clic_x.clone();
         let mouse_clic_y = mouse_clic_y.clone();
@@ -221,6 +247,8 @@ pub fn start() -> Result<(), JsValue> {
 
                         axis = axis.normalize();
                         sphere.borrow_mut().apply_rotation(-axis, cgmath::Rad(dist));
+                        grid.borrow_mut().apply_rotation(-axis, cgmath::Rad(dist));
+                        iso_lat_0.borrow_mut().apply_rotation(-axis, cgmath::Rad(dist));
                         time_last_move.set(utils::get_current_time() as f32);
                         roll.set(true);
 
@@ -286,13 +314,18 @@ pub fn start() -> Result<(), JsValue> {
                 }
             }*/
 
+            iso_lat_0.as_ref().borrow().update_vertex_array_object(projection.clone());
+
             // Render the scene
             gl.clear_color(0.08, 0.08, 0.08, 1.0);
             // Clear the color buffer bit
             // Clear the depth buffer bit
             gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
-            
+
             sphere.as_ref().borrow().draw(WebGl2RenderingContext::TRIANGLES, &viewport.as_ref().borrow());
+            iso_lat_0.as_ref().borrow().draw(WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());
+            //grid.as_ref().borrow().draw(WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());
+            
             //direct_system.as_ref().borrow().draw(&gl, WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());
 
             // Schedule ourself for another requestAnimationFrame callback.
