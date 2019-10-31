@@ -34,7 +34,6 @@ pub struct Renderable<T>
 where T: Mesh {
     shader: Rc<Shader>,
     model_mat: cgmath::Matrix4::<f32>,
-    inv_model_mat: cgmath::Matrix4<f32>,
 
     scale_mat: cgmath::Matrix4::<f32>,
     rotation_mat: cgmath::Matrix4::<f32>,
@@ -47,6 +46,7 @@ where T: Mesh {
 
     gl: Rc<WebGl2RenderingContext>
 }
+
 
 use cgmath;
 use cgmath::SquareMatrix;
@@ -61,7 +61,6 @@ where T: Mesh {
         let vertex_array_object = mesh.as_ref().borrow().create_buffers(gl.clone(), &projection.as_ref().borrow());
 
         let model_mat = cgmath::Matrix4::identity();
-        let inv_model_mat = model_mat;
 
         let scale_mat = cgmath::Matrix4::identity();
         let rotation_mat = cgmath::Matrix4::identity();
@@ -72,8 +71,6 @@ where T: Mesh {
             shader,
             // The model matrix of the Renderable
             model_mat,
-            // Its inverse
-            inv_model_mat,
             // And its submatrices
             scale_mat,
             rotation_mat,
@@ -87,7 +84,6 @@ where T: Mesh {
 
     fn recompute_model_matrix(&mut self) {
         self.model_mat = self.translation_mat * self.rotation_mat * self.scale_mat;
-        self.inv_model_mat = self.model_mat.invert().unwrap();
     }
 
     pub fn rotate(&mut self, axis: cgmath::Vector3<f32>, angle: cgmath::Rad<f32>) {
@@ -109,8 +105,13 @@ where T: Mesh {
         return self.model_mat.clone(); 
     }
 
-    pub fn update_vertex_array_object(&self, projection: Rc<RefCell<ProjectionType>>) {
-        let (vertices_data, indexes_data) = self.mesh.as_ref().borrow().update_vertex_and_element_arrays(&self.inv_model_mat, &projection.as_ref().borrow());
+    pub fn set_model_mat(&mut self, model_mat: cgmath::Matrix4<f32>) {
+        self.model_mat = model_mat;
+    }
+
+    pub fn update_vertex_array_object(&mut self, projection: Rc<RefCell<ProjectionType>>) {
+        let inv_model_mat = self.model_mat.invert().unwrap();
+        let (vertices_data, indexes_data) = self.mesh.as_ref().borrow().update_vertex_and_element_arrays(&inv_model_mat, &projection.as_ref().borrow());
 
         self.vertex_array_object.update_array_and_element_buffer(vertices_data, indexes_data);
     }

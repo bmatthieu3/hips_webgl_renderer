@@ -14,6 +14,7 @@ mod viewport;
 mod texture;
 mod math;
 mod utils;
+mod projeted_grid;
 
 use shader::Shader;
 use renderable::Renderable;
@@ -21,6 +22,8 @@ use renderable::hips_sphere::HiPSSphere;
 use renderable::projection;
 use renderable::projection::{ProjectionType, Aitoff};
 use viewport::ViewPort;
+
+use crate::renderable::grid::ProjetedGrid;
 
 use std::sync::Mutex;
 use std::sync::Arc;
@@ -105,13 +108,27 @@ pub fn start() -> Result<(), JsValue> {
         projection.clone(),
         grid_mesh.clone(),
     )));
-    let iso_lat_0_mesh = Rc::new(RefCell::new(IsoLatitudeLine::new(0_f32, (0_f32..(180_f32*3.14_f32/180_f32)))));
+    /*let iso_lat_0_mesh = Rc::new(RefCell::new(IsoLatitudeLine::new(0_f32)));
     let iso_lat_0 = Rc::new(RefCell::new(Renderable::<IsoLatitudeLine>::new(
         gl.clone(),
         shader_projeted_grid.clone(),
         projection.clone(),
         iso_lat_0_mesh.clone(),
+    )));*/
+
+    let projeted_grid_mesh = Rc::new(RefCell::new(ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into())));
+    let projeted_grid = Rc::new(RefCell::new(Renderable::<ProjetedGrid>::new(
+        gl.clone(),
+        shader_projeted_grid.clone(),
+        projection.clone(),
+        projeted_grid_mesh.clone(),
     )));
+    /*let projeted_grid = Rc::new(RefCell::new(ProjetedGrid::new(
+        gl.clone(),
+        shader_projeted_grid.clone(),
+        projection.clone(),
+        cgmath::Deg(30_f32).into(),
+    )));*/
 
     let f = Rc::new(RefCell::new(None));
     let g = f.clone();
@@ -194,7 +211,8 @@ pub fn start() -> Result<(), JsValue> {
         let start_pos = start_pos.clone();
         let sphere = sphere.clone();
         let grid = grid.clone();
-        let iso_lat_0 = iso_lat_0.clone();
+        //let iso_lat_0 = iso_lat_0.clone();
+        let projeted_grid = projeted_grid.clone();
 
         let mouse_clic_x = mouse_clic_x.clone();
         let mouse_clic_y = mouse_clic_y.clone();
@@ -248,7 +266,9 @@ pub fn start() -> Result<(), JsValue> {
                         axis = axis.normalize();
                         sphere.borrow_mut().apply_rotation(-axis, cgmath::Rad(dist));
                         grid.borrow_mut().apply_rotation(-axis, cgmath::Rad(dist));
-                        iso_lat_0.borrow_mut().apply_rotation(-axis, cgmath::Rad(dist));
+                        projeted_grid.borrow_mut().apply_rotation(-axis, cgmath::Rad(dist));
+                        //iso_lat_0.borrow_mut().apply_rotation(-axis, cgmath::Rad(dist));
+
                         time_last_move.set(utils::get_current_time() as f32);
                         roll.set(true);
 
@@ -296,7 +316,6 @@ pub fn start() -> Result<(), JsValue> {
         canvas.add_event_listener_with_callback("wheel", closure.as_ref().unchecked_ref())?;
         closure.forget();
     }
-
     {
         let gl = gl.clone();
         *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
@@ -314,7 +333,8 @@ pub fn start() -> Result<(), JsValue> {
                 }
             }*/
 
-            iso_lat_0.as_ref().borrow().update_vertex_array_object(projection.clone());
+            //iso_lat_0.as_ref().borrow_mut().update_vertex_array_object(projection.clone());
+            projeted_grid.as_ref().borrow_mut().update_vertex_array_object(projection.clone());
 
             // Render the scene
             gl.clear_color(0.08, 0.08, 0.08, 1.0);
@@ -323,7 +343,8 @@ pub fn start() -> Result<(), JsValue> {
             gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
 
             sphere.as_ref().borrow().draw(WebGl2RenderingContext::TRIANGLES, &viewport.as_ref().borrow());
-            iso_lat_0.as_ref().borrow().draw(WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());
+            //iso_lat_0.as_ref().borrow().draw(WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());
+            projeted_grid.as_ref().borrow().draw(WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());   
             //grid.as_ref().borrow().draw(WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());
             
             //direct_system.as_ref().borrow().draw(&gl, WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());

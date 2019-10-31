@@ -21,6 +21,7 @@ impl VertexBufferObject for ElementArrayBuffer {
     }
 }
 
+use web_sys::console;
 use std::convert::TryInto;
 use crate::renderable::buffers::buffer_data::BufferData;
 impl ElementArrayBuffer {
@@ -52,16 +53,20 @@ impl ElementArrayBuffer {
         self.buffer_size
     }
 
-    pub fn update(&self, data: BufferData<u32>) {
+    pub fn update(&mut self, data: BufferData<u32>) {
+        //self.buffer_size = data.0.len();
+        console::log_1(&format!("update element buffer size: {:?}", self.buffer_size).into());
         let data: js_sys::Uint32Array = data.try_into().unwrap();
-
+        
         // offset expressed in bytes where data replacement will begin in the buffer
         let offset = (0 * std::mem::size_of::<u32>()) as i32; 
 
+        //self.bind();
         self.gl.buffer_sub_data_with_i32_and_array_buffer_view(
             WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
             offset,
             &data,
         );
+        //self.unbind();
     }
 }

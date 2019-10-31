@@ -53,6 +53,7 @@ impl ArrayBuffer {
     }
 
     pub fn update(&self, data: BufferData<f32>) {
+        self.bind();
         let data: js_sys::Float32Array = data.try_into().unwrap();
 
         // offset expressed in bytes where data replacement will begin in the buffer
@@ -63,6 +64,7 @@ impl ArrayBuffer {
             offset,
             &data,
         );
+        self.unbind();
     }
 }
 

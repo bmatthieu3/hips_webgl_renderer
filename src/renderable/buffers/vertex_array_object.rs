@@ -33,10 +33,12 @@ impl VertexArrayObject {
         }
     }
 
-    pub fn update_array_and_element_buffer(&self, array_data: BufferData<f32>, element_data: BufferData<u32>) {
+    pub fn update_array_and_element_buffer(&mut self, array_data: BufferData<f32>, element_data: BufferData<u32>) {
         self.bind();
         self.array_buffer.as_ref().unwrap().update(array_data);
-        self.element_array_buffer.as_ref().unwrap().update(element_data);
+        if let Some(ref mut element_array_buffer) = self.element_array_buffer {
+            element_array_buffer.update(element_data);
+        }
         self.unbind();
     }
 
