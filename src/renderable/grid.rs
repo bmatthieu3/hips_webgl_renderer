@@ -421,7 +421,7 @@ impl Mesh for ProjetedGrid {
 
     fn send_uniforms(&self, gl: &WebGl2RenderingContext, shader: &Shader) {
         let location_color = shader.get_uniform_location(gl, "location_color");
-        gl.uniform4f(location_color.as_ref(), 1_f32, 0_f32, 1_f32, 0.2_f32);
+        gl.uniform4f(location_color.as_ref(), 0_f32, 1_f32, 0_f32, 0.1_f32);
     }
 
     fn update_vertex_and_element_arrays(&self, model: &cgmath::Matrix4::<f32>, projection: &ProjectionType) -> (BufferData<f32>, BufferData<u32>) {

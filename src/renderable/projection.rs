@@ -201,7 +201,11 @@ impl Projection for Aitoff {
         let theta_by_two = theta / 2_f32;
 
         let alpha = (delta.cos() * theta_by_two.cos()).acos();
-        let inv_sinc_alpha = alpha / alpha.sin();
+        let inv_sinc_alpha = if alpha < 1e-3 {
+            1_f32
+        } else {
+            alpha / alpha.sin()
+        };
         let X = 2_f32 * inv_sinc_alpha * delta.cos() * theta_by_two.sin();
         let Y = inv_sinc_alpha * delta.sin();
 
