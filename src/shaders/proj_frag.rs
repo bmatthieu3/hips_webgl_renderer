@@ -1,13 +1,12 @@
 pub static CONTENT: &'static str = r#"#version 300 es
-    precision highp float;
-    precision highp int;
-    precision highp sampler3D;
+    precision mediump float;
+    precision lowp sampler3D;
 
     in vec3 out_vert_pos;
 
     out vec4 out_frag_color;
 
-    const float PI = 3.1415926535897932384626433832795f;
+    const float PI = 3.1415f;
     const float TRANSITION_Z = 2.0f / 3.0f;
     const float TRANSITION_Z_INV = 3.0f / 2.0f;
 
@@ -266,9 +265,10 @@ pub static CONTENT: &'static str = r#"#version 300 es
 
         return HEALPixCellContrib(no_cell, vec3(0.f));
     }
+    const float tex_step_depth_zero = 0.0909090909f;
     HEALPixCellContrib compute_zero_depth_color_from_hips(vec3 pos) {
         vec3 res = hash_with_dxdy(0, pos.zxy);
-        float tex_step = 1.f / float(BUFFER_ZERO_TEX_SIZE - 1);
+        //vec3 res = vec3(0.f);
 
         int tile_idx = int(res.x);
         vec2 uv = res.zy;
@@ -276,12 +276,17 @@ pub static CONTENT: &'static str = r#"#version 300 es
         for(int i = 0; i < 12; i++) {
             if (hpx_zero_depth[i].idx == tile_idx) {
                 HEALPixCell cell = hpx_zero_depth[i];
-                float idx_texture = float(cell.buf_idx)*tex_step;
+                float idx_texture = float(cell.buf_idx)*tex_step_depth_zero;
                 vec3 color = texture(textures_zero_depth_buffer, vec3(uv, idx_texture)).rgb;
 
                 return HEALPixCellContrib(cell, color);
             }
         }
+        
+        /*//float idx_texture = float(cell.buf_idx)*tex_step_depth_zero;
+        vec3 color = texture(textures_zero_depth_buffer, vec3(uv, 0)).rgb;
+
+        return HEALPixCellContrib(hpx_zero_depth[0], color);*/
 
         // code unreachable
         return HEALPixCellContrib(no_cell, vec3(0.f));
@@ -291,33 +296,11 @@ pub static CONTENT: &'static str = r#"#version 300 es
     uniform float current_time; // current time in ms
     uniform int max_depth; // max depth of the HiPS
 
-    float f(vec2 lonlat) {
-        float step = 10.f; // 10 deg step
-        lonlat /= vec2(step);
-        vec2 y = fract(lonlat + 0.5f) - 0.5f;
-        vec2 r = max(vec2(0.f), vec2(1.f - abs(y)*100.f));
-
-        return max(r.x, r.y); 
-    }
-
-    vec2 grad_f(vec2 x) {
-        vec2 h = vec2(0.01f, 0.f);
-        return vec2(f(x + h.xy) - f(x - h.xy), f(x + h.yx) - f(x - h.yx))/(2.f*h.x);
-    }
-
-    float col(vec2 x)
-    {
-        float v = f( x );
-        vec2  g = grad_f( x );
-        float de = abs(v)/length(g);
-        float eps = 0.01f;
-        return smoothstep( 1.0*eps, 2.0*eps, de );
-    }
-
     void main() {
         vec3 frag_pos = normalize(out_vert_pos);
         // Get the HEALPix cell idx and the uv in the texture
         HEALPixCellContrib current_cell = compute_current_depth_color_from_hips(frag_pos);
+        //HEALPixCellContrib current_cell = compute_zero_depth_color_from_hips(frag_pos);
         float alpha = 0.f;
         if (current_cell.cell.idx > -1) { // tile downloaded
             alpha = clamp((current_time - current_cell.cell.time_received) / duration, 0.f, 1.f);
@@ -358,30 +341,6 @@ pub static CONTENT: &'static str = r#"#version 300 es
 
             out_color = mix(past_cell.color, current_cell.color, alpha);
         }
-        // reinhard tone mapping
-        //vec3 mapped = out_color / (out_color + vec3(1.0));
-        // Exposure tone mapping
-        //float exposure = 1.5f;
-        //vec3 mapped = vec3(1.0f) - exp(-out_color * exposure);
-        vec3 mapped = out_color;
-
-        out_frag_color = vec4(mapped, 1.0f);
-        float lambda = sin(current_time/1000.f)*0.5f + 0.5f;
-        //out_frag_color.rgb = sqrt(out_frag_color.rgb);
-        //out_frag_color = mix(out_frag_color.rgb, out_frag_color.gbr, lambda);
-        // gamma correction
-
-        /*if(draw_grid == 1) {*/
-        /*vec2 lonlat = vec2(atan(frag_pos.x, frag_pos.z), asin(frag_pos.y));
-        lonlat *= 180.f/PI;
-
-        if(abs(lonlat.y) < 80.f) {
-            //vec2 der = vec2(60.0f);
-            //der = min(der, der / (abs(lonlat.y) * 0.25f));
-            //linePos = max((1.0 - abs(linePos)*10.f), 0.0);
-
-            vec4 color_grid = vec4(1.f, 0.f, 0.f, 1.f);
-            out_frag_color = mix(out_frag_color, color_grid, col(lonlat));
-        }*/
-        /*}*/
+        out_frag_color = vec4(out_color, 1.f);
+        //out_frag_color = vec4(vec3(1.f), 0.2f);
     }"#;

@@ -31,19 +31,19 @@ pub trait Projection {
     fn scale_by_screen_ratio(x: f32, y: f32) -> (f32, f32);
     /// Screen space to world space transformation
     /// 
+    /// This returns a normalized vector along its first 3 dimensions.
+    /// Its fourth component is set to 1.
+    /// 
     /// # Arguments
     /// 
     /// * `x` - X mouse position in homogenous screen space (between [-1, 1])
     /// * `y` - Y mouse position in homogenous screen space (between [-1, 1])
-    fn screen_to_world_space(x: f32, y: f32) -> Option<cgmath::Vector3<f32>> {
+    fn screen_to_world_space(x: f32, y: f32) -> Option<cgmath::Vector4<f32>> {
         let (x, y) = Self::scale_by_screen_ratio(x, y);
         let xw_2 = 1_f32 - x*x - y*y;
 
         if xw_2 > 0_f32 {
             let pos_world_space = Self::view_to_world_space(x, y, xw_2.sqrt());
-
-            let mut pos_world_space = Vector3::<f32>::new(pos_world_space.x, pos_world_space.y, pos_world_space.z);
-            pos_world_space = pos_world_space.normalize();
 
             Some(pos_world_space)
         } else {
@@ -59,6 +59,10 @@ pub trait Projection {
     /// * `x` - X mouse position in homogenous screen space (between [-1, 1])
     /// * `y` - Y mouse position in homogenous screen space (between [-1, 1])
     fn world_to_screen_space(pos_world_space: cgmath::Vector4<f32>) -> Option<cgmath::Vector2<f32>>;
+    /// View to world space transformation
+    /// 
+    /// This returns a normalized vector along its first 3 dimensions.
+    /// Its fourth component is set to 1.
     fn view_to_world_space(x: f32, y: f32, z: f32) -> cgmath::Vector4<f32>;
 }
 
@@ -84,11 +88,14 @@ impl ProjectionType {
 
     /// Screen space to world space transformation
     /// 
+    /// This returns a normalized vector along its first 3 dimensions.
+    /// Its fourth component is set to 1.
+    /// 
     /// # Arguments
     /// 
-    /// * `x` - X mouse position in the screen space (in pixel)
-    /// * `y` - Y mouse position in the screen space (in pixel)
-    pub fn screen_to_world_space(&self, x: f32, y: f32) -> Option<cgmath::Vector3<f32>> {
+    /// * `x` - X mouse position in homogenous screen space (between [-1, 1])
+    /// * `y` - Y mouse position in homogenous screen space (between [-1, 1])
+    pub fn screen_to_world_space(&self, x: f32, y: f32) -> Option<cgmath::Vector4<f32>> {
         match self {
             ProjectionType::Aitoff(_) => {
                 Aitoff::screen_to_world_space(x, y)
@@ -119,8 +126,8 @@ impl ProjectionType {
 
 use cgmath::Vector2;
 
-const NUM_VERTICES_PER_STEP: usize = 70;
-const NUM_STEPS: usize = 40;
+const NUM_VERTICES_PER_STEP: usize = 50;
+const NUM_STEPS: usize = 20;
 impl Projection for Aitoff {
     fn build_screen_map() -> Vec<cgmath::Vector2<f32>> {
         let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
@@ -162,6 +169,10 @@ impl Projection for Aitoff {
         vertices_screen
     }
 
+    /// View to world space transformation
+    /// 
+    /// This returns a normalized vector along its first 3 dimensions.
+    /// Its fourth component is set to 1.
     fn view_to_world_space(x: f32, y: f32, z: f32) -> cgmath::Vector4<f32> {
         let u = x * std::f32::consts::PI * 0.50_f32 ;
         let v = y * std::f32::consts::PI ;
@@ -172,6 +183,9 @@ impl Projection for Aitoff {
         if c != 0_f32 {
             phi = (v * c.sin() / c).asin();
             theta = (u * c.sin()).atan2(c * c.cos());
+        } else {
+            phi = v.asin();
+            theta = u.atan();
         }
         theta *= 2_f32;
 
@@ -201,7 +215,12 @@ impl Projection for Aitoff {
         let theta_by_two = theta / 2_f32;
 
         let alpha = (delta.cos() * theta_by_two.cos()).acos();
-        let inv_sinc_alpha = alpha / alpha.sin();
+        let inv_sinc_alpha = if alpha < 1e-3 {
+            1_f32
+        } else {
+            alpha / alpha.sin()
+        };
+
         let X = 2_f32 * inv_sinc_alpha * delta.cos() * theta_by_two.sin();
         let Y = inv_sinc_alpha * delta.sin();
 
@@ -266,6 +285,10 @@ impl Projection for Orthographic {
         vertices_screen
     }
 
+    /// View to world space transformation
+    /// 
+    /// This returns a normalized vector along its first 3 dimensions.
+    /// Its fourth component is set to 1.
     fn view_to_world_space(x: f32, y: f32, z: f32) -> cgmath::Vector4<f32> {
         cgmath::Vector4::new(x, y, z, 1_f32)
     }

@@ -171,7 +171,7 @@ impl HEALPixTextureBuffer {
                     WIDTH_TEXTURE,
                     HEIGHT_TEXTURE,
                     1,
-                    WebGl2RenderingContext::RGBA,
+                    WebGl2RenderingContext::RGB,
                     WebGl2RenderingContext::UNSIGNED_BYTE,
                     &texture_clone.borrow(),
                 )
@@ -213,6 +213,7 @@ impl HEALPixTextureBuffer {
             let idx_hpx_cell = tmp_buffer.iter().position(|x| x.idx == healpix_cell.idx && x.depth == healpix_cell.depth);
 
             if let Some(idx_hpx_cell) = idx_hpx_cell {
+                console::log_1(&format!("found healpix cell").into());
                 // Found
                 let mut healpix_cell_to_change_priority = tmp_buffer.remove(idx_hpx_cell);
                 healpix_cell_to_change_priority.time_request = healpix_cell.time_request;
@@ -220,7 +221,6 @@ impl HEALPixTextureBuffer {
                     healpix_cell_to_change_priority.time_received = Some(utils::get_current_time());
                 }
                 // Change time priority
-
                 self.buffer.borrow_mut().clear();
                 for hpx_cell in tmp_buffer {
                     self.buffer.borrow_mut().push(hpx_cell);
@@ -228,26 +228,6 @@ impl HEALPixTextureBuffer {
 
                 self.buffer.borrow_mut().push(healpix_cell_to_change_priority);
             }
-
-            /*let mut tmp_buffer = self.buffer.borrow_mut().clone()
-                .into_sorted_vec()
-                .into_iter()
-                .collect::<HashSet<_>>();
-            if let Some(hpx_cell) = tmp_buffer.get(&healpix_cell) {
-                healpix_cell.idx_in_buffer = hpx_cell.idx_in_buffer;
-                if zoom {
-                    healpix_cell.time_received = Some(utils::get_current_time());
-                }
-
-                tmp_buffer.remove(&healpix_cell);
-
-                self.buffer.borrow_mut().clear();
-                for hpx_cell in tmp_buffer {
-                    self.buffer.borrow_mut().push(hpx_cell);
-                }
-
-                self.buffer.borrow_mut().push(healpix_cell);
-            }*/
         } else {
             // Add it to the loaded cells hashset
             self.loaded_cells.borrow_mut().insert(healpix_cell.clone());
@@ -270,6 +250,7 @@ impl HEALPixTextureBuffer {
                 let webgl_texture = self.webgl_texture0.clone();
 
                 Closure::wrap(Box::new(move || {
+                    console::log_1(&format!("load new tile").into());
                     let idx = if buffer.borrow().len() == MAX_NUMBER_TEXTURE {
                         // Remove the oldest tile from the buffer and from the
                         // hashset
@@ -291,7 +272,7 @@ impl HEALPixTextureBuffer {
                         WIDTH_TEXTURE,
                         HEIGHT_TEXTURE,
                         1,
-                        WebGl2RenderingContext::RGBA,
+                        WebGl2RenderingContext::RGB,
                         WebGl2RenderingContext::UNSIGNED_BYTE,
                         &texture_clone.borrow(),
                     )
@@ -383,15 +364,16 @@ fn create_sampler_3d(gl: Rc<WebGl2RenderingContext>, texture_unit: u32, size_buf
     gl.tex_image_3d_with_html_canvas_element(
         WebGl2RenderingContext::TEXTURE_3D,
         0,
-        WebGl2RenderingContext::RGBA as i32,
+        WebGl2RenderingContext::RGB as i32,
         WIDTH_TEXTURE,
         HEIGHT_TEXTURE,
         size_buffer as i32,
         0,
-        WebGl2RenderingContext::RGBA,
+        WebGl2RenderingContext::RGB,
         WebGl2RenderingContext::UNSIGNED_BYTE,
         &ctx.borrow().canvas().unwrap(),
     )
     .expect("Texture 3d");
+    gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_3D);
     webgl_texture
 }

@@ -5,7 +5,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{WebGl2RenderingContext, console};
 use cgmath;
-use cgmath::{InnerSpace, Vector3};
+use cgmath::{InnerSpace, Vector3, Vector4};
 
 mod shader;
 mod shaders;
@@ -116,7 +116,7 @@ pub fn start() -> Result<(), JsValue> {
         iso_lat_0_mesh.clone(),
     )));*/
 
-    let projeted_grid_mesh = Rc::new(RefCell::new(ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into())));
+    let projeted_grid_mesh = Rc::new(RefCell::new(ProjetedGrid::new(cgmath::Deg(20_f32).into(), cgmath::Deg(20_f32).into())));
     let projeted_grid = Rc::new(RefCell::new(Renderable::<ProjetedGrid>::new(
         gl.clone(),
         shader_projeted_grid.clone(),
@@ -133,13 +133,14 @@ pub fn start() -> Result<(), JsValue> {
     let f = Rc::new(RefCell::new(None));
     let g = f.clone();
 
+    let render_next_frame = Rc::new(Cell::new(true));
     // Mouse down pression event
     let pressed = Rc::new(Cell::new(false));
 
     let mouse_clic_x = Rc::new(Cell::new(0_f32));
     let mouse_clic_y = Rc::new(Cell::new(0_f32));
 
-    let start_pos = Rc::new(Cell::new(Vector3::<f32>::new(0_f32, 0_f32, 0_f32)));
+    let start_pos = Rc::new(Cell::new(Vector4::<f32>::new(0_f32, 0_f32, 0_f32, 1_f32)));
 
     let last_axis = Rc::new(Cell::new(Vector3::<f32>::new(0_f32, 0_f32, 0_f32)));
     let last_dist = Rc::new(Cell::new(0_f32));
@@ -183,8 +184,11 @@ pub fn start() -> Result<(), JsValue> {
     let onresize = {
         let viewport = viewport.clone();
         let gl = gl.clone();
+        let render_next_frame = render_next_frame.clone();
+
         Closure::wrap(Box::new(move || {
             console::log_1(&format!("resize").into());
+            render_next_frame.set(true);
             viewport.borrow_mut().resize(&gl);
         }) as Box<dyn FnMut()>)
     };
@@ -227,6 +231,7 @@ pub fn start() -> Result<(), JsValue> {
 
         let time_last_move = time_last_move.clone();
         let roll = roll.clone();
+        let render_next_frame = render_next_frame.clone();
 
         let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
             if pressed.get() {
@@ -237,25 +242,13 @@ pub fn start() -> Result<(), JsValue> {
                 let (x_screen_homogeous_space, y_screen_homogeous_space) = projection::screen_pixels_to_homogenous(event_x, event_y, &viewport.borrow());
                 let result = projection.as_ref().borrow().screen_to_world_space(x_screen_homogeous_space, y_screen_homogeous_space);
                 if let Some(pos) = result {
-                    let pos = pos.normalize();
-
                     if event_x != mouse_clic_x.get() || event_y != mouse_clic_y.get() {
-                        let start_pos_rotated = model_mat * cgmath::Vector4::<f32>::new(
-                            start_pos.get().x,
-                            start_pos.get().y,
-                            start_pos.get().z,
-                            1_f32
-                        );
+                        render_next_frame.set(true);
 
+                        let start_pos_rotated = model_mat * start_pos.get();
                         let start_pos_rotated = cgmath::Vector3::<f32>::new(start_pos_rotated.x, start_pos_rotated.y, start_pos_rotated.z);
                         
-                        let pos_rotated = model_mat * cgmath::Vector4::<f32>::new(
-                            pos.x,
-                            pos.y,
-                            pos.z,
-                            1_f32
-                        );
-
+                        let pos_rotated = model_mat * pos;
                         let pos_rotated = cgmath::Vector3::<f32>::new(pos_rotated.x, pos_rotated.y, pos_rotated.z);
 
                         console::log_1(&format!("REAL pos clic {:?}", start_pos_rotated).into());
@@ -298,9 +291,11 @@ pub fn start() -> Result<(), JsValue> {
 
         let hips_sphere_mesh = hips_sphere_mesh.clone();
         let projection = projection.clone();
+        let render_next_frame = render_next_frame.clone();
 
         let closure = Closure::wrap(Box::new(move |event: web_sys::WheelEvent| {
             let delta_y = event.delta_y() as f32;
+            render_next_frame.set(true);
 
             if delta_y < 0_f32 {
                 viewport.borrow_mut().zoom(hips_sphere_mesh.borrow().current_depth);
@@ -318,37 +313,41 @@ pub fn start() -> Result<(), JsValue> {
     }
     {
         let gl = gl.clone();
+        let render_next_frame = render_next_frame.clone();
         *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
-            /*if !pressed.get() && roll.get() {
-                let next_dist = compute_speed(time_last_move.get(), last_dist.get() * 0.5_f32);
-                if next_dist > 1e-4 {
-                    sphere.borrow_mut().apply_rotation(-last_axis.get(), cgmath::Rad(next_dist));
+            if render_next_frame.get() {
+                
+                /*if !pressed.get() && roll.get() {
+                    let next_dist = compute_speed(time_last_move.get(), last_dist.get() * 0.5_f32);
+                    if next_dist > 1e-4 {
+                        sphere.borrow_mut().apply_rotation(-last_axis.get(), cgmath::Rad(next_dist));
+                        projeted_grid.borrow_mut().apply_rotation(-last_axis.get(), cgmath::Rad(next_dist));
 
-                    let model_mat = &sphere.as_ref().borrow().get_model_mat();
-                    hips_sphere_mesh.borrow_mut().update_field_of_view(gl.clone(), &projection.as_ref().borrow(), &viewport.borrow(), model_mat, false);
-                }
-            } else if pressed.get() {
-                if (utils::get_current_time() as f32) - time_last_move.get() > 50_f32 {
-                    roll.set(false);
-                }
-            }*/
+                        let model_mat = &sphere.as_ref().borrow().get_model_mat();
+                        hips_sphere_mesh.borrow_mut().update_field_of_view(gl.clone(), &projection.as_ref().borrow(), &viewport.borrow(), model_mat, false);
+                    }
+                } else if pressed.get() {
+                    if (utils::get_current_time() as f32) - time_last_move.get() > 50_f32 {
+                        roll.set(false);
+                    }
+                }*/
 
-            //iso_lat_0.as_ref().borrow_mut().update_vertex_array_object(projection.clone());
-            projeted_grid.as_ref().borrow_mut().update_vertex_array_object(projection.clone());
+                //iso_lat_0.as_ref().borrow_mut().update_vertex_array_object(projection.clone());
+                projeted_grid.as_ref().borrow_mut().update_vertex_array_object(projection.clone());
 
-            // Render the scene
-            gl.clear_color(0.08, 0.08, 0.08, 1.0);
-            // Clear the color buffer bit
-            // Clear the depth buffer bit
-            gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+                // Render the scene
+                gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+                gl.clear_color(0.08, 0.08, 0.08, 1.0);
+                // Clear the color buffer bit
+                // Clear the depth buffer bit
+                sphere.as_ref().borrow().draw(WebGl2RenderingContext::TRIANGLES, &viewport.as_ref().borrow());
+                //iso_lat_0.as_ref().borrow().draw(WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());
+                projeted_grid.as_ref().borrow().draw(WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());
+                //grid.as_ref().borrow().draw(WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());
+                //direct_system.as_ref().borrow().draw(&gl, WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());
 
-            sphere.as_ref().borrow().draw(WebGl2RenderingContext::TRIANGLES, &viewport.as_ref().borrow());
-            //iso_lat_0.as_ref().borrow().draw(WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());
-            projeted_grid.as_ref().borrow().draw(WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());   
-            //grid.as_ref().borrow().draw(WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());
-            
-            //direct_system.as_ref().borrow().draw(&gl, WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());
-
+                render_next_frame.set(false);
+            }
             // Schedule ourself for another requestAnimationFrame callback.
             request_animation_frame(f.as_ref().borrow().as_ref().unwrap());
         }) as Box<dyn FnMut()>));

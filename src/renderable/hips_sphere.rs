@@ -11,8 +11,8 @@ use crate::renderable::Mesh;
 use crate::shader::Shader;
 
 pub const MAX_NUMBER_TEXTURE: usize = 48;
-const NUM_VERTICES_PER_STEP: usize = 70;
-const NUM_STEPS: usize = 40;
+const NUM_VERTICES_PER_STEP: usize = 50;
+const NUM_STEPS: usize = 20;
 const MAX_DEPTH: i32 = 9;
 
 use crate::texture::{HEALPixTextureBuffer, HEALPixCellRequest};
@@ -83,22 +83,19 @@ impl HiPSSphere {
             .collect::<Vec<_>>();
 
         let (depth, healpix_cells) = if pos_ws.len() == num_control_points {
-            let first_idx = num_control_points_width + 1 + (((num_control_points_height as f32)/2_f32).ceil() as usize);
-            let second_idx = 2 * num_control_points_width + 3 + num_control_points_height + (((num_control_points_height as f32)/2_f32).ceil() as usize);
+            let idx_r = num_control_points_width + 1 + (((num_control_points_height as f32)/2_f32).ceil() as usize);
+            let idx_l = 2 * num_control_points_width + 3 + num_control_points_height + (((num_control_points_height as f32)/2_f32).ceil() as usize);
             
-            let fov = math::angular_distance_xyz(pos_ws[first_idx], pos_ws[second_idx]);
+            let pos_r_world_space = cgmath::Vector3::new(pos_ws[idx_r].x, pos_ws[idx_r].y, pos_ws[idx_r].z);
+            let pos_l_world_space = cgmath::Vector3::new(pos_ws[idx_l].x, pos_ws[idx_l].y, pos_ws[idx_l].z);
+
+            let fov = math::angular_distance_xyz(pos_r_world_space, pos_l_world_space);
             console::log_1(&format!("fov {:?}", fov).into());
 
             let vertices = pos_ws.into_iter()
                 .map(|pos_world_space| {
                     // Take into account the rotation of the sphere
-                    let pos_world_space = model * cgmath::Vector4::<f32>::new(
-                        pos_world_space.x,
-                        pos_world_space.y,
-                        pos_world_space.z,
-                        1_f32
-                    );
-
+                    let pos_world_space = model * pos_world_space;
                     let pos_world_space = cgmath::Vector3::<f32>::new(pos_world_space.x, pos_world_space.y, pos_world_space.z);
 
                     let (ra, dec) = math::xyz_to_radec(pos_world_space);
@@ -114,6 +111,7 @@ impl HiPSSphere {
             let healpix_cells = if depth == 0 {
                 (0..12).collect::<Vec<_>>()
             } else {
+                console::log_1(&format!("AAAAA").into());
                 let moc = healpix::nested::polygon_coverage(depth as u8, &vertices, true);
                 let healpix_cells = moc.flat_iter()
                         .map(|hpx_idx_u64| hpx_idx_u64 as i32)
@@ -146,7 +144,7 @@ impl HiPSSphere {
                     pos_screen_space.x, pos_screen_space.y,
                 ).unwrap();
 
-                console::log_1(&format!("pos world space {:?}", pos_world_space).into());
+                //console::log_1(&format!("pos world space {:?}", pos_world_space).into());
 
                 vec![pos_screen_space.x, pos_screen_space.y, pos_world_space.x, pos_world_space.y, pos_world_space.z]
             })
@@ -156,20 +154,20 @@ impl HiPSSphere {
         BufferData(vertices_data)
     }
 
-    fn create_index_array() -> BufferData<u32> {
+    fn create_index_array() -> BufferData<u16> {
         let mut indices = Vec::with_capacity(3 * NUM_VERTICES_PER_STEP * NUM_STEPS);
 
         for j in 0..NUM_STEPS {
             if j == 0 {
                 for i in 1..NUM_VERTICES_PER_STEP {
-                    indices.push(0 as u32);
-                    indices.push(i as u32);
-                    indices.push((i + 1) as u32);
+                    indices.push(0 as u16);
+                    indices.push(i as u16);
+                    indices.push((i + 1) as u16);
                 }
                 
-                indices.push(0 as u32);
-                indices.push(NUM_VERTICES_PER_STEP as u32);
-                indices.push(1 as u32);
+                indices.push(0 as u16);
+                indices.push(NUM_VERTICES_PER_STEP as u16);
+                indices.push(1 as u16);
             } else {
                 for i in 0..NUM_VERTICES_PER_STEP {
                     let start_p_idx = (j - 1) * NUM_VERTICES_PER_STEP + i + 1;
@@ -187,13 +185,13 @@ impl HiPSSphere {
                     };
 
                     // Triangle touching the prec circle
-                    indices.push(start_p_idx as u32);
-                    indices.push(next_p_idx as u32);
-                    indices.push(start_c_idx as u32);
+                    indices.push(start_p_idx as u16);
+                    indices.push(next_p_idx as u16);
+                    indices.push(start_c_idx as u16);
                     // Triangle touching the next circle
-                    indices.push(start_c_idx as u32);
-                    indices.push(next_p_idx as u32);
-                    indices.push(next_c_idx as u32);
+                    indices.push(start_c_idx as u16);
+                    indices.push(next_p_idx as u16);
+                    indices.push(next_c_idx as u16);
                 }
             }
         }
@@ -242,23 +240,20 @@ impl Mesh for HiPSSphere {
     }
 
     fn send_uniforms(&self, gl: &WebGl2RenderingContext, shader: &Shader) {
-        // Send grid enable
-        //let location_enable_grid = shader.get_uniform_location(gl, "draw_grid").unwrap();
-        //gl.uniform1i(Some(&location_enable_grid), 1);
         // Send max depth of the current HiPS
-        let location_max_depth = shader.get_uniform_location(gl, "max_depth").unwrap();
-        gl.uniform1i(Some(&location_max_depth), MAX_DEPTH);
+        let location_max_depth = shader.get_uniform_location(gl, "max_depth");
+        gl.uniform1i(location_max_depth.as_ref(), MAX_DEPTH);
         // Send sampler 3D
         // textures buffer
-        let location_textures_buf = shader.get_uniform_location(gl, "textures_buffer").unwrap();
+        let location_textures_buf = shader.get_uniform_location(gl, "textures_buffer");
         gl.active_texture(WebGl2RenderingContext::TEXTURE0);
         gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, self.buffer_textures.webgl_texture0.as_ref());
-        gl.uniform1i(Some(&location_textures_buf), 0);
-        // base cell textures
-        let location_textures_zero_depth_buf = shader.get_uniform_location(gl, "textures_zero_depth_buffer").unwrap();
+        gl.uniform1i(location_textures_buf.as_ref(), 0);
+        // BASE CELL TEXTURES
+        let location_textures_zero_depth_buf = shader.get_uniform_location(gl, "textures_zero_depth_buffer");
         gl.active_texture(WebGl2RenderingContext::TEXTURE1);
         gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, self.buffer_textures.webgl_texture1.as_ref());
-        gl.uniform1i(Some(&location_textures_zero_depth_buf), 1);
+        gl.uniform1i(location_textures_zero_depth_buf.as_ref(), 1);
         let hpx_zero_depth_tiles = self.buffer_textures.get_zero_depth_tiles();
         for (i, hpx) in hpx_zero_depth_tiles.iter().enumerate() {
             let mut name = String::from("hpx_zero_depth");
@@ -266,45 +261,45 @@ impl Mesh for HiPSSphere {
             name += &i.to_string();
             name += "].";
 
-            let location_hpx_idx = shader.get_uniform_location(gl, &(name.clone() + "idx")).unwrap();
-            gl.uniform1i(Some(location_hpx_idx.as_ref()), hpx.idx);
+            let location_hpx_idx = shader.get_uniform_location(gl, &(name.clone() + "idx"));
+            gl.uniform1i(location_hpx_idx.as_ref(), hpx.idx);
 
-            let location_buf_idx = shader.get_uniform_location(gl, &(name.clone() + "buf_idx")).unwrap();
-            gl.uniform1i(Some(location_buf_idx.as_ref()), hpx.buf_idx);
+            let location_buf_idx = shader.get_uniform_location(gl, &(name.clone() + "buf_idx"));
+            gl.uniform1i(location_buf_idx.as_ref(), hpx.buf_idx);
 
-            let location_time_received = shader.get_uniform_location(gl, &(name + "time_received")).unwrap();
-            gl.uniform1f(Some(location_time_received.as_ref()), hpx.time_received);
+            let location_time_received = shader.get_uniform_location(gl, &(name + "time_received"));
+            gl.uniform1f(location_time_received.as_ref(), hpx.time_received);
         }
 
         // Send current time in ms
-        let location_current_time = shader.get_uniform_location(gl, "current_time").unwrap();
-        gl.uniform1f(Some(&location_current_time), utils::get_current_time());
+        let location_current_time = shader.get_uniform_location(gl, "current_time");
+        gl.uniform1f(location_current_time.as_ref(), utils::get_current_time());
 
-        let hpx_tiles = self.buffer_textures.get_tiles(self.current_depth);
+        /*let hpx_tiles = self.buffer_textures.get_tiles(self.current_depth);
         for (i, hpx) in hpx_tiles.iter().enumerate() {
             let mut name = String::from("hpx_current_depth");
             name += "[";
             name += &i.to_string();
             name += "].";
 
-            let location_hpx_idx = shader.get_uniform_location(gl, &(name.clone() + "idx")).unwrap();
-            gl.uniform1i(Some(location_hpx_idx.as_ref()), hpx.idx);
+            let location_hpx_idx = shader.get_uniform_location(gl, &(name.clone() + "idx"));
+            gl.uniform1i(location_hpx_idx.as_ref(), hpx.idx);
 
-            let location_buf_idx = shader.get_uniform_location(gl, &(name.clone() + "buf_idx")).unwrap();
-            gl.uniform1i(Some(location_buf_idx.as_ref()), hpx.buf_idx);
+            let location_buf_idx = shader.get_uniform_location(gl, &(name.clone() + "buf_idx"));
+            gl.uniform1i(location_buf_idx.as_ref(), hpx.buf_idx);
 
-            let location_time_received = shader.get_uniform_location(gl, &(name + "time_received")).unwrap();
-            gl.uniform1f(Some(location_time_received.as_ref()), hpx.time_received);
+            let location_time_received = shader.get_uniform_location(gl, &(name + "time_received"));
+            gl.uniform1f(location_time_received.as_ref(), hpx.time_received);
         }
 
         // Send number of HEALPix cells in the buffer whose depth equals current_depth
-        let location_num_current_depth_tiles = shader.get_uniform_location(gl, "num_current_depth_hpx_tiles").unwrap();
-        gl.uniform1i(Some(&location_num_current_depth_tiles), hpx_tiles.len() as i32);
-
+        let location_num_current_depth_tiles = shader.get_uniform_location(gl, "num_current_depth_hpx_tiles");
+        gl.uniform1i(location_num_current_depth_tiles.as_ref(), hpx_tiles.len() as i32);
+        */
         // Send current depth
-        let location_current_depth = shader.get_uniform_location(gl, "current_depth").unwrap();
-        gl.uniform1i(Some(&location_current_depth), self.current_depth);
-
+        let location_current_depth = shader.get_uniform_location(gl, "current_depth");
+        gl.uniform1i(location_current_depth.as_ref(), self.current_depth);
+        /*
         // PREVIOUS DEPTH TILES
         if self.current_depth > 0 {
             let prev_depth = self.current_depth - 1;
@@ -316,23 +311,23 @@ impl Mesh for HiPSSphere {
                 name += &i.to_string();
                 name += "].";
 
-                let location_hpx_idx = shader.get_uniform_location(gl, &(name.clone() + "idx")).unwrap();
-                gl.uniform1i(Some(location_hpx_idx.as_ref()), hpx.idx);
+                let location_hpx_idx = shader.get_uniform_location(gl, &(name.clone() + "idx"));
+                gl.uniform1i(location_hpx_idx.as_ref(), hpx.idx);
 
-                let location_buf_idx = shader.get_uniform_location(gl, &(name.clone() + "buf_idx")).unwrap();
-                gl.uniform1i(Some(location_buf_idx.as_ref()), hpx.buf_idx);
+                let location_buf_idx = shader.get_uniform_location(gl, &(name.clone() + "buf_idx"));
+                gl.uniform1i(location_buf_idx.as_ref(), hpx.buf_idx);
 
-                let location_time_received = shader.get_uniform_location(gl, &(name + "time_received")).unwrap();
-                gl.uniform1f(Some(location_time_received.as_ref()), hpx.time_received);
+                let location_time_received = shader.get_uniform_location(gl, &(name + "time_received"));
+                gl.uniform1f(location_time_received.as_ref(), hpx.time_received);
             }
 
             // Send number of HEALPix cells in the buffer whose depth equals current_depth
-            let location_num_prev_depth_tiles = shader.get_uniform_location(gl, "num_prev_depth_hpx_tiles").unwrap();
-            gl.uniform1i(Some(&location_num_prev_depth_tiles), hpx_tiles.len() as i32);
+            let location_num_prev_depth_tiles = shader.get_uniform_location(gl, "num_prev_depth_hpx_tiles");
+            gl.uniform1i(location_num_prev_depth_tiles.as_ref(), hpx_tiles.len() as i32);
 
             // Send current depth
-            let location_prev_depth = shader.get_uniform_location(gl, "prev_depth").unwrap();
-            gl.uniform1i(Some(&location_prev_depth), prev_depth);
+            let location_prev_depth = shader.get_uniform_location(gl, "prev_depth");
+            gl.uniform1i(location_prev_depth.as_ref(), prev_depth);
         }
         // NEXT DEPTH TILES
         if self.current_depth < MAX_DEPTH {
@@ -345,30 +340,30 @@ impl Mesh for HiPSSphere {
                 name += &i.to_string();
                 name += "].";
 
-                let location_hpx_idx = shader.get_uniform_location(gl, &(name.clone() + "idx")).unwrap();
-                gl.uniform1i(Some(location_hpx_idx.as_ref()), hpx.idx);
+                let location_hpx_idx = shader.get_uniform_location(gl, &(name.clone() + "idx"));
+                gl.uniform1i(location_hpx_idx.as_ref(), hpx.idx);
 
-                let location_buf_idx = shader.get_uniform_location(gl, &(name.clone() + "buf_idx")).unwrap();
-                gl.uniform1i(Some(location_buf_idx.as_ref()), hpx.buf_idx);
+                let location_buf_idx = shader.get_uniform_location(gl, &(name.clone() + "buf_idx"));
+                gl.uniform1i(location_buf_idx.as_ref(), hpx.buf_idx);
 
-                let location_time_received = shader.get_uniform_location(gl, &(name + "time_received")).unwrap();
-                gl.uniform1f(Some(location_time_received.as_ref()), hpx.time_received);
+                let location_time_received = shader.get_uniform_location(gl, &(name + "time_received"));
+                gl.uniform1f(location_time_received.as_ref(), hpx.time_received);
             }
 
             // Send number of HEALPix cells in the buffer whose depth equals current_depth
-            let location_num_next_depth_tiles = shader.get_uniform_location(gl, "num_next_depth_hpx_tiles").unwrap();
-            gl.uniform1i(Some(&location_num_next_depth_tiles), hpx_tiles.len() as i32);
+            let location_num_next_depth_tiles = shader.get_uniform_location(gl, "num_next_depth_hpx_tiles");
+            gl.uniform1i(location_num_next_depth_tiles.as_ref(), hpx_tiles.len() as i32);
 
             // Send current depth
-            let location_next_depth = shader.get_uniform_location(gl, "next_depth").unwrap();
-            gl.uniform1i(Some(&location_next_depth), next_depth);
+            let location_next_depth = shader.get_uniform_location(gl, "next_depth");
+            gl.uniform1i(location_next_depth.as_ref(), next_depth);
 
             //uniform vec2 window_size_default;
             //uniform vec2 current_window_size;
-        }
+        }*/
     }
 
-    fn update_vertex_and_element_arrays(&self, model: &cgmath::Matrix4::<f32>, projection: &ProjectionType) -> (BufferData<f32>, BufferData<u32>) {
+    fn update_vertex_and_element_arrays(&self, model: &cgmath::Matrix4::<f32>, projection: &ProjectionType) -> (BufferData<f32>, BufferData<u16>) {
         unreachable!();
     }
 }

@@ -10,7 +10,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
     uniform float aspect;
 
     void main() {
-        vec2 p = position * vec2(1.f, aspect);
+        vec2 p = position * vec2(1.f, aspect) * zoom_factor;
         gl_Position = vec4(p, 0.0, 1.0);
     }
 "#;

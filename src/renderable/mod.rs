@@ -23,7 +23,7 @@ use buffers::buffer_data::BufferData;
 pub trait Mesh {
     fn create_buffers(&self, gl: Rc<WebGl2RenderingContext>, projection: &ProjectionType) -> VertexArrayObject;
 
-    fn update_vertex_and_element_arrays(&self, model: &cgmath::Matrix4::<f32>, projection: &ProjectionType) -> (BufferData<f32>, BufferData<u32>);
+    fn update_vertex_and_element_arrays(&self, model: &cgmath::Matrix4::<f32>, projection: &ProjectionType) -> (BufferData<f32>, BufferData<u16>);
 
     fn send_uniforms(&self, gl: &WebGl2RenderingContext, shader: &Shader);
 }
@@ -133,7 +133,7 @@ where T: Mesh {
         self.gl.draw_elements_with_i32(
             mode,
             self.vertex_array_object.num_vertices() as i32,
-            WebGl2RenderingContext::UNSIGNED_INT,
+            WebGl2RenderingContext::UNSIGNED_SHORT,
             0,
         );
 

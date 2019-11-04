@@ -40,12 +40,12 @@ impl Grid {
         pos_world_space.into()
     }
 
-    fn create_index_array() -> BufferData<u32> {
+    fn create_index_array() -> BufferData<u16> {
         let mut indices = Vec::with_capacity(NUM_POINTS * 2);
 
         for i in 0..ISOLAT_NUM_POINTS {
-            let mut k1 = (i * (ISOLON_NUM_POINTS + 1)) as u32;
-            let mut k2 = (k1 + (ISOLON_NUM_POINTS as u32) + 1) as u32;
+            let mut k1 = (i * (ISOLON_NUM_POINTS + 1)) as u16;
+            let mut k2 = (k1 + (ISOLON_NUM_POINTS as u16) + 1) as u16;
 
             for j in 0..ISOLON_NUM_POINTS {
                 // k1 => k2 => k1+1
@@ -126,7 +126,7 @@ impl Mesh for Grid {
         gl.uniform4f(location_color.as_ref(), 1_f32, 1_f32, 1_f32, 0.2_f32);
     }
 
-    fn update_vertex_and_element_arrays(&self, model: &cgmath::Matrix4::<f32>, projection: &ProjectionType) -> (BufferData<f32>, BufferData<u32>) {
+    fn update_vertex_and_element_arrays(&self, model: &cgmath::Matrix4::<f32>, projection: &ProjectionType) -> (BufferData<f32>, BufferData<u16>) {
         unreachable!();
     }
 }
@@ -326,7 +326,7 @@ impl ProjetedGrid {
         }
     }
 
-    fn update_arrays(&self, model: &cgmath::Matrix4::<f32>, projection: &ProjectionType) -> (BufferData<f32>, BufferData<u32>) {
+    fn update_arrays(&self, model: &cgmath::Matrix4::<f32>, projection: &ProjectionType) -> (BufferData<f32>, BufferData<u16>) {
         let pos_screen_space = self.data.iter()
             .map(|pos_local_space| {
                 let pos_world_space = model * pos_local_space;
@@ -357,8 +357,8 @@ impl ProjetedGrid {
                 );
 
                 if cur_to_next_screen_pos.magnitude2() < threshold_px {
-                    indices[i] = idx as u32;
-                    indices[i + 1] = next_idx as u32;
+                    indices[i] = idx as u16;
+                    indices[i + 1] = next_idx as u16;
                     i += 2;
                 }
             }
@@ -421,10 +421,10 @@ impl Mesh for ProjetedGrid {
 
     fn send_uniforms(&self, gl: &WebGl2RenderingContext, shader: &Shader) {
         let location_color = shader.get_uniform_location(gl, "location_color");
-        gl.uniform4f(location_color.as_ref(), 1_f32, 0_f32, 1_f32, 0.2_f32);
+        gl.uniform4f(location_color.as_ref(), 0_f32, 0_f32, 1_f32, 0.2_f32);
     }
 
-    fn update_vertex_and_element_arrays(&self, model: &cgmath::Matrix4::<f32>, projection: &ProjectionType) -> (BufferData<f32>, BufferData<u32>) {
+    fn update_vertex_and_element_arrays(&self, model: &cgmath::Matrix4::<f32>, projection: &ProjectionType) -> (BufferData<f32>, BufferData<u16>) {
         self.update_arrays(model, projection)
     }
 }
