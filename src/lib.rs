@@ -101,13 +101,13 @@ pub fn start() -> Result<(), JsValue> {
         projection.clone(),
         hips_sphere_mesh.clone(),
     )));
-    let grid_mesh = Rc::new(RefCell::new(Grid::new()));
+    /*let grid_mesh = Rc::new(RefCell::new(Grid::new()));
     let grid = Rc::new(RefCell::new(Renderable::<Grid>::new(
         gl.clone(),
         shader_grid.clone(),
         projection.clone(),
         grid_mesh.clone(),
-    )));
+    )));*/
     /*let iso_lat_0_mesh = Rc::new(RefCell::new(IsoLatitudeLine::new(0_f32)));
     let iso_lat_0 = Rc::new(RefCell::new(Renderable::<IsoLatitudeLine>::new(
         gl.clone(),
@@ -117,6 +117,7 @@ pub fn start() -> Result<(), JsValue> {
     )));*/
 
     let projeted_grid_mesh = Rc::new(RefCell::new(ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into())));
+    //projeted_grid_mesh.borrow().update_canvas_text_label(&projection.as_ref().borrow());
     let projeted_grid = Rc::new(RefCell::new(Renderable::<ProjetedGrid>::new(
         gl.clone(),
         shader_projeted_grid.clone(),
@@ -210,7 +211,7 @@ pub fn start() -> Result<(), JsValue> {
 
         let start_pos = start_pos.clone();
         let sphere = sphere.clone();
-        let grid = grid.clone();
+        //let grid = grid.clone();
         //let iso_lat_0 = iso_lat_0.clone();
         let projeted_grid = projeted_grid.clone();
 
@@ -265,7 +266,7 @@ pub fn start() -> Result<(), JsValue> {
 
                         axis = axis.normalize();
                         sphere.borrow_mut().apply_rotation(-axis, cgmath::Rad(dist));
-                        grid.borrow_mut().apply_rotation(-axis, cgmath::Rad(dist));
+                        //grid.borrow_mut().apply_rotation(-axis, cgmath::Rad(dist));
                         projeted_grid.borrow_mut().apply_rotation(-axis, cgmath::Rad(dist));
                         //iso_lat_0.borrow_mut().apply_rotation(-axis, cgmath::Rad(dist));
 
@@ -318,11 +319,13 @@ pub fn start() -> Result<(), JsValue> {
     }
     {
         let gl = gl.clone();
+        let projeted_grid_mesh = projeted_grid_mesh.clone();
         *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
             /*if !pressed.get() && roll.get() {
                 let next_dist = compute_speed(time_last_move.get(), last_dist.get() * 0.5_f32);
                 if next_dist > 1e-4 {
                     sphere.borrow_mut().apply_rotation(-last_axis.get(), cgmath::Rad(next_dist));
+                    projeted_grid.borrow_mut().apply_rotation(-last_axis.get(), cgmath::Rad(next_dist));
 
                     let model_mat = &sphere.as_ref().borrow().get_model_mat();
                     hips_sphere_mesh.borrow_mut().update_field_of_view(gl.clone(), &projection.as_ref().borrow(), &viewport.borrow(), model_mat, false);
@@ -344,9 +347,9 @@ pub fn start() -> Result<(), JsValue> {
 
             sphere.as_ref().borrow().draw(WebGl2RenderingContext::TRIANGLES, &viewport.as_ref().borrow());
             //iso_lat_0.as_ref().borrow().draw(WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());
+            projeted_grid_mesh.borrow().update_canvas_text_label(&projection.as_ref().borrow());
             projeted_grid.as_ref().borrow().draw(WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());   
             //grid.as_ref().borrow().draw(WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());
-            
             //direct_system.as_ref().borrow().draw(&gl, WebGl2RenderingContext::LINES, &viewport.as_ref().borrow());
 
             // Schedule ourself for another requestAnimationFrame callback.
