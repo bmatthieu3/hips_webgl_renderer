@@ -16,11 +16,12 @@ pub fn xyz_to_radec(v: cgmath::Vector3<f32>) -> (f32, f32) {
     )
 }
 
-pub fn radec_to_xyz(theta: f32, delta: f32) -> cgmath::Vector3<f32> {
-    cgmath::Vector3::<f32>::new(
-        delta.cos() * theta.sin(),
-        delta.sin(),
-        delta.cos() * theta.cos()
+pub fn radec_to_xyz(theta: cgmath::Rad<f32>, delta: cgmath::Rad<f32>) -> cgmath::Vector4<f32> {
+    cgmath::Vector4::<f32>::new(
+        delta.0.cos() * theta.0.sin(),
+        delta.0.sin(),
+        delta.0.cos() * theta.0.cos(),
+        1_f32
     )
 }
 

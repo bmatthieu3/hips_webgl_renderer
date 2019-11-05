@@ -286,28 +286,21 @@ impl Mesh for IsoLatitudeLine {
 }*/
 
 pub struct ProjetedGrid {
-    step_lat: cgmath::Rad<f32>, // The number of lines in the view
-    step_lon: cgmath::Rad<f32>, // The number of lines in the view
+    lat: Vec<f32>, // The number of lines in the view
+    lon: Vec<f32>, // The number of lines in the view
+
     data: Vec<cgmath::Vector4<f32>>,
+    label_pos_world_space: Vec<cgmath::Vector4<f32>>,
+
+    text_canvas: web_sys::CanvasRenderingContext2d,
 }
-fn build_grid_vertices(step_lat: &cgmath::Rad<f32>, step_lon: &cgmath::Rad<f32>) -> Vec<cgmath::Vector4<f32>> {
-    let mut num_lat = (std::f32::consts::PI / step_lat.0) as usize;
-    num_lat = num_lat - 1;
-    let lat_start = (-std::f32::consts::PI / 2_f32) + step_lat.0;
-
-    let mut num_lon = (std::f32::consts::PI / step_lon.0) as usize;
-    //num_lon = num_lon;
-    let lon_start = (-std::f32::consts::PI) + step_lon.0;
-
-    let mut vertices = Vec::with_capacity(num_lat * ISOLAT_NUM_POINTS + num_lon * ISOLON_NUM_POINTS);
-    for i in 0..num_lat {
-        let lat = lat_start + (i as f32) * step_lat.0;
-        vertices.extend(build_world_space_vertices_lat(lat));
+fn build_grid_vertices(lat: &Vec<f32>, lon: &Vec<f32>) -> Vec<cgmath::Vector4<f32>> {
+    let mut vertices = Vec::with_capacity(lat.len() * ISOLAT_NUM_POINTS + lon.len() * ISOLON_NUM_POINTS);
+    for lat in lat.iter() {
+        vertices.extend(build_world_space_vertices_lat(lat.clone()));
     }
-
-    for i in 0..num_lon {
-        let lon = lon_start + (i as f32) * step_lon.0;
-        vertices.extend(build_world_space_vertices_lon(lon));
+    for lon in lon.iter() {
+        vertices.extend(build_world_space_vertices_lon(lon.clone()));
     }
 
     vertices
@@ -315,15 +308,87 @@ fn build_grid_vertices(step_lat: &cgmath::Rad<f32>, step_lon: &cgmath::Rad<f32>)
 
 use crate::viewport::get_window_size;
 use cgmath::{SquareMatrix, InnerSpace};
+use wasm_bindgen::JsCast;
+use crate::math::radec_to_xyz;
+
 impl ProjetedGrid {
     pub fn new(step_lat: cgmath::Rad<f32>, step_lon: cgmath::Rad<f32>) -> ProjetedGrid {
-        let data = build_grid_vertices(&step_lat, &step_lon);
+        let mut num_lat = (std::f32::consts::PI / step_lat.0) as usize;
+        //num_lat = num_lat - 1;
+        let lat_start = (-std::f32::consts::PI / 2_f32) + step_lat.0;
+
+        let num_lon = (std::f32::consts::PI / step_lon.0) as usize;
+        let lon_start = (-std::f32::consts::PI) + step_lon.0;
+
+        let (lat, lon): (Vec<f32>, Vec<f32>) = (0..num_lat).into_iter()
+            .zip((0..num_lon).into_iter())
+            .map(|(idx_lat, idx_lon)| {
+                let lat = lat_start + (idx_lat as f32) * step_lat.0;
+                let lon = lon_start + (idx_lon as f32) * step_lon.0;
+
+                (lat, lon)
+            })
+            .unzip();
+
+        // Build the line vertices
+        let data = build_grid_vertices(&lat, &lon);
+        // Build the label positions
+        let mut label_pos_world_space = lat.iter()
+            .map(|lat| {
+                let lat = cgmath::Rad(lat.clone());
+                let lon = cgmath::Rad(0_f32);
+
+                radec_to_xyz(lon, lat)
+            })
+            .collect::<Vec<_>>();
+        label_pos_world_space.extend(
+            lon.iter()
+            .map(|lon| {
+                let lat = cgmath::Rad(0_f32);
+                let lon = cgmath::Rad(lon.clone());
+
+                radec_to_xyz(lon, lat)
+            })
+            .collect::<Vec<_>>()
+        );
+
+        // Get a reference to the text canvas
+        let text_canvas = web_sys::window().unwrap()
+            .document().unwrap()
+            .get_element_by_id("labels_grid").unwrap()
+            .dyn_into::<web_sys::HtmlCanvasElement>().unwrap();
+
+        let text_canvas = text_canvas.get_context("2d")
+            .unwrap()
+            .unwrap()
+            .dyn_into::<web_sys::CanvasRenderingContext2d>().unwrap();
 
         ProjetedGrid {
-            step_lat,
-            step_lon,
+            lat,
+            lon,
+
             data,
+            label_pos_world_space,
+            text_canvas,
         }
+    }
+
+    pub fn update_canvas_text_label(&self, projection: &ProjectionType) {
+        // Clear the 2D canvas
+        let (width_screen, height_screen) = get_window_size(&web_sys::window().unwrap());
+        self.text_canvas.clear_rect(0_f64, 0_f64, width_screen as f64, height_screen as f64);
+        // Fill
+        for pos_world_space in self.label_pos_world_space.iter() {
+            let pos_screen_space = projection.world_to_screen_space(pos_world_space.clone()).unwrap();
+
+            let pos_x = ((pos_screen_space.x / 2_f32 + 0.5_f32) * width_screen) as f64;
+            let pos_y = ((pos_screen_space.y / 2_f32 + 0.5_f32) * height_screen) as f64;
+            console::log_1(&format!("x, y: {:?} {:?}", pos_x, pos_y).into());
+
+            self.text_canvas.fill_text("AAADDDAA", pos_x as f64, 100_f64).unwrap();
+        }
+        self.text_canvas.fill_text("blksdfblksdf", 200 as f64, 100 as f64).unwrap();
+        self.text_canvas.fill_text("blksdfblksdf", 200 as f64, 150 as f64).unwrap();
     }
 
     fn update_arrays(&self, model: &cgmath::Matrix4::<f32>, projection: &ProjectionType) -> (BufferData<f32>, BufferData<u16>) {
