@@ -200,7 +200,6 @@ impl HiPSSphere {
     }
 }
 
-use crate::utils;
 use crate::renderable::VertexArrayObject;
 use crate::renderable::buffers::array_buffer::ArrayBuffer;
 use crate::renderable::buffers::buffer_data::BufferData;
@@ -270,10 +269,6 @@ impl Mesh for HiPSSphere {
             let location_time_received = shader.get_uniform_location(gl, &(name + "time_received"));
             gl.uniform1f(location_time_received.as_ref(), hpx.time_received);
         }
-
-        // Send current time in ms
-        let location_current_time = shader.get_uniform_location(gl, "current_time");
-        gl.uniform1f(location_current_time.as_ref(), utils::get_current_time());
 
         /*let hpx_tiles = self.buffer_textures.get_tiles(self.current_depth);
         for (i, hpx) in hpx_tiles.iter().enumerate() {

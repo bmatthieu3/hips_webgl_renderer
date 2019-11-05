@@ -110,6 +110,9 @@ pub struct HEALPixTextureBuffer {
 
 use web_sys::console;
 
+use crate::RENDER_NEXT_FRAME;
+use std::sync::atomic;
+
 impl HEALPixTextureBuffer {
     pub fn new(gl: Rc<WebGl2RenderingContext>) -> HEALPixTextureBuffer {
         let buffer = Rc::new(RefCell::new(BinaryHeap::with_capacity(MAX_NUMBER_TEXTURE)));
@@ -176,6 +179,9 @@ impl HEALPixTextureBuffer {
                     &texture_clone.borrow(),
                 )
                 .expect("Texture 3d");
+                // Tell the app to render the next frame
+                // because a new base tile is downloaded
+                RENDER_NEXT_FRAME.store(true, atomic::Ordering::Relaxed);
 
                 let mut healpix_indexed = healpix_cell.clone();
                 healpix_indexed.idx_in_buffer = idx as i32;
@@ -277,6 +283,9 @@ impl HEALPixTextureBuffer {
                         &texture_clone.borrow(),
                     )
                     .expect("Texture 3d");
+                    // Tell the app to render the next frame
+                    // because a new base tile is downloaded
+                    RENDER_NEXT_FRAME.store(true, atomic::Ordering::Relaxed);
 
                     let mut healpix_indexed = healpix_cell.clone();
                     healpix_indexed.idx_in_buffer = idx as i32;
@@ -329,7 +338,6 @@ impl HEALPixTextureBuffer {
             .collect::<Vec<_>>()
     }
 }
-
 
 fn create_sampler_3d(gl: Rc<WebGl2RenderingContext>, texture_unit: u32, size_buffer: u32) -> Option<web_sys::WebGlTexture> {
     let window = web_sys::window().unwrap();
