@@ -23,12 +23,12 @@ use buffers::buffer_data::BufferData;
 pub trait Mesh {
     fn create_buffers(&self, gl: Rc<WebGl2RenderingContext>, projection: &ProjectionType) -> VertexArrayObject;
 
-    fn update_vertex_and_element_arrays(&self, model: &cgmath::Matrix4::<f32>, projection: &ProjectionType) -> (BufferData<f32>, BufferData<u16>);
+    fn update_vertex_and_element_arrays<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>);
 
     fn send_uniforms(&self, gl: &WebGl2RenderingContext, shader: &Shader);
 }
 
-use std::cell::RefCell;
+use std::cell::Cell;
 
 pub struct Renderable<T>
 where T: Mesh {
@@ -56,10 +56,10 @@ use crate::utils;
 
 impl<T> Renderable<T>
 where T: Mesh {
-    pub fn new(gl: Rc<WebGl2RenderingContext>, shader: Rc<Shader>, projection: Rc<RefCell<ProjectionType>>, mesh: T) -> Renderable<T> {
+    pub fn new(gl: Rc<WebGl2RenderingContext>, shader: Rc<Shader>, projection: &ProjectionType, mesh: T) -> Renderable<T> {
         shader.bind(&gl);
 
-        let vertex_array_object = mesh.create_buffers(gl.clone(), &projection.as_ref().borrow());
+        let vertex_array_object = mesh.create_buffers(gl.clone(), projection);
 
         let model_mat = cgmath::Matrix4::identity();
         let inverted_model_mat = model_mat;
@@ -125,12 +125,8 @@ where T: Mesh {
         &mut self.mesh
     }
 
-    pub fn update_vertex_array_object(&mut self, projection: Rc<RefCell<ProjectionType>>) {
-        //let inv_model_mat = self.model_mat.invert().unwrap();
-        let (vertices_data, indexes_data) = self.mesh.update_vertex_and_element_arrays(
-            &self.inverted_model_mat,
-            &projection.as_ref().borrow()
-        );
+    pub fn update_vertex_array_object(&mut self) {
+        let (vertices_data, indexes_data) = self.mesh.update_vertex_and_element_arrays();
 
         self.vertex_array_object.update_array_and_element_buffer(vertices_data, indexes_data);
     }
@@ -160,6 +156,6 @@ where T: Mesh {
             0,
         );
 
-        self.vertex_array_object.unbind();
+        //self.vertex_array_object.unbind();
     }
 }

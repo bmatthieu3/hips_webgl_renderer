@@ -98,6 +98,7 @@ impl Ord for HEALPixCellRequest {
     }
 }
 
+#[derive(Clone)]
 pub struct HEALPixTextureBuffer {
     buffer: Rc<RefCell<BinaryHeap<HEALPixCellRequest>>>,
     buffer_zero_depth: Rc<RefCell<Vec<HEALPixCellRequest>>>,

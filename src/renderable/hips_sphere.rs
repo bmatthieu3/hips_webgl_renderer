@@ -17,10 +17,13 @@ const MAX_DEPTH: i32 = 9;
 
 use crate::texture::{HEALPixTextureBuffer, HEALPixCellRequest};
 
+#[derive(Clone)]
 pub struct HiPSSphere {
     buffer_textures: HEALPixTextureBuffer,
     pub current_depth: i32,
     pub hpx_cells_in_fov: i32,
+
+    //pub size_px: cgmath::Vector2<f32>,
 }
 
 use crate::viewport::ViewPort;
@@ -28,8 +31,12 @@ use crate::math;
 use healpix;
 use itertools_num;
 use std::iter;
+use crate::window_size_f32;
 
-impl HiPSSphere {
+use std::borrow::Borrow;
+use std::cell::Cell;
+
+impl<'a> HiPSSphere {
     pub fn new(gl: Rc<WebGl2RenderingContext>) -> HiPSSphere {
         let buffer_textures = HEALPixTextureBuffer::new(gl.clone());
         let idx_textures = ((0 as i32)..(12 as i32)).collect::<Vec<_>>();
@@ -102,11 +109,8 @@ impl HiPSSphere {
                     (ra as f64, dec as f64)
                 })
                 .collect::<Vec<_>>();
-            let window = web_sys::window().unwrap();
-            let width = window.inner_width().unwrap()
-                .as_f64()
-                .unwrap();
-            let depth = std::cmp::min(math::ang_per_pixel_to_depth(fov / (width as f32)), MAX_DEPTH);
+            let (width, _) = window_size_f32();
+            let depth = std::cmp::min(math::ang_per_pixel_to_depth(fov / width), MAX_DEPTH);
             //let depth = math::ang_per_pixel_to_depth(fov / (width as f32));
             let healpix_cells = if depth == 0 {
                 (0..12).collect::<Vec<_>>()
@@ -132,8 +136,15 @@ impl HiPSSphere {
         self.load_healpix_tile_textures(gl, healpix_cells, depth, zoom);
     }
 
-    fn create_vertices_array(projection: &ProjectionType) -> BufferData<f32> {
-        let vertex_screen_space_positions = projection.build_screen_map();
+    fn create_vertices_array(gl: &WebGl2RenderingContext, projection: &ProjectionType) -> Vec<f32> {
+        let (vertex_screen_space_positions, size_px) = projection.build_screen_map();
+
+        // Set the scissor here
+        let (width_screen, height_screen) = window_size_f32();
+
+        let xo = (width_screen / 2_f32) - size_px.x / 2_f32;
+        let yo = (height_screen / 2_f32) - size_px.y / 2_f32;
+        gl.scissor(xo as i32, yo as i32, size_px.x as i32, size_px.y as i32);
 
         let vertices_data = vertex_screen_space_positions
             .into_iter()
@@ -151,10 +162,10 @@ impl HiPSSphere {
             .flatten()
             .collect::<Vec<_>>();
 
-        BufferData(vertices_data)
+        vertices_data
     }
 
-    fn create_index_array() -> BufferData<u16> {
+    fn create_index_array() -> Vec<u16> {
         let mut indices = Vec::with_capacity(3 * NUM_VERTICES_PER_STEP * NUM_STEPS);
 
         for j in 0..NUM_STEPS {
@@ -196,7 +207,7 @@ impl HiPSSphere {
             }
         }
 
-        BufferData(indices)
+        indices
     }
 }
 
@@ -205,19 +216,21 @@ use crate::renderable::buffers::array_buffer::ArrayBuffer;
 use crate::renderable::buffers::buffer_data::BufferData;
 use crate::renderable::buffers::element_array_buffer::ElementArrayBuffer;
 
+
+
 impl Mesh for HiPSSphere {
     fn create_buffers(&self, gl: Rc<WebGl2RenderingContext>, projection: &ProjectionType) -> VertexArrayObject {
         let mut vertex_array_object = VertexArrayObject::new(gl.clone());
         vertex_array_object.bind();
 
         // ARRAY buffer creation
-        let vertices_data = Self::create_vertices_array(projection);
+        let vertices_data = Self::create_vertices_array(gl.as_ref().borrow(), projection);
         let array_buffer = ArrayBuffer::new(
             gl.clone(),
             5 * std::mem::size_of::<f32>(),
             &[2, 3],
             &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
-            vertices_data,
+            BufferData(&vertices_data),
             WebGl2RenderingContext::STATIC_DRAW,
         );
 
@@ -225,7 +238,7 @@ impl Mesh for HiPSSphere {
         let indexes_data = Self::create_index_array();
         let indexes_buffer = ElementArrayBuffer::new(
             gl,
-            indexes_data,
+            BufferData(&indexes_data),
             WebGl2RenderingContext::STATIC_DRAW,
         );
 
@@ -358,7 +371,7 @@ impl Mesh for HiPSSphere {
         }*/
     }
 
-    fn update_vertex_and_element_arrays(&self, model: &cgmath::Matrix4::<f32>, projection: &ProjectionType) -> (BufferData<f32>, BufferData<u16>) {
+    fn update_vertex_and_element_arrays<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>) {
         unreachable!();
     }
 }

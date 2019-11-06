@@ -9,12 +9,6 @@ pub struct ViewPort {
     resize_factor_x: f32,
     resize_factor_y: f32,
     position: usize,
-
-    starting_width: f32,
-    starting_height: f32,
-
-    current_width: f32,
-    current_height: f32
 }
 
 use crate::shader::Shader;
@@ -24,26 +18,13 @@ use web_sys::WebGl2RenderingContext;
 use cgmath::SquareMatrix;
 use web_sys::console;
 
-pub fn get_window_size(window: &web_sys::Window) -> (f32, f32) {
-    let width = window.inner_width()
-        .unwrap()
-        .as_f64()
-        .unwrap() as f32;
-    let height = window.inner_height()
-        .unwrap()
-        .as_f64()
-        .unwrap() as f32;
-    (width, height)
-}
+use crate::{set_window_size, window_size_f32};
 
 impl ViewPort {
     pub fn new(gl: &WebGl2RenderingContext, window: Rc<web_sys::Window>, canvas: Rc<web_sys::HtmlCanvasElement>) -> ViewPort {
         let view_mat = cgmath::Matrix4::identity();
         let zoom_factor = 1_f32;
         let position = 0;
-
-        let (starting_width, starting_height) = get_window_size(window.as_ref());
-        let (current_width, current_height) = (starting_width, starting_height);
 
         let resize_factor_x = 1.0_f32;
         let resize_factor_y = 1.0_f32;
@@ -59,11 +40,6 @@ impl ViewPort {
             resize_factor_x,
             resize_factor_y,
             position,
-
-            starting_width,
-            starting_height,
-            current_width,
-            current_height
         };
 
         viewport.resize(gl);
@@ -103,39 +79,44 @@ impl ViewPort {
             self.zoom_factor = 1_f32;
         }*/
         self.zoom_factor /= 1.2_f32;
+
+        // Set the scissor here
+        let (width_screen, height_screen) = window_size_f32();
+        /*
+        let xo = (width_screen / 2_f32) - size_px.x / 2_f32;
+        let yo = (height_screen / 2_f32) - size_px.y / 2_f32;
+        gl.scissor(xo as i32, yo as i32, size_px.x as i32, size_px.y as i32);*/
     }
 
     pub fn resize(&mut self, gl: &WebGl2RenderingContext) {
-        
+        let width = web_sys::window().unwrap().inner_width()
+            .unwrap()
+            .as_f64()
+            .unwrap() as u32;
+        let height = web_sys::window().unwrap().inner_height()
+            .unwrap()
+            .as_f64()
+            .unwrap() as u32;
 
-        let (current_width, current_height) = get_window_size(self.window.as_ref());
-        self.current_width = current_width;
-        self.current_height = current_height;
-        
-        self.canvas.set_width(self.current_width as u32);
-        self.canvas.set_height(self.current_height as u32);
-        gl.viewport(0, 0, current_width as i32, current_height as i32);
+        set_window_size(width, height);
+
+        self.canvas.set_width(width);
+        self.canvas.set_height(height);
+        gl.viewport(0, 0, width as i32, height as i32);
+        gl.scissor(0, 0, width as i32, height as i32);
     /*
         if self.current_width > 2_f32 * self.current_height {
-            self.resize_factor_x = self.current_height / self.starting_height;
-            self.resize_factor_y = self.current_width / self.starting_width;
+            self.resize_factor_x = self.current_height / HEIGHT_SCREEN;
+            self.resize_factor_y = self.current_width / WIDTH_SCREEN;
         } else {
-            self.resize_factor_x = self.current_height / self.starting_height;
-            self.resize_factor_y = self.current_width / self.starting_width;
+            self.resize_factor_x = self.current_height / HEIGHT_SCREEN;
+            self.resize_factor_y = self.current_width / WIDTH_SCREEN;
         }*/
         //gl.scissor(0, 0, self.current_width as i32, self.current_height as i32);
     }
 
     pub fn get_zoom_factor(&self) -> f32 {
         self.zoom_factor
-    }
-
-    pub fn get_window_size(&self) -> (f32, f32) {
-        (self.current_width, self.current_height)
-    }
-
-    pub fn get_starting_window_size(&self) -> (f32, f32) {
-        (self.starting_width, self.starting_height)
     }
 
     pub fn apply_transformation(&mut self, t: cgmath::Matrix4<f32>) {
@@ -160,7 +141,9 @@ impl ViewPort {
         gl.uniform1f(location_resize_factor_y.as_ref(), self.resize_factor_y);
 
         let location_aspect = shader.get_uniform_location(gl, "aspect");
-        let (width, height) = self.get_window_size();
+
+        let (width, height) = window_size_f32();
+
         let aspect = width / height;
         gl.uniform1f(location_aspect.as_ref(), aspect);
         /*let location_starting_window = shader.get_uniform_location(gl, "window_size_default").unwrap();

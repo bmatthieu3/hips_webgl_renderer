@@ -299,9 +299,9 @@ pub static CONTENT: &'static str = r#"#version 300 es
     void main() {
         vec3 frag_pos = normalize(out_vert_pos);
         // Get the HEALPix cell idx and the uv in the texture
-        HEALPixCellContrib current_cell = compute_current_depth_color_from_hips(frag_pos);
-        //HEALPixCellContrib current_cell = compute_zero_depth_color_from_hips(frag_pos);
-        float alpha = 0.f;
+        //HEALPixCellContrib current_cell = compute_current_depth_color_from_hips(frag_pos);
+        HEALPixCellContrib current_cell = compute_zero_depth_color_from_hips(frag_pos);
+        /*float alpha = 0.f;
         if (current_cell.cell.idx > -1) { // tile downloaded
             alpha = clamp((current_time - current_cell.cell.time_received) / duration, 0.f, 1.f);
         }
@@ -340,7 +340,8 @@ pub static CONTENT: &'static str = r#"#version 300 es
             }
 
             out_color = mix(past_cell.color, current_cell.color, alpha);
-        }
-        out_frag_color = vec4(out_color, 1.f);
+        }*/
+        out_frag_color = vec4(current_cell.color, 1.f);
+        //out_frag_color = vec4(1.f);
         //out_frag_color = vec4(vec3(1.f), 0.2f);
     }"#;

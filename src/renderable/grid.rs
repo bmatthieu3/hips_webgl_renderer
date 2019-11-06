@@ -55,12 +55,17 @@ fn build_world_space_vertices_lon(lon: f32) -> Vec<cgmath::Vector4<f32>> {
         .collect::<Vec<_>>()
 }
 
+use crate::viewport::ViewPort;
 pub struct ProjetedGrid {
     lat: Vec<f32>, // The number of lines in the view
     lon: Vec<f32>, // The number of lines in the view
 
-    data: Vec<cgmath::Vector4<f32>>,
-    label_pos_world_space: Vec<cgmath::Vector4<f32>>,
+    pos_local_space: Vec<cgmath::Vector4<f32>>,
+    pos_screen_space: Vec<f32>,
+    idx_vertices: Vec<u16>,
+
+    label_pos_local_space: Vec<cgmath::Vector4<f32>>,
+
     label_pos_screen_space: Vec<cgmath::Vector2<f64>>,
     label_text: Vec<String>,
     font_size: f64,
@@ -80,10 +85,10 @@ fn build_grid_vertices(lat: &Vec<f32>, lon: &Vec<f32>) -> Vec<cgmath::Vector4<f3
     vertices
 }
 
-use crate::viewport::get_window_size;
 use cgmath::{SquareMatrix, InnerSpace};
 use wasm_bindgen::JsCast;
 use crate::math::radec_to_xyz;
+use crate::{window_size_f32, window_size_f64, window_size_u32};
 
 impl ProjetedGrid {
     pub fn new(step_lat: cgmath::Rad<f32>, step_lon: cgmath::Rad<f32>, projection: &ProjectionType) -> ProjetedGrid {
@@ -111,9 +116,11 @@ impl ProjetedGrid {
 
         // Build the line vertices
         let num_iso_lon = lon.len() >> 1;
-        let data = build_grid_vertices(&lat, &lon[0..num_iso_lon].to_vec());
+        let pos_local_space = build_grid_vertices(&lat, &lon[0..num_iso_lon].to_vec());
+        let pos_screen_space = vec![];
+        let idx_vertices = vec![];
         // Build the label positions
-        let mut label_pos_world_space = lat.iter()
+        let mut label_pos_local_space = lat.iter()
             .map(|lat| {
                 let lat = cgmath::Rad(lat.clone());
                 let lon = cgmath::Rad(0_f32);
@@ -121,7 +128,7 @@ impl ProjetedGrid {
                 radec_to_xyz(lon, lat)
             })
             .collect::<Vec<_>>();
-        label_pos_world_space.extend(
+        label_pos_local_space.extend(
             lon.iter()
             .map(|lon| {
                 let lat = cgmath::Rad(0_f32);
@@ -135,14 +142,19 @@ impl ProjetedGrid {
         let mut label_text = lat.iter()
             .map(|lat| {
                 let lat: cgmath::Deg<f32> = cgmath::Rad(lat.clone()).into();
-                (lat.0.round() as i16).to_string() + "°"
+                let lat = lat.0.round() as i16;
+                lat.to_string() + "°"
             })
             .collect::<Vec<_>>();
         label_text.extend(
             lon.iter()
             .map(|lon| {
                 let lon: cgmath::Deg<f32> = cgmath::Rad(lon.clone()).into();
-                (lon.0.round() as i16).to_string() + "°"
+                let mut lon = lon.0.round() as i16;
+                if lon < 0 {
+                    lon += 360;
+                }
+                lon.to_string() + "°"
             })
             .collect::<Vec<_>>()
         );
@@ -153,9 +165,10 @@ impl ProjetedGrid {
             .get_element_by_id("labels_grid").unwrap()
             .dyn_into::<web_sys::HtmlCanvasElement>().unwrap();
 
-        let (width_screen, height_screen) = get_window_size(&web_sys::window().unwrap());
-        text_canvas.set_width(width_screen as u32);
-        text_canvas.set_height(height_screen as u32);
+        let (width, height) = window_size_u32();
+
+        text_canvas.set_width(width);
+        text_canvas.set_height(height);
 
         let text_canvas = text_canvas.get_context("2d")
             .unwrap()
@@ -180,12 +193,16 @@ impl ProjetedGrid {
         text_canvas.set_font(&font);
 
         let label_pos_screen_space = Vec::new();
+
         let mut grid = ProjetedGrid {
             lat,
             lon,
 
-            data,
-            label_pos_world_space,
+            pos_local_space,
+            pos_screen_space,
+            idx_vertices,
+            label_pos_local_space,
+
             label_pos_screen_space,
             label_text,
             font_size,
@@ -194,57 +211,55 @@ impl ProjetedGrid {
             color,
         };
 
-        grid.update(projection, &cgmath::Matrix4::identity());
+        grid.update(projection, &cgmath::Matrix4::identity(), None);
 
         grid
     }
 
-    pub fn update(&mut self, projection: &ProjectionType, model: &cgmath::Matrix4<f32>) {
-        let (width_screen, height_screen) = get_window_size(&web_sys::window().unwrap());
+    pub fn update(&mut self, projection: &ProjectionType, model: &cgmath::Matrix4<f32>, viewport: Option<&ViewPort>) {
+        let (width_screen, height_screen) = window_size_f32();
 
+        let viewport_zoom_factor = if let Some(viewport) = viewport {
+            viewport.get_zoom_factor()
+        } else {
+            1_f32
+        };
+
+        // UPDATE LABEL POSITIONS
         self.label_pos_screen_space.clear();
-        for (label_text, pos_local_space) in self.label_text.iter().zip(self.label_pos_world_space.iter()) {
-            let pos_world_space = model * pos_local_space;
-            let pos_screen_space = projection.world_to_screen_space(pos_world_space.clone()).unwrap();
+        for (label_text, pos_local_space) in self.label_text.iter().zip(self.label_pos_local_space.iter()) {
+            let label_pos_world_space = model * pos_local_space;
+
+            let label_pos_screen_space = projection.world_to_screen_space(label_pos_world_space).unwrap();
 
             let offset_pos_screen = self.text_canvas.measure_text(label_text).unwrap().width();
-
+            
+            // multiply by the zoom factor from the viewport
             let mut pos_screen_space = cgmath::Vector2::new(
-                (((pos_screen_space.x * 0.5_f32) + 0.5_f32) * width_screen) as f64,
-                ((-pos_screen_space.y * 0.5_f32) * width_screen + 0.5_f32 * height_screen) as f64
+                (((label_pos_screen_space.x * 0.5_f32) * viewport_zoom_factor + 0.5_f32) * width_screen) as f64,
+                ((-label_pos_screen_space.y * 0.5_f32) * width_screen * viewport_zoom_factor + 0.5_f32 * height_screen) as f64
             );
             pos_screen_space += cgmath::Vector2::new(-offset_pos_screen / 2_f64, self.font_size / 2_f64);
 
             self.label_pos_screen_space.push(pos_screen_space);
         }
-    }
 
-    pub fn draw(&self) {
-        // Clear the 2D canvas
-        let (width_screen, height_screen) = get_window_size(&web_sys::window().unwrap());
-        self.text_canvas.clear_rect(0_f64, 0_f64, width_screen as f64, height_screen as f64);
-        // Fill
-        for (label_text, pos_screen_space) in self.label_text.iter().zip(self.label_pos_screen_space.iter()) {
-            self.text_canvas.fill_text(label_text, pos_screen_space.x as f64, pos_screen_space.y as f64).unwrap();
+        self.pos_screen_space.clear();
+        // UPDATE GRID VERTICES POSITIONS
+        for pos_local_space in self.pos_local_space.iter() {
+            let pos_world_space = model * pos_local_space;
+
+            let pos_screen_space = projection.world_to_screen_space(pos_world_space.clone()).unwrap();
+
+            self.pos_screen_space.push(pos_screen_space.x);
+            self.pos_screen_space.push(pos_screen_space.y);
         }
-    }
 
-    fn update_arrays(&self, model: &cgmath::Matrix4::<f32>, projection: &ProjectionType) -> (BufferData<f32>, BufferData<u16>) {
-        let pos_screen_space = self.data.iter()
-            .map(|pos_local_space| {
-                let pos_world_space = model * pos_local_space;
-                let pos_screen_space = projection.world_to_screen_space(pos_world_space).unwrap();
+        // UPDATE IDX VERTICES
+        let num_points = self.pos_screen_space.len() >> 1;
+        self.idx_vertices = vec![0; num_points * 2];
 
-                vec![pos_screen_space.x, pos_screen_space.y]
-            })
-            .flatten()
-            .collect::<Vec<_>>();
-
-        let num_points = pos_screen_space.len() >> 1;
-        let mut indices = vec![0; num_points * 2];
-
-        let (width, _) = get_window_size(&web_sys::window().unwrap());
-        let mut threshold_px = 2_f32 * (100_f32 / (width as f32));
+        let mut threshold_px = 2_f32 * (100_f32 / width_screen);
         threshold_px = threshold_px * threshold_px;
 
         let mut i = 0;
@@ -255,20 +270,28 @@ impl ProjetedGrid {
                 let next_idx = (idx + 1) % NUM_POINTS + idx_start;
 
                 let cur_to_next_screen_pos = cgmath::Vector2::new(
-                    pos_screen_space[2*next_idx] - pos_screen_space[2*idx],
-                    pos_screen_space[2*next_idx + 1] - pos_screen_space[2*idx + 1]
+                    self.pos_screen_space[2*next_idx] - self.pos_screen_space[2*idx],
+                    self.pos_screen_space[2*next_idx + 1] - self.pos_screen_space[2*idx + 1]
                 );
 
                 if cur_to_next_screen_pos.magnitude2() < threshold_px {
-                    indices[i] = idx as u16;
-                    indices[i + 1] = next_idx as u16;
+                    self.idx_vertices[i] = idx as u16;
+                    self.idx_vertices[i + 1] = next_idx as u16;
                     i += 2;
                 }
             }
             idx_start += NUM_POINTS;
         }
+    }
 
-        (pos_screen_space.into(), indices.into())
+    pub fn draw(&self) {
+        // Clear the 2D canvas
+        let (width_screen, height_screen) = window_size_f64();
+        self.text_canvas.clear_rect(0_f64, 0_f64, width_screen, height_screen);
+        // Fill
+        for (label_text, pos_screen_space) in self.label_text.iter().zip(self.label_pos_screen_space.iter()) {
+            self.text_canvas.fill_text(label_text, pos_screen_space.x as f64, pos_screen_space.y as f64).unwrap();
+        }
     }
 }
 
@@ -277,24 +300,26 @@ impl Mesh for ProjetedGrid {
         let mut vertex_array_object = VertexArrayObject::new(gl.clone());
         vertex_array_object.bind();
 
+        let ref vertices_data = self.pos_screen_space;
+        let ref idx_data = self.idx_vertices;
         // ARRAY buffer creation
-        let (vertices_data, indexes_data) = self.update_arrays(&cgmath::Matrix4::identity(), projection);
-        console::log_1(&format!("vertices: {:?}", vertices_data.0).into());
+        console::log_1(&format!("vertices: {:?} {:?}", vertices_data.len(), vertices_data).into());
 
         let array_buffer = ArrayBuffer::new(
             gl.clone(),
             2 * std::mem::size_of::<f32>(),
             &[2],
             &[0 * std::mem::size_of::<f32>()],
-            vertices_data,
+            BufferData(&vertices_data),
             WebGl2RenderingContext::DYNAMIC_DRAW,
         );
 
         // ELEMENT ARRAY buffer creation
-        console::log_1(&format!("indexes: {:?}, len {:?}", indexes_data.0, indexes_data.0.len()).into());
+        console::log_1(&format!("indexes: {:?} {:?}", idx_data.len(), idx_data).into());
+        //console::log_1(&format!("indexes: {:?}, len {:?}", indexes_data.0, indexes_data.0.len()).into());
         let indexes_buffer = ElementArrayBuffer::new(
             gl,
-            indexes_data,
+            BufferData(&idx_data),
             WebGl2RenderingContext::DYNAMIC_DRAW,
         );
 
@@ -312,7 +337,7 @@ impl Mesh for ProjetedGrid {
         gl.uniform4f(location_color.as_ref(), self.color.x, self.color.y, self.color.z, self.color.w);
     }
 
-    fn update_vertex_and_element_arrays(&self, model: &cgmath::Matrix4::<f32>, projection: &ProjectionType) -> (BufferData<f32>, BufferData<u16>) {
-        self.update_arrays(model, projection)
+    fn update_vertex_and_element_arrays<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>) {
+        (BufferData(&self.pos_screen_space), BufferData(&self.idx_vertices))
     }
 }

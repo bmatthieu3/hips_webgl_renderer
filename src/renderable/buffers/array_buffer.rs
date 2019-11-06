@@ -25,21 +25,21 @@ use std::convert::TryInto;
 
 use js_sys::WebAssembly;
 use wasm_bindgen::JsCast;
-impl ArrayBuffer {
-    pub fn new(gl: Rc<WebGl2RenderingContext>, stride: usize, sizes: &[usize], offsets: &[usize], data: BufferData<f32>, usage: u32) -> ArrayBuffer {
+impl<'a> ArrayBuffer {
+    pub fn new(gl: Rc<WebGl2RenderingContext>, stride: usize, sizes: &[usize], offsets: &[usize], data: BufferData<'a, f32>, usage: u32) -> ArrayBuffer {
         let buffer = gl.create_buffer()
             .ok_or("failed to create buffer")
             .unwrap();
         // Bind the buffer
         gl.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, Some(buffer.as_ref()));
         // Pass the vertices data to the buffer
-        /*let data: js_sys::Float32Array = data.try_into().unwrap();
+        let data: js_sys::Float32Array = data.try_into().unwrap();
         gl.buffer_data_with_array_buffer_view(
             WebGl2RenderingContext::ARRAY_BUFFER,
             &data,
             usage,
-        );*/
-        let memory_buffer = wasm_bindgen::memory()
+        );
+        /*let memory_buffer = wasm_bindgen::memory()
             .dyn_into::<WebAssembly::Memory>()
             .map_err(|_| "Unable to get the WASM memory buffer for storing the vertices data!")
             .unwrap()
@@ -50,7 +50,7 @@ impl ArrayBuffer {
             usage,
             (data.0.as_ptr() as u32) / 4,
             data.0.len() as u32,
-        );
+        );*/
         // Link to the shader
         for (idx, (size, offset)) in sizes.iter().zip(offsets.iter()).enumerate() {
             gl.vertex_attrib_pointer_with_i32(idx as u32, *size as i32, WebGl2RenderingContext::FLOAT, false, stride as i32, *offset as i32);
@@ -67,7 +67,7 @@ impl ArrayBuffer {
         }
     }
 
-    pub fn update(&self, data: BufferData<f32>) {
+    pub fn update(&self, data: BufferData<'a, f32>) {
         //self.bind();
         let data: js_sys::Float32Array = data.try_into().unwrap();
 

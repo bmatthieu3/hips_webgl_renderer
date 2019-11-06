@@ -16,7 +16,7 @@ pub struct VertexArrayObject {
     gl: Rc<WebGl2RenderingContext>
 }
 
-impl VertexArrayObject {
+impl<'a> VertexArrayObject {
     pub fn new(gl: Rc<WebGl2RenderingContext>) -> VertexArrayObject {
         let vao = gl.create_vertex_array()
             .ok_or("failed to create the vertex array buffer")
@@ -33,7 +33,7 @@ impl VertexArrayObject {
         }
     }
 
-    pub fn update_array_and_element_buffer(&mut self, array_data: BufferData<f32>, element_data: BufferData<u16>) {
+    pub fn update_array_and_element_buffer(&mut self, array_data: BufferData<'a, f32>, element_data: BufferData<'a, u16>) {
         self.bind();
         self.array_buffer.as_ref().unwrap().update(array_data);
         if let Some(ref mut element_array_buffer) = self.element_array_buffer {

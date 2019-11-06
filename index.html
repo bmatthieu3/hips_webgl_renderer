@@ -12,6 +12,7 @@
             overflow: hidden;
             /* No floating content on sides */
             display: block;
+            background-color: black;
         }
 
 		#canvas {
@@ -28,12 +29,32 @@
 			z-index: 2;
             pointer-events: none;
 		}
+
+        .ui {
+            position: absolute;
+            left: 0px;
+			top: 0px;
+            z-index: 10;
+
+            background-color: gray;
+        }
+
 		</style>
 	</head>
 	<body>
-		<div class="container">
+		<div class="webgl_view">
 			<canvas id="canvas"></canvas>
 			<canvas id="labels_grid"></canvas>
+
+            <div class="ui">
+                <h1>WebGL2 Aladin-Lite</h1>
+                <label for="proj-select">Projection:</label>
+                <select name="projections" id="proj-select">
+                    <option value="orthographic">Orthographic</option>
+                    <option value="aitoff">Aitoff</option>
+                </select>
+            </div>
 		</div>
+        
 	</body>
 </html>

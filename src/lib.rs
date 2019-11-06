@@ -7,6 +7,7 @@ extern crate slab;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{WebGl2RenderingContext, console};
+
 use cgmath;
 use cgmath::{InnerSpace, Vector3, Vector4};
 
@@ -56,15 +57,15 @@ use std::cell::{RefCell, Cell};
 
 use std::collections::HashMap;
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 struct App {
-    window: Rc<web_sys::Window>,
+    //window: Rc<web_sys::Window>,
     canvas: Rc<web_sys::HtmlCanvasElement>,
     gl: Rc<WebGl2RenderingContext>,
 
     viewport: Rc<RefCell<ViewPort>>,
-    projection: Rc<RefCell<ProjectionType>>,
+    projection: Rc<Cell<ProjectionType>>,
 
     shaders: HashMap<&'static str, Rc<Shader>>,
     // The sphere renderable
@@ -74,27 +75,14 @@ struct App {
 }
 
 impl App {
-    fn new() -> Result<App, JsValue> {
-        let window = Rc::new(web_sys::window().unwrap());
-        let document = window.document().unwrap();
-
-        let canvas = document.get_element_by_id("canvas").unwrap();
-        let canvas = Rc::new(canvas.dyn_into::<web_sys::HtmlCanvasElement>()?);
-
-        let context_options = js_sys::JSON::parse(&"{\"antialias\":true}").unwrap();
-
-        let gl = Rc::new(
-            canvas.get_context_with_context_options("webgl2", context_options.as_ref())?
-                .unwrap()
-                .dyn_into::<WebGl2RenderingContext>()?
-        );
-
+    fn new(gl: Rc<WebGl2RenderingContext>, canvas: Rc<web_sys::HtmlCanvasElement>, window: Rc<web_sys::Window>) -> Result<App, JsValue> {
         gl.enable(WebGl2RenderingContext::BLEND);
         gl.blend_func(WebGl2RenderingContext::SRC_ALPHA, WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA);
+        gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
 
         // Viewport
         let viewport = Rc::new(RefCell::new(ViewPort::new(&gl, window.clone(), canvas.clone())));
-        let projection = Rc::new(RefCell::new(ProjectionType::Aitoff(Aitoff {})));
+        let projection = Rc::new(Cell::new(ProjectionType::Aitoff(Aitoff {})));
 
         let shader_2d_proj = Rc::new(Shader::new(&gl,
             shaders::proj_vert::CONTENT,
@@ -112,15 +100,15 @@ impl App {
         let hips_sphere = Rc::new(RefCell::new(Renderable::<HiPSSphere>::new(
             gl.clone(),
             shaders["hips_sphere"].clone(),
-            projection.clone(),
+            &projection.get(),
             hips_sphere_mesh,
         )));
 
-        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), &projection.borrow());
+        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), &projection.get());
         let grid = Rc::new(RefCell::new(Renderable::<ProjetedGrid>::new(
             gl.clone(),
             shaders["grid"].clone(),
-            projection.clone(),
+            &projection.get(),
             projeted_grid_mesh,
         )));
 
@@ -158,7 +146,7 @@ impl App {
                 mouse_clic_y.set(event_y);
 
                 let (x_screen_homogeous_space, y_screen_homogeous_space) = projection::screen_pixels_to_homogenous(event_x, event_y, &viewport.borrow());
-                let result = projection.as_ref().borrow().screen_to_world_space(x_screen_homogeous_space, y_screen_homogeous_space);
+                let result = projection.get().screen_to_world_space(x_screen_homogeous_space, y_screen_homogeous_space);
                 if let Some(pos) = result {
                     let pos = pos.normalize();
 
@@ -175,12 +163,17 @@ impl App {
         let onresize = {
             let viewport = viewport.clone();
             let gl = gl.clone();
+
+            let hips_sphere = hips_sphere.clone();
             //let render_next_frame = render_next_frame.clone();
 
             Closure::wrap(Box::new(move || {
                 console::log_1(&format!("resize").into());
+
                 RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
                 viewport.borrow_mut().resize(&gl);
+
+                //hips_sphere
             }) as Box<dyn FnMut()>)
         };
         window.set_onresize(Some(onresize.as_ref().unchecked_ref()));
@@ -229,7 +222,7 @@ impl App {
                     let model_mat = &hips_sphere.as_ref().borrow().get_model_mat();
 
                     let (x_screen_homogeous_space, y_screen_homogeous_space) = projection::screen_pixels_to_homogenous(event_x, event_y, &viewport.borrow());
-                    let result = projection.as_ref().borrow().screen_to_world_space(x_screen_homogeous_space, y_screen_homogeous_space);
+                    let result = projection.get().screen_to_world_space(x_screen_homogeous_space, y_screen_homogeous_space);
                     if let Some(pos) = result {
                         if event_x != mouse_clic_x.get() || event_y != mouse_clic_y.get() {
                             RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
@@ -249,11 +242,16 @@ impl App {
                             hips_sphere.borrow_mut().apply_rotation(-axis, cgmath::Rad(dist));
 
                             grid.borrow_mut().apply_rotation(-axis, cgmath::Rad(dist));
-                            grid.as_ref().borrow_mut().update_vertex_array_object(projection.clone());
 
                             grid.borrow_mut()
                                 .mesh_mut()
-                                .update(&projection.as_ref().borrow(), hips_sphere.as_ref().borrow().get_inverted_model_mat());
+                                .update(
+                                    &projection.get(),
+                                    hips_sphere.as_ref().borrow().get_inverted_model_mat(),
+                                    Some(&viewport.borrow())
+                                );
+                            grid.as_ref().borrow_mut().update_vertex_array_object();
+
                             //iso_lat_0.borrow_mut().apply_rotation(-axis, cgmath::Rad(dist));
 
                             time_last_move.set(utils::get_current_time() as f32);
@@ -270,7 +268,7 @@ impl App {
                             // update the fov
                             hips_sphere.borrow_mut()
                                 .mesh_mut()
-                                .update_field_of_view(context.clone(), &projection.as_ref().borrow(), &viewport.borrow(), model_mat, false);
+                                .update_field_of_view(context.clone(), &projection.get(), &viewport.borrow(), model_mat, false);
                         }
                     }
                 }
@@ -308,22 +306,23 @@ impl App {
                 grid.borrow_mut()
                     .mesh_mut()
                     .update(
-                        &projection.as_ref().borrow(),
-                        hips_sphere.as_ref().borrow().get_inverted_model_mat()
+                        &projection.get(),
+                        hips_sphere.as_ref().borrow().get_inverted_model_mat(),
+                        Some(&viewport.borrow())
                     );
 
                 // update the fov
                 let model_mat = &hips_sphere.as_ref().borrow().get_model_mat();
                 hips_sphere.borrow_mut()
                     .mesh_mut()
-                    .update_field_of_view(gl.clone(), &projection.as_ref().borrow(), &viewport.borrow(), model_mat, true);
+                    .update_field_of_view(gl.clone(), &projection.get(), &viewport.borrow(), model_mat, true);
             }) as Box<dyn FnMut(_)>);
             canvas.add_event_listener_with_callback("wheel", closure.as_ref().unchecked_ref())?;
             closure.forget();
         }
 
         let app = App {
-            window,
+            //window,
             canvas,
             gl,
 
@@ -335,13 +334,12 @@ impl App {
             hips_sphere,
             // The grid renderable
             grid,
-            //render_next_frame,
         };
 
         Ok(app)
     }
 
-    fn run(&mut self) {
+    fn run(&self) {
         let gl = self.gl.clone();
         //let render_next_frame = self.render_next_frame.clone();
 
@@ -388,6 +386,21 @@ impl App {
 
         request_animation_frame(g.as_ref().borrow().as_ref().unwrap());
     }
+
+    fn set_projection(&mut self, projection: ProjectionType) {
+        self.projection.set(projection);
+        //let hips_sphere_mesh = HiPSSphere::new(self.gl.clone());
+        /*self.hips_sphere.replace_with(|old| {
+            let mesh = old.mesh();
+            Renderable::<HiPSSphere>::new(
+                self.gl.clone(),
+                self.shaders["hips_sphere"].clone(),
+                &projection,
+                (*mesh).clone(),
+            )
+        });*/
+        RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
+    }
 }
 
 lazy_static! {
@@ -396,9 +409,110 @@ lazy_static! {
     // threads (Rc does not impl the Sync trait)
     // Arc can be shared between threads => it is used here.
     static ref RENDER_NEXT_FRAME: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
+    static ref WIDTH_SCREEN: Arc<AtomicU32> = Arc::new(
+        AtomicU32::new(
+            (web_sys::window().unwrap().inner_width()
+                .unwrap()
+                .as_f64()
+                .unwrap() as u32)
+        )
+    );
+    static ref HEIGHT_SCREEN: Arc<AtomicU32> = Arc::new(
+        AtomicU32::new(
+            (web_sys::window().unwrap().inner_height()
+                .unwrap()
+                .as_f64()
+                .unwrap() as u32)
+        )
+    );
 }
 
-#[wasm_bindgen(start)]
+fn set_window_size(new_width: u32, new_height: u32) {
+    WIDTH_SCREEN.store(new_width, Ordering::Relaxed);
+    HEIGHT_SCREEN.store(new_height, Ordering::Relaxed);
+}
+fn window_size_u32() -> (u32, u32) {
+    let width = WIDTH_SCREEN.load(Ordering::Relaxed);
+    let height = HEIGHT_SCREEN.load(Ordering::Relaxed);
+
+    (width, height)
+}
+fn window_size_f32() -> (f32, f32) {
+    let width = WIDTH_SCREEN.load(Ordering::Relaxed);
+    let height = HEIGHT_SCREEN.load(Ordering::Relaxed);
+
+    (width as f32, height as f32)
+}
+fn window_size_f64() -> (f64, f64) {
+    let width = WIDTH_SCREEN.load(Ordering::Relaxed);
+    let height = HEIGHT_SCREEN.load(Ordering::Relaxed);
+
+    (width as f64, height as f64)
+}
+
+#[wasm_bindgen]
+pub struct WebClient {
+    app: App,
+    gl: Rc<WebGl2RenderingContext>,
+}
+
+#[wasm_bindgen]
+impl WebClient {
+    /// Create a new web client
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> WebClient {
+        let window = Rc::new(web_sys::window().unwrap());
+        let document = window.document().unwrap();
+
+        let canvas = document.get_element_by_id("canvas").unwrap();
+        let canvas = Rc::new(canvas.dyn_into::<web_sys::HtmlCanvasElement>().unwrap());
+
+        let context_options = js_sys::JSON::parse(&"{\"antialias\":true}").unwrap();
+
+        let gl = Rc::new(
+            canvas.get_context_with_context_options("webgl2", context_options.as_ref())
+                .unwrap()
+                .unwrap()
+                .dyn_into::<WebGl2RenderingContext>()
+                .unwrap()
+        );
+
+        let app = App::new(gl.clone(), canvas, window).unwrap();
+        //let gl = Rc::new(create_webgl_context(Rc::clone(&app)).unwrap());
+
+        WebClient {
+            app,
+            gl
+        }
+    }
+
+    /// Start our WebGL Water application. `index.html` will call this function in order
+    /// to begin rendering.
+    pub fn start(&self) -> Result<(), JsValue> {
+        self.app.run();
+
+        Ok(())
+    }
+
+    /// Change the current projection of the HiPS
+    pub fn set_projection(&mut self, name: String) -> Result<(), JsValue> {
+        console::log_1(&format!("{:?}", name).into());
+        if name == "aitoff" {
+            self.app.set_projection(ProjectionType::Aitoff(Aitoff {}));
+        } else if name == "orthographic" {
+            self.app.set_projection(ProjectionType::Orthographic(Orthographic {}));
+        }
+
+        Ok(())
+    }
+
+    /*/// Update our simulation
+    pub fn update(&self, dt: f32) {
+        self.app.store.borrow_mut().msg(&Msg::AdvanceClock(dt));
+    }*/
+}
+
+/*#[wasm_bindgen(start)]
 pub fn start() -> Result<(), JsValue> {
     {
         let mut app = App::new()?;
@@ -406,4 +520,4 @@ pub fn start() -> Result<(), JsValue> {
     }
 
     Ok(())
-}
+}*/

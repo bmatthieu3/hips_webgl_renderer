@@ -27,8 +27,8 @@ use crate::renderable::buffers::buffer_data::BufferData;
 
 use js_sys::WebAssembly;
 use wasm_bindgen::JsCast;
-impl ElementArrayBuffer {
-    pub fn new(gl: Rc<WebGl2RenderingContext>, data: BufferData<u16>, usage: u32) -> ElementArrayBuffer {
+impl<'a> ElementArrayBuffer {
+    pub fn new(gl: Rc<WebGl2RenderingContext>, data: BufferData<'a, u16>, usage: u32) -> ElementArrayBuffer {
         let buffer = gl.create_buffer()
             .ok_or("failed to create buffer")
             .unwrap();
@@ -36,14 +36,14 @@ impl ElementArrayBuffer {
         gl.bind_buffer(WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER, Some(buffer.as_ref()));
         let buffer_size = data.0.len();
         // Pass the vertices data to the buffer
-        /*let data: js_sys::Uint16Array = data.try_into().unwrap();
+        let data: js_sys::Uint16Array = data.try_into().unwrap();
         gl.buffer_data_with_array_buffer_view(
             WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
             &data,
             usage,
-        );*/
+        );
 
-        let memory_buffer = wasm_bindgen::memory()
+        /*let memory_buffer = wasm_bindgen::memory()
             .dyn_into::<WebAssembly::Memory>()
             .map_err(|_| "Unable to get the WASM memory buffer for storing the vertices data!")
             .unwrap()
@@ -54,7 +54,7 @@ impl ElementArrayBuffer {
             usage,
             (data.0.as_ptr() as u32) / 2,
             data.0.len() as u32,
-        );
+        );*/
         //gl.bind_buffer(WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER, None);
         // Returns an instance that keeps only the buffer
         ElementArrayBuffer {
@@ -69,15 +69,15 @@ impl ElementArrayBuffer {
         self.buffer_size
     }
 
-    pub fn update(&mut self, data: BufferData<u16>) {
+    pub fn update(&mut self, data: BufferData<'a, u16>) {
         //self.buffer_size = data.0.len();
-        //console::log_1(&format!("update element buffer size: {:?}", self.buffer_size).into());
-        //let data: js_sys::Uint16Array = data.try_into().unwrap();
+        console::log_1(&format!("update element buffer size: {:?} {:?}", self.buffer_size, data.0.len()).into());
+        let data: js_sys::Uint16Array = data.try_into().unwrap();
         
         // offset expressed in bytes where data replacement will begin in the buffer
-        //let offset = (0 * std::mem::size_of::<u16>()) as i32;
+        let offset = (0 * std::mem::size_of::<u16>()) as i32;
 
-        let memory_buffer = wasm_bindgen::memory()
+        /*let memory_buffer = wasm_bindgen::memory()
             .dyn_into::<WebAssembly::Memory>().unwrap().buffer();
         self.gl.buffer_sub_data_with_i32_and_array_buffer_view_and_src_offset_and_length(
             WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
@@ -85,14 +85,14 @@ impl ElementArrayBuffer {
             &js_sys::Uint16Array::new(&memory_buffer),
             (data.0.as_ptr() as u32) / 2,
             data.0.len() as u32,
-        );
+        );*/
 
         //self.bind();
-        /*self.gl.buffer_sub_data_with_i32_and_array_buffer_view(
+        self.gl.buffer_sub_data_with_i32_and_array_buffer_view(
             WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
             offset,
             &data,
-        );*/
+        );
         //self.unbind();
     }
 }

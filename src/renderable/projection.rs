@@ -3,32 +3,30 @@ use crate::viewport::ViewPort;
 
 use web_sys::console;
 
+use crate::{WIDTH_SCREEN, HEIGHT_SCREEN, window_size_f32};
+
 pub fn screen_pixels_to_homogenous(x: f32, y: f32, viewport: &ViewPort) -> (f32, f32) {
     // Screen space in pixels to homogeneous screen space (values between [-1, 1])
-    let (width, height) = viewport.get_window_size();
-    let (start_width, start_height) = viewport.get_starting_window_size();
+    let (width, height) = window_size_f32();
+    //let (start_width, start_height) = viewport.get_starting_window_size();
     // Change of origin
     let xo = x - width/2_f32;
     let yo = y - height/2_f32;
-
-    let width_resize_ratio = width / start_width;
-    let height_resize_ratio = height / start_height;
-    //vec2 screen_ratio = current_window_size / window_size_default;
 
     // Scale to fit in [-1, 1]
     let xh = 2_f32*(xo/width);
     let yh = -2_f32*(yo/height);
 
-    console::log_1(&format!("Homogenous {:?} {:?}", xh, yh).into());
+    //console::log_1(&format!("Homogenous {:?} {:?}", xh, yh).into());
 
     let zoom_f = viewport.get_zoom_factor();
     (xh / zoom_f, yh / zoom_f)
 }
 
 pub trait Projection {
-    fn build_screen_map() -> Vec<cgmath::Vector2<f32>>;
+    fn build_screen_map() -> (Vec<cgmath::Vector2<f32>>, cgmath::Vector2<f32>);
 
-    fn scale_by_screen_ratio(x: f32, y: f32) -> (f32, f32);
+    //fn scale_by_screen_ratio(x: f32, y: f32) -> (f32, f32);
     /// Screen space to world space transformation
     /// 
     /// This returns a normalized vector along its first 3 dimensions.
@@ -38,20 +36,7 @@ pub trait Projection {
     /// 
     /// * `x` - X mouse position in homogenous screen space (between [-1, 1])
     /// * `y` - Y mouse position in homogenous screen space (between [-1, 1])
-    fn screen_to_world_space(x: f32, y: f32) -> Option<cgmath::Vector4<f32>> {
-        let (x, y) = Self::scale_by_screen_ratio(x, y);
-        let xw_2 = 1_f32 - x*x - y*y;
-
-        if xw_2 > 0_f32 {
-            let pos_world_space = Self::view_to_world_space(x, y, xw_2.sqrt());
-
-            Some(pos_world_space)
-        } else {
-            // Out of the sphere
-            None
-        }
-    }
-
+    fn screen_to_world_space(x: f32, y: f32) -> Option<cgmath::Vector4<f32>>;
     /// World to screen space transformation
     /// 
     /// # Arguments
@@ -59,23 +44,21 @@ pub trait Projection {
     /// * `x` - X mouse position in homogenous screen space (between [-1, 1])
     /// * `y` - Y mouse position in homogenous screen space (between [-1, 1])
     fn world_to_screen_space(pos_world_space: cgmath::Vector4<f32>) -> Option<cgmath::Vector2<f32>>;
-    /// View to world space transformation
-    /// 
-    /// This returns a normalized vector along its first 3 dimensions.
-    /// Its fourth component is set to 1.
-    fn view_to_world_space(x: f32, y: f32, z: f32) -> cgmath::Vector4<f32>;
 }
 
+#[derive(Clone, Copy)]
 pub struct Aitoff;
+#[derive(Clone, Copy)]
 pub struct Orthographic;
 
+#[derive(Clone, Copy)]
 pub enum ProjectionType {
     Aitoff(Aitoff),
     Orthographic(Orthographic),
 }
 
 impl ProjectionType {
-    pub fn build_screen_map(&self) -> Vec<cgmath::Vector2<f32>> {
+    pub fn build_screen_map(&self) -> (Vec<cgmath::Vector2<f32>>, cgmath::Vector2<f32>) {
         match self {
             ProjectionType::Aitoff(_) => {
                 Aitoff::build_screen_map()
@@ -129,18 +112,10 @@ use cgmath::Vector2;
 const NUM_VERTICES_PER_STEP: usize = 50;
 const NUM_STEPS: usize = 20;
 impl Projection for Aitoff {
-    fn build_screen_map() -> Vec<cgmath::Vector2<f32>> {
+    fn build_screen_map() -> (Vec<cgmath::Vector2<f32>>, cgmath::Vector2<f32>) {
         let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
 
-        let window = web_sys::window().unwrap();
-        let width = window.inner_width()
-            .unwrap()
-            .as_f64()
-            .unwrap() as f32;
-        let height = window.inner_height()
-            .unwrap()
-            .as_f64()
-            .unwrap() as f32;
+        let (width, height) = window_size_f32();
 
         let center_screen_space = Vector2::<f32>::new(0_f32, 0_f32);
         vertices_screen.push(center_screen_space);
@@ -166,35 +141,55 @@ impl Projection for Aitoff {
             }
         }
 
-        vertices_screen
+        let size_px = cgmath::Vector2::new(width - 2_f32, width/2_f32 - 1_f32);
+        (vertices_screen, size_px)
     }
 
     /// View to world space transformation
     /// 
     /// This returns a normalized vector along its first 3 dimensions.
     /// Its fourth component is set to 1.
-    fn view_to_world_space(x: f32, y: f32, z: f32) -> cgmath::Vector4<f32> {
-        let u = x * std::f32::consts::PI * 0.50_f32 ;
-        let v = y * std::f32::consts::PI ;
-        //da uv a lat/lon
-        let mut phi = 0_f32;
-        let mut theta = 0_f32;
-        let c = (v*v + u*u).sqrt();	
-        if c != 0_f32 {
-            phi = (v * c.sin() / c).asin();
-            theta = (u * c.sin()).atan2(c * c.cos());
-        } else {
-            phi = v.asin();
-            theta = u.atan();
-        }
-        theta *= 2_f32;
+    /// 
+    /// The Aitoff projection maps screen coordinates from [-pi; pi] x [-pi/2; pi/2]
+    /// 
+    /// # Arguments
+    /// 
+    /// * `x` - in normalized device coordinates between [-1; 1]
+    /// * `y` - in normalized device coordinates between [-1; 1]
+    fn screen_to_world_space(x: f32, y: f32) -> Option<cgmath::Vector4<f32>> {
+        let (width, height) = window_size_f32();
+        let aspect = width / height;
 
-        cgmath::Vector4::new(
-            theta.sin() * phi.cos(),
-            phi.sin(),
-            theta.cos() * phi.cos(),
-            1_f32
-        )
+        let (x, y) = (x, y/aspect);
+
+        let xw_2 = 1_f32 - x*x - y*y;
+        if xw_2 > 0_f32 {
+            let u = x * std::f32::consts::PI * 0.5_f32;
+            let v = y * std::f32::consts::PI;
+            //da uv a lat/lon
+            let mut phi = 0_f32;
+            let mut theta = 0_f32;
+            let c = (v*v + u*u).sqrt();	
+            if c != 0_f32 {
+                phi = (v * c.sin() / c).asin();
+                theta = (u * c.sin()).atan2(c * c.cos());
+            } else {
+                phi = v.asin();
+                theta = u.atan();
+            }
+            theta *= 2_f32;
+
+            let pos_world_space = cgmath::Vector4::new(
+                -theta.sin() * phi.cos(),
+                phi.sin(),
+                theta.cos() * phi.cos(),
+                1_f32
+            );
+
+            Some(pos_world_space)
+        } else {
+            None
+        }
     }
 
     /// World to screen space transformation
@@ -221,41 +216,18 @@ impl Projection for Aitoff {
             alpha / alpha.sin()
         };
 
-        let X = 2_f32 * inv_sinc_alpha * delta.cos() * theta_by_two.sin();
+        let X = -2_f32 * inv_sinc_alpha * delta.cos() * theta_by_two.sin();
         let Y = inv_sinc_alpha * delta.sin();
 
         Some(cgmath::Vector2::new(X / std::f32::consts::PI, Y / std::f32::consts::PI))
     }
-
-    fn scale_by_screen_ratio(x: f32, y: f32) -> (f32, f32) {
-        let window = web_sys::window().unwrap();
-        let width = window.inner_width()
-            .unwrap()
-            .as_f64()
-            .unwrap() as f32;
-        let height = window.inner_height()
-            .unwrap()
-            .as_f64()
-            .unwrap() as f32;
-
-        let aspect = width / height;
-        (x, y / aspect)
-    }
 }
 
 impl Projection for Orthographic {
-    fn build_screen_map() -> Vec<cgmath::Vector2<f32>> {
+    fn build_screen_map() -> (Vec<cgmath::Vector2<f32>>, cgmath::Vector2<f32>) {
         let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
 
-        let window = web_sys::window().unwrap();
-        let width = window.inner_width()
-            .unwrap()
-            .as_f64()
-            .unwrap() as f32;
-        let height = window.inner_height()
-            .unwrap()
-            .as_f64()
-            .unwrap() as f32;
+        let (width, height) = window_size_f32();
 
         let center_screen_space = Vector2::<f32>::new(
             0_f32, 0_f32
@@ -282,15 +254,37 @@ impl Projection for Orthographic {
             }
         }
 
-        vertices_screen
+        let size_px = cgmath::Vector2::new(height - 2_f32, height - 2_f32);
+        (vertices_screen, size_px)
     }
 
     /// View to world space transformation
     /// 
     /// This returns a normalized vector along its first 3 dimensions.
     /// Its fourth component is set to 1.
-    fn view_to_world_space(x: f32, y: f32, z: f32) -> cgmath::Vector4<f32> {
-        cgmath::Vector4::new(x, y, z, 1_f32)
+    /// 
+    /// The Aitoff projection maps screen coordinates from [-pi; pi] x [-pi/2; pi/2]
+    /// 
+    /// # Arguments
+    /// 
+    /// * `x` - in normalized device coordinates between [-1; 1]
+    /// * `y` - in normalized device coordinates between [-1; 1]
+    fn screen_to_world_space(x: f32, y: f32) -> Option<cgmath::Vector4<f32>> {
+        let (width, height) = window_size_f32();
+        let aspect = width / height;
+
+        let (x, y) = (x * aspect, y);
+
+        let xw_2 = 1_f32 - x*x - y*y;
+
+        if xw_2 > 0_f32 {
+            let pos_world_space = cgmath::Vector4::new(x, y, xw_2.sqrt(), 1_f32);
+
+            Some(pos_world_space)
+        } else {
+            // Out of the sphere
+            None
+        }
     }
 
     /// World to screen space transformation
@@ -303,20 +297,5 @@ impl Projection for Orthographic {
             pos_world_space.x,
             pos_world_space.y
         ))
-    }
-
-    fn scale_by_screen_ratio(x: f32, y: f32) -> (f32, f32) {
-        let window = web_sys::window().unwrap();
-        let width = window.inner_width()
-            .unwrap()
-            .as_f64()
-            .unwrap() as f32;
-        let height = window.inner_height()
-            .unwrap()
-            .as_f64()
-            .unwrap() as f32;
-
-        let aspect = width / height;
-        (x * aspect, y)
     }
 }
