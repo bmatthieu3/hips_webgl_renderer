@@ -5,10 +5,12 @@ use crate::renderable::VertexBufferObject;
 
 use std::rc::Rc;
 
+use crate::WebGl2Context;
+
 pub struct ArrayBuffer {
     buffer: WebGlBuffer,
     num_packed_data: usize,
-    gl: Rc<WebGl2RenderingContext>,
+    gl: WebGl2Context,
 }
 
 impl VertexBufferObject for ArrayBuffer {
@@ -23,10 +25,8 @@ impl VertexBufferObject for ArrayBuffer {
 use crate::renderable::buffers::buffer_data::BufferData;
 use std::convert::TryInto;
 
-use js_sys::WebAssembly;
-use wasm_bindgen::JsCast;
 impl<'a> ArrayBuffer {
-    pub fn new(gl: Rc<WebGl2RenderingContext>, stride: usize, sizes: &[usize], offsets: &[usize], data: BufferData<'a, f32>, usage: u32) -> ArrayBuffer {
+    pub fn new(gl: &WebGl2Context, stride: usize, sizes: &[usize], offsets: &[usize], data: BufferData<'a, f32>, usage: u32) -> ArrayBuffer {
         let buffer = gl.create_buffer()
             .ok_or("failed to create buffer")
             .unwrap();
@@ -59,6 +59,7 @@ impl<'a> ArrayBuffer {
 
         let num_packed_data = sizes.len();
 
+        let gl = gl.clone();
         // Returns an instance that keeps only the buffer
         ArrayBuffer {
             buffer,
@@ -88,5 +89,7 @@ impl Drop for ArrayBuffer {
         for idx in 0..self.num_packed_data {
             self.gl.disable_vertex_attrib_array(idx as u32);
         }
+
+        self.gl.delete_buffer(Some(self.buffer.as_ref()));
     }
 }

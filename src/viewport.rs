@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 pub struct ViewPort {
+    gl: WebGl2Context,
     window: Rc<web_sys::Window>,
     canvas: Rc<web_sys::HtmlCanvasElement>,
 
@@ -12,16 +13,17 @@ pub struct ViewPort {
 }
 
 use crate::shader::Shader;
-use crate::math;
 use web_sys::WebGl2RenderingContext;
 
 use cgmath::SquareMatrix;
-use web_sys::console;
+
+use crate::WebGl2Context;
 
 use crate::{set_window_size, window_size_f32};
+use wasm_bindgen::JsCast;
 
 impl ViewPort {
-    pub fn new(gl: &WebGl2RenderingContext, window: Rc<web_sys::Window>, canvas: Rc<web_sys::HtmlCanvasElement>) -> ViewPort {
+    pub fn new(gl: &WebGl2Context) -> ViewPort {
         let view_mat = cgmath::Matrix4::identity();
         let zoom_factor = 1_f32;
         let position = 0;
@@ -31,7 +33,14 @@ impl ViewPort {
 
         //gl.viewport(0, 0, current_width as i32, current_height as i32);
 
+        let window = Rc::new(web_sys::window().unwrap());
+        let canvas = Rc::new(
+            gl.canvas().unwrap()
+                .dyn_into::<web_sys::HtmlCanvasElement>().unwrap()
+        );
+        let gl = gl.clone();
         let mut viewport = ViewPort {
+            gl,
             window,
             canvas,
 
@@ -42,7 +51,7 @@ impl ViewPort {
             position,
         };
 
-        viewport.resize(gl);
+        viewport.resize();
         viewport
     }
 
@@ -79,6 +88,9 @@ impl ViewPort {
             self.zoom_factor = 1_f32;
         }*/
         self.zoom_factor /= 1.2_f32;
+        if self.zoom_factor < 0.5_f32 {
+            self.zoom_factor = 0.5_f32;
+        }
 
         // Set the scissor here
         let (width_screen, height_screen) = window_size_f32();
@@ -88,7 +100,7 @@ impl ViewPort {
         gl.scissor(xo as i32, yo as i32, size_px.x as i32, size_px.y as i32);*/
     }
 
-    pub fn resize(&mut self, gl: &WebGl2RenderingContext) {
+    pub fn resize(&mut self) {
         let width = web_sys::window().unwrap().inner_width()
             .unwrap()
             .as_f64()
@@ -102,8 +114,8 @@ impl ViewPort {
 
         self.canvas.set_width(width);
         self.canvas.set_height(height);
-        gl.viewport(0, 0, width as i32, height as i32);
-        gl.scissor(0, 0, width as i32, height as i32);
+        self.gl.viewport(0, 0, width as i32, height as i32);
+        self.gl.scissor(0, 0, width as i32, height as i32);
     /*
         if self.current_width > 2_f32 * self.current_height {
             self.resize_factor_x = self.current_height / HEIGHT_SCREEN;

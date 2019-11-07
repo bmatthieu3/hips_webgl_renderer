@@ -278,7 +278,7 @@ impl Projection for Orthographic {
         let xw_2 = 1_f32 - x*x - y*y;
 
         if xw_2 > 0_f32 {
-            let pos_world_space = cgmath::Vector4::new(x, y, xw_2.sqrt(), 1_f32);
+            let pos_world_space = cgmath::Vector4::new(-x, y, xw_2.sqrt(), 1_f32);
 
             Some(pos_world_space)
         } else {
@@ -293,9 +293,11 @@ impl Projection for Orthographic {
     /// 
     /// * `pos_world_space` - Position in the world space. Must be a normalized vector
     fn world_to_screen_space(pos_world_space: cgmath::Vector4<f32>) -> Option<cgmath::Vector2<f32>> {
+        let (width, height) = window_size_f32();
+        let aspect = height / width;
         Some(cgmath::Vector2::new(
-            pos_world_space.x,
-            pos_world_space.y
-        ))
+            -pos_world_space.x,
+            pos_world_space.y,
+        ) * aspect)
     }
 }

@@ -36,31 +36,32 @@ use crate::window_size_f32;
 use std::borrow::Borrow;
 use std::cell::Cell;
 
+use crate::WebGl2Context;
+
 impl<'a> HiPSSphere {
-    pub fn new(gl: Rc<WebGl2RenderingContext>) -> HiPSSphere {
-        let buffer_textures = HEALPixTextureBuffer::new(gl.clone());
+    pub fn new(gl: &WebGl2Context) -> HiPSSphere {
+        let buffer_textures = HEALPixTextureBuffer::new(gl);
         let idx_textures = ((0 as i32)..(12 as i32)).collect::<Vec<_>>();
         let mut hips_sphere = HiPSSphere {
             buffer_textures : buffer_textures,
             current_depth: 0,
             hpx_cells_in_fov: 0,
         };
-        hips_sphere.load_healpix_tile_textures(gl, idx_textures, 0, false);
+        hips_sphere.load_healpix_tile_textures(idx_textures, 0, false);
         hips_sphere
     }
 
     fn load_healpix_tile_textures(&mut self,
-        gl: Rc<WebGl2RenderingContext>,
         idx_textures_next: Vec<i32>,
         depth: i32,
         zoom: bool) {
         for tile_idx_to_load in idx_textures_next.into_iter() {
             let new_healpix_cell = HEALPixCellRequest::new(depth, tile_idx_to_load);
-            self.buffer_textures.load(gl.clone(), new_healpix_cell, zoom);
+            self.buffer_textures.load(new_healpix_cell, zoom);
         }
     }
 
-    pub fn update_field_of_view(&mut self, gl: Rc<WebGl2RenderingContext>, projection: &ProjectionType, viewport: &ViewPort, model: &cgmath::Matrix4<f32>, zoom: bool) {
+    pub fn update_field_of_view(&mut self, projection: &ProjectionType, viewport: &ViewPort, model: &cgmath::Matrix4<f32>, zoom: bool) {
         let num_control_points_width = 5;
         let num_control_points_height = 5;
         let num_control_points = 4 + 2*num_control_points_width + 2*num_control_points_height;
@@ -133,10 +134,10 @@ impl<'a> HiPSSphere {
         self.current_depth = depth;
         self.hpx_cells_in_fov = healpix_cells.len() as i32;
 
-        self.load_healpix_tile_textures(gl, healpix_cells, depth, zoom);
+        self.load_healpix_tile_textures(healpix_cells, depth, zoom);
     }
 
-    fn create_vertices_array(gl: &WebGl2RenderingContext, projection: &ProjectionType) -> Vec<f32> {
+    fn create_vertices_array(gl: &WebGl2Context, projection: &ProjectionType) -> Vec<f32> {
         let (vertex_screen_space_positions, size_px) = projection.build_screen_map();
 
         // Set the scissor here
@@ -219,14 +220,14 @@ use crate::renderable::buffers::element_array_buffer::ElementArrayBuffer;
 
 
 impl Mesh for HiPSSphere {
-    fn create_buffers(&self, gl: Rc<WebGl2RenderingContext>, projection: &ProjectionType) -> VertexArrayObject {
-        let mut vertex_array_object = VertexArrayObject::new(gl.clone());
+    fn create_buffers(&self, gl: &WebGl2Context, projection: &ProjectionType) -> VertexArrayObject {
+        let mut vertex_array_object = VertexArrayObject::new(gl);
         vertex_array_object.bind();
 
         // ARRAY buffer creation
-        let vertices_data = Self::create_vertices_array(gl.as_ref().borrow(), projection);
+        let vertices_data = Self::create_vertices_array(gl, projection);
         let array_buffer = ArrayBuffer::new(
-            gl.clone(),
+            gl,
             5 * std::mem::size_of::<f32>(),
             &[2, 3],
             &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],

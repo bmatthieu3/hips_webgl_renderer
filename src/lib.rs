@@ -60,9 +60,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 struct App {
-    //window: Rc<web_sys::Window>,
-    canvas: Rc<web_sys::HtmlCanvasElement>,
-    gl: Rc<WebGl2RenderingContext>,
+    gl: WebGl2Context,
 
     viewport: Rc<RefCell<ViewPort>>,
     projection: Rc<Cell<ProjectionType>>,
@@ -75,13 +73,19 @@ struct App {
 }
 
 impl App {
-    fn new(gl: Rc<WebGl2RenderingContext>, canvas: Rc<web_sys::HtmlCanvasElement>, window: Rc<web_sys::Window>) -> Result<App, JsValue> {
+    fn new(gl: &WebGl2Context) -> Result<App, JsValue> {
+        // Used in resize callback closure => Rc needed
+        let canvas = Rc::new(
+            gl.canvas().unwrap()
+                .dyn_into::<web_sys::HtmlCanvasElement>().unwrap()
+        );
+
         gl.enable(WebGl2RenderingContext::BLEND);
         gl.blend_func(WebGl2RenderingContext::SRC_ALPHA, WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA);
         gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
 
         // Viewport
-        let viewport = Rc::new(RefCell::new(ViewPort::new(&gl, window.clone(), canvas.clone())));
+        let viewport = Rc::new(RefCell::new(ViewPort::new(&gl)));
         let projection = Rc::new(Cell::new(ProjectionType::Aitoff(Aitoff {})));
 
         let shader_2d_proj = Rc::new(Shader::new(&gl,
@@ -96,17 +100,20 @@ impl App {
         shaders.insert("hips_sphere", shader_2d_proj);
         shaders.insert("grid", shader_grid);
 
-        let hips_sphere_mesh = HiPSSphere::new(gl.clone());
+        let hips_sphere_mesh = HiPSSphere::new(&gl);
         let hips_sphere = Rc::new(RefCell::new(Renderable::<HiPSSphere>::new(
-            gl.clone(),
+            &gl,
             shaders["hips_sphere"].clone(),
             &projection.get(),
             hips_sphere_mesh,
         )));
 
-        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), &projection.get());
+        let lon_bound = cgmath::Vector2::new(cgmath::Deg(-30_f32).into(), cgmath::Deg(30_f32).into());
+        let lat_bound = cgmath::Vector2::new(cgmath::Deg(-30_f32).into(), cgmath::Deg(30_f32).into());
+
+        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(10_f32).into(), cgmath::Deg(10_f32).into(), Some(lat_bound), Some(lon_bound), &projection.get(), &viewport.borrow());
         let grid = Rc::new(RefCell::new(Renderable::<ProjetedGrid>::new(
-            gl.clone(),
+            &gl,
             shaders["grid"].clone(),
             &projection.get(),
             projeted_grid_mesh,
@@ -162,8 +169,6 @@ impl App {
         // Resize event
         let onresize = {
             let viewport = viewport.clone();
-            let gl = gl.clone();
-
             let hips_sphere = hips_sphere.clone();
             //let render_next_frame = render_next_frame.clone();
 
@@ -171,12 +176,14 @@ impl App {
                 console::log_1(&format!("resize").into());
 
                 RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
-                viewport.borrow_mut().resize(&gl);
+                viewport.borrow_mut().resize();
 
                 //hips_sphere
             }) as Box<dyn FnMut()>)
         };
-        window.set_onresize(Some(onresize.as_ref().unchecked_ref()));
+        web_sys::window()
+            .unwrap()
+            .set_onresize(Some(onresize.as_ref().unchecked_ref()));
         //canvas.add_event_listener_with_callback("mouseup", closure.as_ref().unchecked_ref())?;
         onresize.forget();
 
@@ -209,7 +216,6 @@ impl App {
 
             let viewport = viewport.clone();
             let projection = projection.clone();
-            let context = gl.clone();
 
             let time_last_move = time_last_move.clone();
             let roll = roll.clone();
@@ -248,11 +254,9 @@ impl App {
                                 .update(
                                     &projection.get(),
                                     hips_sphere.as_ref().borrow().get_inverted_model_mat(),
-                                    Some(&viewport.borrow())
+                                    &viewport.borrow()
                                 );
                             grid.as_ref().borrow_mut().update_vertex_array_object();
-
-                            //iso_lat_0.borrow_mut().apply_rotation(-axis, cgmath::Rad(dist));
 
                             time_last_move.set(utils::get_current_time() as f32);
                             roll.set(true);
@@ -268,7 +272,7 @@ impl App {
                             // update the fov
                             hips_sphere.borrow_mut()
                                 .mesh_mut()
-                                .update_field_of_view(context.clone(), &projection.get(), &viewport.borrow(), model_mat, false);
+                                .update_field_of_view(&projection.get(), &viewport.borrow(), model_mat, false);
                         }
                     }
                 }
@@ -308,22 +312,21 @@ impl App {
                     .update(
                         &projection.get(),
                         hips_sphere.as_ref().borrow().get_inverted_model_mat(),
-                        Some(&viewport.borrow())
+                        &viewport.borrow()
                     );
 
                 // update the fov
                 let model_mat = &hips_sphere.as_ref().borrow().get_model_mat();
                 hips_sphere.borrow_mut()
                     .mesh_mut()
-                    .update_field_of_view(gl.clone(), &projection.get(), &viewport.borrow(), model_mat, true);
+                    .update_field_of_view(&projection.get(), &viewport.borrow(), model_mat, true);
             }) as Box<dyn FnMut(_)>);
             canvas.add_event_listener_with_callback("wheel", closure.as_ref().unchecked_ref())?;
             closure.forget();
         }
 
+        let gl = gl.clone();
         let app = App {
-            //window,
-            canvas,
             gl,
 
             viewport,
@@ -389,16 +392,28 @@ impl App {
 
     fn set_projection(&mut self, projection: ProjectionType) {
         self.projection.set(projection);
-        //let hips_sphere_mesh = HiPSSphere::new(self.gl.clone());
-        /*self.hips_sphere.replace_with(|old| {
-            let mesh = old.mesh();
+        let hips_sphere_mesh = HiPSSphere::new(&self.gl);
+
+        // New HiPS sphere
+        self.hips_sphere.replace(
             Renderable::<HiPSSphere>::new(
-                self.gl.clone(),
+                &self.gl,
                 self.shaders["hips_sphere"].clone(),
                 &projection,
-                (*mesh).clone(),
+                hips_sphere_mesh,
             )
-        });*/
+        );
+
+        // New grid
+        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), None, None, &projection, &self.viewport.borrow());
+        self.grid.replace(
+            Renderable::<ProjetedGrid>::new(
+                &self.gl,
+                self.shaders["grid"].clone(),
+                &projection,
+                projeted_grid_mesh,
+            )
+        );
         RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
     }
 }
@@ -450,10 +465,54 @@ fn window_size_f64() -> (f64, f64) {
     (width as f64, height as f64)
 }
 
+#[derive(Clone)]
+pub struct WebGl2Context {
+    inner: Rc<WebGl2RenderingContext>,
+}
+
+impl WebGl2Context {
+    fn new() -> WebGl2Context {
+        let window = web_sys::window().unwrap();
+        let document = window.document().unwrap();
+
+        let canvas = document.get_element_by_id("canvas").unwrap();
+        let canvas = canvas.dyn_into::<web_sys::HtmlCanvasElement>().unwrap();
+
+        //let context_options = js_sys::JSON::parse(&"{\"antialias\":true}").unwrap();
+
+        /*let inner = Rc::new(
+            canvas.get_context_with_context_options("webgl2", context_options.as_ref())
+                .unwrap()
+                .unwrap()
+                .dyn_into::<WebGl2RenderingContext>()
+                .unwrap()
+        );*/
+        let inner = Rc::new(
+            canvas.get_context("webgl2")
+                .unwrap()
+                .unwrap()
+                .dyn_into::<WebGl2RenderingContext>()
+                .unwrap()
+        );
+
+        WebGl2Context {
+            inner
+        }
+    }
+}
+
+use std::ops::Deref;
+impl Deref for WebGl2Context {
+    type Target = WebGl2RenderingContext;
+
+    fn deref(&self) -> &WebGl2RenderingContext {
+        &self.inner
+    }
+}
+
 #[wasm_bindgen]
 pub struct WebClient {
     app: App,
-    gl: Rc<WebGl2RenderingContext>,
 }
 
 #[wasm_bindgen]
@@ -461,28 +520,12 @@ impl WebClient {
     /// Create a new web client
     #[wasm_bindgen(constructor)]
     pub fn new() -> WebClient {
-        let window = Rc::new(web_sys::window().unwrap());
-        let document = window.document().unwrap();
-
-        let canvas = document.get_element_by_id("canvas").unwrap();
-        let canvas = Rc::new(canvas.dyn_into::<web_sys::HtmlCanvasElement>().unwrap());
-
-        let context_options = js_sys::JSON::parse(&"{\"antialias\":true}").unwrap();
-
-        let gl = Rc::new(
-            canvas.get_context_with_context_options("webgl2", context_options.as_ref())
-                .unwrap()
-                .unwrap()
-                .dyn_into::<WebGl2RenderingContext>()
-                .unwrap()
-        );
-
-        let app = App::new(gl.clone(), canvas, window).unwrap();
+        let gl = WebGl2Context::new();
+        let app = App::new(&gl).unwrap();
         //let gl = Rc::new(create_webgl_context(Rc::clone(&app)).unwrap());
 
         WebClient {
             app,
-            gl
         }
     }
 
@@ -497,27 +540,17 @@ impl WebClient {
     /// Change the current projection of the HiPS
     pub fn set_projection(&mut self, name: String) -> Result<(), JsValue> {
         console::log_1(&format!("{:?}", name).into());
-        if name == "aitoff" {
-            self.app.set_projection(ProjectionType::Aitoff(Aitoff {}));
-        } else if name == "orthographic" {
-            self.app.set_projection(ProjectionType::Orthographic(Orthographic {}));
+        match name.as_ref() {
+            "aitoff" => {
+                self.app.set_projection(ProjectionType::Aitoff(Aitoff {}));
+            },
+            "orthographic" => {
+                self.app.set_projection(ProjectionType::Orthographic(Orthographic {}));
+            },
+            _ => {}
         }
 
         Ok(())
     }
-
-    /*/// Update our simulation
-    pub fn update(&self, dt: f32) {
-        self.app.store.borrow_mut().msg(&Msg::AdvanceClock(dt));
-    }*/
 }
 
-/*#[wasm_bindgen(start)]
-pub fn start() -> Result<(), JsValue> {
-    {
-        let mut app = App::new()?;
-        app.run();
-    }
-
-    Ok(())
-}*/

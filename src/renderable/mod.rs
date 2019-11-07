@@ -20,15 +20,15 @@ trait VertexBufferObject {
 
 use buffers::vertex_array_object::VertexArrayObject;
 use buffers::buffer_data::BufferData;
+use crate::WebGl2Context;
+
 pub trait Mesh {
-    fn create_buffers(&self, gl: Rc<WebGl2RenderingContext>, projection: &ProjectionType) -> VertexArrayObject;
+    fn create_buffers(&self, gl: &WebGl2Context, projection: &ProjectionType) -> VertexArrayObject;
 
     fn update_vertex_and_element_arrays<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>);
 
     fn send_uniforms(&self, gl: &WebGl2RenderingContext, shader: &Shader);
 }
-
-use std::cell::Cell;
 
 pub struct Renderable<T>
 where T: Mesh {
@@ -45,7 +45,7 @@ where T: Mesh {
 
     mesh: T,
 
-    gl: Rc<WebGl2RenderingContext>
+    gl: WebGl2Context
 }
 
 
@@ -56,10 +56,10 @@ use crate::utils;
 
 impl<T> Renderable<T>
 where T: Mesh {
-    pub fn new(gl: Rc<WebGl2RenderingContext>, shader: Rc<Shader>, projection: &ProjectionType, mesh: T) -> Renderable<T> {
+    pub fn new(gl: &WebGl2Context, shader: Rc<Shader>, projection: &ProjectionType, mesh: T) -> Renderable<T> {
         shader.bind(&gl);
 
-        let vertex_array_object = mesh.create_buffers(gl.clone(), projection);
+        let vertex_array_object = mesh.create_buffers(gl, projection);
 
         let model_mat = cgmath::Matrix4::identity();
         let inverted_model_mat = model_mat;
@@ -68,6 +68,7 @@ where T: Mesh {
         let rotation_mat = cgmath::Matrix4::identity();
         let translation_mat = cgmath::Matrix4::identity();
 
+        let gl = gl.clone();
         Renderable {
             // The shader to bind when drawing the renderable
             shader,

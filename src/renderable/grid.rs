@@ -22,18 +22,20 @@ use crate::Shader;
 
 use web_sys::console;
 
-fn build_world_space_vertices_lat(lat: f32) -> Vec<cgmath::Vector4<f32>> {
-    //let ang = math::angular_distance_lonlat(delta_lon.start, lat, delta_lon.end, lat);
-    let theta_step = 2_f32 * std::f32::consts::PI / (ISOLAT_NUM_POINTS as f32);
+use cgmath::{Rad, Deg, Vector2};
 
-    let mut pos_local_space = Vec::with_capacity(ISOLAT_NUM_POINTS);
+fn build_world_space_vertices_lat(lat: f32, lon_start: f32, lon_end: f32, num_points: usize) -> Vec<cgmath::Vector4<f32>> {
+    //let ang = math::angular_distance_lonlat(delta_lon.start, lat, delta_lon.end, lat);
+    let theta_step = (lon_end - lon_start) / ((num_points - 1) as f32);
+
+    let mut pos_local_space = Vec::with_capacity(num_points);
 
     let delta = lat;
     let y = delta.sin();
     let xz = delta.cos();
 
-    let theta_start = -std::f32::consts::PI;
-    for i in 0..ISOLAT_NUM_POINTS {
+    let theta_start = lon_start;
+    for i in 0..num_points {
         let theta = theta_start + (i as f32) * theta_step;
 
         let x = xz * theta.sin();
@@ -43,8 +45,8 @@ fn build_world_space_vertices_lat(lat: f32) -> Vec<cgmath::Vector4<f32>> {
     }
     pos_local_space
 }
-fn build_world_space_vertices_lon(lon: f32) -> Vec<cgmath::Vector4<f32>> {
-    let pos_local_space = build_world_space_vertices_lat(0_f32);
+fn build_world_space_vertices_lon(lon: f32, lat_start: f32, lat_end: f32, num_points: usize) -> Vec<cgmath::Vector4<f32>> {
+    let pos_local_space = build_world_space_vertices_lat(0_f32, lat_start, lat_end, num_points);
     let rotation_mat = cgmath::Matrix4::<f32>::from_angle_y(cgmath::Rad(lon))
         * cgmath::Matrix4::<f32>::from_angle_z(cgmath::Deg(90_f32));
 
@@ -53,6 +55,26 @@ fn build_world_space_vertices_lon(lon: f32) -> Vec<cgmath::Vector4<f32>> {
             rotation_mat * p
         })
         .collect::<Vec<_>>()
+}
+
+fn build_grid_vertices(lat: &Vec<f32>, lon: &Vec<f32>, lat_start: f32, lat_end: f32, lon_start: f32, lon_end: f32) -> (Vec<cgmath::Vector4<f32>>, usize, usize) {
+    let line_length_lon = lon_end - lon_start;
+    let linear_vertices_density_lon = line_length_lon / (2_f32 * std::f32::consts::PI);
+    let num_points_lon = (linear_vertices_density_lon * (NUM_POINTS as f32)) as usize;
+
+    let line_length_lat = lat_end - lat_start;
+    let linear_vertices_density_lat = line_length_lat / std::f32::consts::PI;
+    let num_points_lat = (linear_vertices_density_lat * (NUM_POINTS as f32)) as usize;
+
+    let mut vertices = Vec::with_capacity(lat.len() * num_points_lon + lon.len() * num_points_lat);
+    for lat in lat.iter() {
+        vertices.extend(build_world_space_vertices_lat(lat.clone(), lon_start, lon_end, num_points_lon));
+    }
+    for lon in lon.iter() {
+        vertices.extend(build_world_space_vertices_lon(lon.clone(), lat_start, lat_end, num_points_lat));
+    }
+
+    (vertices, num_points_lon, num_points_lat)
 }
 
 use crate::viewport::ViewPort;
@@ -65,6 +87,8 @@ pub struct ProjetedGrid {
     idx_vertices: Vec<u16>,
 
     label_pos_local_space: Vec<cgmath::Vector4<f32>>,
+    num_points_lon: usize,
+    num_points_lat: usize,
 
     label_pos_screen_space: Vec<cgmath::Vector2<f64>>,
     label_text: Vec<String>,
@@ -73,17 +97,6 @@ pub struct ProjetedGrid {
     text_canvas: web_sys::CanvasRenderingContext2d,
     color: cgmath::Vector4<f32>,
 }
-fn build_grid_vertices(lat: &Vec<f32>, lon: &Vec<f32>) -> Vec<cgmath::Vector4<f32>> {
-    let mut vertices = Vec::with_capacity(lat.len() * ISOLAT_NUM_POINTS + lon.len() * ISOLON_NUM_POINTS);
-    for lat in lat.iter() {
-        vertices.extend(build_world_space_vertices_lat(lat.clone()));
-    }
-    for lon in lon.iter() {
-        vertices.extend(build_world_space_vertices_lon(lon.clone()));
-    }
-
-    vertices
-}
 
 use cgmath::{SquareMatrix, InnerSpace};
 use wasm_bindgen::JsCast;
@@ -91,32 +104,48 @@ use crate::math::radec_to_xyz;
 use crate::{window_size_f32, window_size_f64, window_size_u32};
 
 impl ProjetedGrid {
-    pub fn new(step_lat: cgmath::Rad<f32>, step_lon: cgmath::Rad<f32>, projection: &ProjectionType) -> ProjetedGrid {
-        let mut num_lat = (std::f32::consts::PI / step_lat.0) as usize;
-        let lat_start = (-std::f32::consts::PI / 2_f32) + step_lat.0;
+    pub fn new(step_lat: cgmath::Rad<f32>,
+        step_lon: cgmath::Rad<f32>,
+        lat_bound: Option<Vector2<Rad<f32>>>,
+        lon_bound: Option<Vector2<Rad<f32>>>,
+        projection: &ProjectionType,
+        viewport: &ViewPort) -> ProjetedGrid {
+        let (lat_min, lat_max) = if let Some(lat_bound) = lat_bound {
+            (lat_bound.x.0, lat_bound.y.0)
+        } else {
+            (-std::f32::consts::PI / 2_f32, std::f32::consts::PI / 2_f32)
+        };
+        let (lon_min, lon_max) = if let Some(lon_bound) = lon_bound {
+            (lon_bound.x.0, lon_bound.y.0)
+        } else {
+            (-std::f32::consts::PI, std::f32::consts::PI)
+        };
 
-        let num_lon = (2_f32 * std::f32::consts::PI / step_lon.0) as usize;
-        let lon_start = (-std::f32::consts::PI) + step_lon.0;
+        let num_lat = ((lat_max - lat_min) / step_lat.0) as usize + 1;
+        let lat_start = lat_min;
+        let lat_end = lat_max;
+
+        let num_lon = ((lon_max - lon_min) / step_lon.0) as usize + 1;
+        let lon_start = lon_min;
+        let lon_end = lon_max;
 
         let lat = (0..num_lat)
             .into_iter()
             .map(|idx_lat| {
                 let lat = lat_start + (idx_lat as f32) * step_lat.0;
-                //let lon = lon_start + (idx_lon as f32) * step_lon.0;
                 lat
             })
             .collect::<Vec<_>>();
         let lon = (0..num_lon)
             .map(|idx_lon| {
                 let lon = lon_start + (idx_lon as f32) * step_lon.0;
-                //let lon = lon_start + (idx_lon as f32) * step_lon.0;
                 lon
             })
             .collect::<Vec<_>>();
 
         // Build the line vertices
         let num_iso_lon = lon.len() >> 1;
-        let pos_local_space = build_grid_vertices(&lat, &lon[0..num_iso_lon].to_vec());
+        let (pos_local_space, num_points_lon, num_points_lat) = build_grid_vertices(&lat, &lon, lat_start, lat_end, lon_start, lon_end);
         let pos_screen_space = vec![];
         let idx_vertices = vec![];
         // Build the label positions
@@ -128,6 +157,10 @@ impl ProjetedGrid {
                 radec_to_xyz(lon, lat)
             })
             .collect::<Vec<_>>();
+        // Add the lat=pi/2 and lat=-pi/2
+        label_pos_local_space.push(radec_to_xyz(Rad(0_f32), Deg(90_f32).into()));
+        label_pos_local_space.push(radec_to_xyz(Rad(0_f32), Deg(-90_f32).into()));
+
         label_pos_local_space.extend(
             lon.iter()
             .map(|lon| {
@@ -146,6 +179,10 @@ impl ProjetedGrid {
                 lat.to_string() + "°"
             })
             .collect::<Vec<_>>();
+        // Add the labels for the lat=pi/2 and lat=-pi/2
+        label_text.push(String::from("90°"));
+        label_text.push(String::from("-90°"));
+
         label_text.extend(
             lon.iter()
             .map(|lon| {
@@ -202,6 +239,8 @@ impl ProjetedGrid {
             pos_screen_space,
             idx_vertices,
             label_pos_local_space,
+            num_points_lon,
+            num_points_lat,
 
             label_pos_screen_space,
             label_text,
@@ -211,19 +250,15 @@ impl ProjetedGrid {
             color,
         };
 
-        grid.update(projection, &cgmath::Matrix4::identity(), None);
+        grid.update(projection, &cgmath::Matrix4::identity(), viewport);
 
         grid
     }
 
-    pub fn update(&mut self, projection: &ProjectionType, model: &cgmath::Matrix4<f32>, viewport: Option<&ViewPort>) {
+    pub fn update(&mut self, projection: &ProjectionType, model: &cgmath::Matrix4<f32>, viewport: &ViewPort) {
         let (width_screen, height_screen) = window_size_f32();
 
-        let viewport_zoom_factor = if let Some(viewport) = viewport {
-            viewport.get_zoom_factor()
-        } else {
-            1_f32
-        };
+        let viewport_zoom_factor = viewport.get_zoom_factor();
 
         // UPDATE LABEL POSITIONS
         self.label_pos_screen_space.clear();
@@ -265,9 +300,15 @@ impl ProjetedGrid {
         let mut i = 0;
         let mut idx_start = 0;
         while idx_start < num_points {
-            let idx_end = idx_start + NUM_POINTS;
+            let num_points_step = if idx_start < self.lat.len() * self.num_points_lon {
+                self.num_points_lon
+            } else {
+                self.num_points_lat
+            };
+
+            let idx_end = idx_start + num_points_step;
             for idx in idx_start..idx_end {
-                let next_idx = (idx + 1) % NUM_POINTS + idx_start;
+                let next_idx = (idx + 1) % num_points_step + idx_start;
 
                 let cur_to_next_screen_pos = cgmath::Vector2::new(
                     self.pos_screen_space[2*next_idx] - self.pos_screen_space[2*idx],
@@ -280,7 +321,7 @@ impl ProjetedGrid {
                     i += 2;
                 }
             }
-            idx_start += NUM_POINTS;
+            idx_start += num_points_step;
         }
     }
 
@@ -295,9 +336,10 @@ impl ProjetedGrid {
     }
 }
 
+use crate::WebGl2Context;
 impl Mesh for ProjetedGrid {
-    fn create_buffers(&self, gl: Rc<WebGl2RenderingContext>, projection: &ProjectionType) -> VertexArrayObject {
-        let mut vertex_array_object = VertexArrayObject::new(gl.clone());
+    fn create_buffers(&self, gl: &WebGl2Context, projection: &ProjectionType) -> VertexArrayObject {
+        let mut vertex_array_object = VertexArrayObject::new(gl);
         vertex_array_object.bind();
 
         let ref vertices_data = self.pos_screen_space;
@@ -306,7 +348,7 @@ impl Mesh for ProjetedGrid {
         console::log_1(&format!("vertices: {:?} {:?}", vertices_data.len(), vertices_data).into());
 
         let array_buffer = ArrayBuffer::new(
-            gl.clone(),
+            gl,
             2 * std::mem::size_of::<f32>(),
             &[2],
             &[0 * std::mem::size_of::<f32>()],

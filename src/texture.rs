@@ -98,8 +98,11 @@ impl Ord for HEALPixCellRequest {
     }
 }
 
+use crate::WebGl2Context;
+
 #[derive(Clone)]
 pub struct HEALPixTextureBuffer {
+    gl: WebGl2Context,
     buffer: Rc<RefCell<BinaryHeap<HEALPixCellRequest>>>,
     buffer_zero_depth: Rc<RefCell<Vec<HEALPixCellRequest>>>,
 
@@ -115,16 +118,18 @@ use crate::RENDER_NEXT_FRAME;
 use std::sync::atomic;
 
 impl HEALPixTextureBuffer {
-    pub fn new(gl: Rc<WebGl2RenderingContext>) -> HEALPixTextureBuffer {
+    pub fn new(gl: &WebGl2Context) -> HEALPixTextureBuffer {
         let buffer = Rc::new(RefCell::new(BinaryHeap::with_capacity(MAX_NUMBER_TEXTURE)));
         let buffer_zero_depth = Rc::new(RefCell::new(Vec::with_capacity(12)));
         let loaded_cells = Rc::new(RefCell::new(HashSet::with_capacity(MAX_NUMBER_TEXTURE)));
 
         // Initialize context rendering
-        let webgl_texture0 = create_sampler_3d(gl.clone(), WebGl2RenderingContext::TEXTURE0, MAX_NUMBER_TEXTURE as u32);
-        let webgl_texture1 = create_sampler_3d(gl.clone(), WebGl2RenderingContext::TEXTURE1, 12);
+        let webgl_texture0 = create_sampler_3d(gl, WebGl2RenderingContext::TEXTURE0, MAX_NUMBER_TEXTURE as u32);
+        let webgl_texture1 = create_sampler_3d(gl, WebGl2RenderingContext::TEXTURE1, 12);
 
+        let gl = gl.clone();
         let mut healpix_texture_buf = HEALPixTextureBuffer {
+            gl,
             buffer,
             buffer_zero_depth,
             loaded_cells,
@@ -134,13 +139,13 @@ impl HEALPixTextureBuffer {
 
         for base_cell_idx in 0..12 {
             let healpix_cell = HEALPixCellRequest::new(0, base_cell_idx);
-            healpix_texture_buf.load_zero_depth_cells(gl.clone(), healpix_cell);
+            healpix_texture_buf.load_zero_depth_cells(healpix_cell);
         }
 
         healpix_texture_buf
     }
 
-    fn load_zero_depth_cells(&mut self, gl: Rc<WebGl2RenderingContext>, healpix_cell: HEALPixCellRequest) {
+    fn load_zero_depth_cells(&mut self, healpix_cell: HEALPixCellRequest) {
         // Add it to the loaded cells hashset
         self.loaded_cells.borrow_mut().insert(healpix_cell.clone());
 
@@ -159,6 +164,7 @@ impl HEALPixTextureBuffer {
             let texture_clone = healpix_cell.texture.clone();
             let healpix_cell = healpix_cell.clone();
             let webgl_texture = self.webgl_texture1.clone();
+            let gl = self.gl.clone();
 
             Closure::wrap(Box::new(move || {
                 console::log_1(&format!("sampler3D shader").into());
@@ -204,7 +210,7 @@ impl HEALPixTextureBuffer {
         onload.forget();
     }
 
-    pub fn load(&mut self, gl: Rc<WebGl2RenderingContext>, mut healpix_cell: HEALPixCellRequest, zoom: bool) {
+    pub fn load(&mut self, mut healpix_cell: HEALPixCellRequest, zoom: bool) {
         // discard base cells, they are stored in the buffer_zero_depth
         if healpix_cell.depth == 0 {
             return;
@@ -255,6 +261,7 @@ impl HEALPixTextureBuffer {
                 let texture_clone = healpix_cell.texture.clone();
                 let healpix_cell = healpix_cell.clone();
                 let webgl_texture = self.webgl_texture0.clone();
+                let gl = self.gl.clone();
 
                 Closure::wrap(Box::new(move || {
                     console::log_1(&format!("load new tile").into());
@@ -340,7 +347,7 @@ impl HEALPixTextureBuffer {
     }
 }
 
-fn create_sampler_3d(gl: Rc<WebGl2RenderingContext>, texture_unit: u32, size_buffer: u32) -> Option<web_sys::WebGlTexture> {
+fn create_sampler_3d(gl: &WebGl2Context, texture_unit: u32, size_buffer: u32) -> Option<web_sys::WebGlTexture> {
     let window = web_sys::window().unwrap();
     let document = window.document().unwrap();
     let canvas = document.create_element("canvas").unwrap();

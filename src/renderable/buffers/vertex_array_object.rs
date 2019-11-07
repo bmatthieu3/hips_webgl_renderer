@@ -7,17 +7,19 @@ use crate::renderable::buffers::buffer_data::BufferData;
 
 use std::rc::Rc;
 
+use crate::WebGl2Context;
+
 pub struct VertexArrayObject {
     array_buffer: Option<ArrayBuffer>,
     element_array_buffer: Option<ElementArrayBuffer>,
 
     vao: WebGlVertexArrayObject,
 
-    gl: Rc<WebGl2RenderingContext>
+    gl: WebGl2Context
 }
 
 impl<'a> VertexArrayObject {
-    pub fn new(gl: Rc<WebGl2RenderingContext>) -> VertexArrayObject {
+    pub fn new(gl: &WebGl2Context) -> VertexArrayObject {
         let vao = gl.create_vertex_array()
             .ok_or("failed to create the vertex array buffer")
             .unwrap();
@@ -25,6 +27,7 @@ impl<'a> VertexArrayObject {
         let array_buffer = None;
         let element_array_buffer = None;
 
+        let gl = gl.clone();
         VertexArrayObject {
             array_buffer,
             element_array_buffer,
@@ -60,5 +63,11 @@ impl<'a> VertexArrayObject {
 
     pub fn num_vertices(&self) -> usize {
         self.element_array_buffer.as_ref().unwrap().size()
+    }
+}
+
+impl Drop for VertexArrayObject {
+    fn drop(&mut self) {
+        self.gl.delete_vertex_array(Some(self.vao.as_ref()));
     }
 }

@@ -1,15 +1,15 @@
 use web_sys::WebGl2RenderingContext;
 use web_sys::WebGlBuffer;
 
-use std::rc::Rc;
-
 use crate::renderable::VertexBufferObject;
+
+use crate::WebGl2Context;
 
 pub struct ElementArrayBuffer {
     buffer: WebGlBuffer,
     buffer_size: usize,
 
-    gl: Rc<WebGl2RenderingContext>,
+    gl: WebGl2Context,
 }
 
 impl VertexBufferObject for ElementArrayBuffer {
@@ -25,10 +25,8 @@ use web_sys::console;
 use std::convert::TryInto;
 use crate::renderable::buffers::buffer_data::BufferData;
 
-use js_sys::WebAssembly;
-use wasm_bindgen::JsCast;
 impl<'a> ElementArrayBuffer {
-    pub fn new(gl: Rc<WebGl2RenderingContext>, data: BufferData<'a, u16>, usage: u32) -> ElementArrayBuffer {
+    pub fn new(gl: &WebGl2Context, data: BufferData<'a, u16>, usage: u32) -> ElementArrayBuffer {
         let buffer = gl.create_buffer()
             .ok_or("failed to create buffer")
             .unwrap();
@@ -57,6 +55,7 @@ impl<'a> ElementArrayBuffer {
         );*/
         //gl.bind_buffer(WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER, None);
         // Returns an instance that keeps only the buffer
+        let gl = gl.clone();
         ElementArrayBuffer {
             buffer,
             buffer_size,
@@ -94,5 +93,11 @@ impl<'a> ElementArrayBuffer {
             &data,
         );
         //self.unbind();
+    }
+}
+
+impl Drop for ElementArrayBuffer {
+    fn drop(&mut self) {
+        self.gl.delete_buffer(Some(self.buffer.as_ref()));
     }
 }
