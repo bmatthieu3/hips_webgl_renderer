@@ -84,10 +84,7 @@ impl App {
         gl.blend_func(WebGl2RenderingContext::SRC_ALPHA, WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA);
         gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
 
-        // Viewport
-        let viewport = Rc::new(RefCell::new(ViewPort::new(&gl)));
-        let projection = Rc::new(Cell::new(ProjectionType::Aitoff(Aitoff {})));
-
+        // Shader definition
         let shader_2d_proj = Rc::new(Shader::new(&gl,
             shaders::proj_vert::CONTENT,
             shaders::proj_frag::CONTENT
@@ -100,24 +97,31 @@ impl App {
         shaders.insert("hips_sphere", shader_2d_proj);
         shaders.insert("grid", shader_grid);
 
-        let hips_sphere_mesh = HiPSSphere::new(&gl);
+        // Projection definition
+        let projection = Rc::new(Cell::new(ProjectionType::Aitoff(Aitoff {})));
+        // HiPS Sphere definition
+        let hips_sphere_mesh = HiPSSphere::new(&gl, &projection.get());
+
+        // Grid definition
+        let lon_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-30_f32).into(), cgmath::Deg(30_f32).into());
+        let lat_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-30_f32).into(), cgmath::Deg(30_f32).into());
+        //let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(10_f32).into(), cgmath::Deg(10_f32).into(), Some(lat_bound), Some(lon_bound), &projection.get(), &viewport.borrow());
+        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(10_f32).into(), cgmath::Deg(10_f32).into(), None, None, &projection.get());
+
+        // Renderable definition
         let hips_sphere = Rc::new(RefCell::new(Renderable::<HiPSSphere>::new(
             &gl,
             shaders["hips_sphere"].clone(),
-            &projection.get(),
             hips_sphere_mesh,
         )));
-
-        let lon_bound = cgmath::Vector2::new(cgmath::Deg(-30_f32).into(), cgmath::Deg(30_f32).into());
-        let lat_bound = cgmath::Vector2::new(cgmath::Deg(-30_f32).into(), cgmath::Deg(30_f32).into());
-
-        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(10_f32).into(), cgmath::Deg(10_f32).into(), Some(lat_bound), Some(lon_bound), &projection.get(), &viewport.borrow());
         let grid = Rc::new(RefCell::new(Renderable::<ProjetedGrid>::new(
             &gl,
             shaders["grid"].clone(),
-            &projection.get(),
             projeted_grid_mesh,
         )));
+
+        // Viewport
+        let viewport = Rc::new(RefCell::new(ViewPort::new(&gl, hips_sphere.clone())));
 
         //let render_next_frame = Rc::new(Cell::new(true));
         // Mouse down pression event
@@ -254,7 +258,7 @@ impl App {
                                 .update(
                                     &projection.get(),
                                     hips_sphere.as_ref().borrow().get_inverted_model_mat(),
-                                    &viewport.borrow()
+                                    Some(&viewport.borrow())
                                 );
                             grid.as_ref().borrow_mut().update_vertex_array_object();
 
@@ -312,7 +316,7 @@ impl App {
                     .update(
                         &projection.get(),
                         hips_sphere.as_ref().borrow().get_inverted_model_mat(),
-                        &viewport.borrow()
+                        Some(&viewport.borrow())
                     );
 
                 // update the fov
@@ -352,6 +356,7 @@ impl App {
 
         let f = Rc::new(RefCell::new(None));
         let g = f.clone();
+        gl.clear_color(0.08, 0.08, 0.08, 1.0);
 
         *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
             if RENDER_NEXT_FRAME.load(Ordering::Relaxed) {
@@ -374,7 +379,6 @@ impl App {
                 //iso_lat_0.as_ref().borrow_mut().update_vertex_array_object(projection.clone());
                 // Render the scene
                 gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
-                gl.clear_color(0.08, 0.08, 0.08, 1.0);
 
                 // Draw renderable here
                 let ref viewport = viewport.as_ref().borrow();
@@ -392,28 +396,28 @@ impl App {
 
     fn set_projection(&mut self, projection: ProjectionType) {
         self.projection.set(projection);
-        let hips_sphere_mesh = HiPSSphere::new(&self.gl);
+        let hips_sphere_mesh = HiPSSphere::new(&self.gl, &projection);
 
         // New HiPS sphere
         self.hips_sphere.replace(
             Renderable::<HiPSSphere>::new(
                 &self.gl,
                 self.shaders["hips_sphere"].clone(),
-                &projection,
                 hips_sphere_mesh,
             )
         );
 
         // New grid
-        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), None, None, &projection, &self.viewport.borrow());
+        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), None, None, &projection);
         self.grid.replace(
             Renderable::<ProjetedGrid>::new(
                 &self.gl,
                 self.shaders["grid"].clone(),
-                &projection,
                 projeted_grid_mesh,
             )
         );
+
+        self.viewport.borrow().update_scissor();
         RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
     }
 }

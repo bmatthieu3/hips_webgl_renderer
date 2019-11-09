@@ -23,7 +23,10 @@ pub struct HiPSSphere {
     pub current_depth: i32,
     pub hpx_cells_in_fov: i32,
 
-    //pub size_px: cgmath::Vector2<f32>,
+    vertices: Vec<f32>,
+    idx_vertices: Vec<u16>,
+
+    size_in_pixels: cgmath::Vector2<f32>,
 }
 
 use crate::viewport::ViewPort;
@@ -33,22 +36,35 @@ use itertools_num;
 use std::iter;
 use crate::window_size_f32;
 
-use std::borrow::Borrow;
-use std::cell::Cell;
+use cgmath::Vector2;
 
 use crate::WebGl2Context;
 
 impl<'a> HiPSSphere {
-    pub fn new(gl: &WebGl2Context) -> HiPSSphere {
+    pub fn new(gl: &WebGl2Context, projection: &ProjectionType) -> HiPSSphere {
         let buffer_textures = HEALPixTextureBuffer::new(gl);
-        let idx_textures = ((0 as i32)..(12 as i32)).collect::<Vec<_>>();
+
+        let (vertices, size_in_pixels) = HiPSSphere::create_vertices_array(gl, projection);
+        let idx_vertices = HiPSSphere::create_index_array();
+
         let mut hips_sphere = HiPSSphere {
             buffer_textures : buffer_textures,
             current_depth: 0,
             hpx_cells_in_fov: 0,
+
+            vertices,
+            idx_vertices,
+
+            size_in_pixels
         };
+
+        let idx_textures = ((0 as i32)..(12 as i32)).collect::<Vec<_>>();
         hips_sphere.load_healpix_tile_textures(idx_textures, 0, false);
         hips_sphere
+    }
+
+    pub fn get_default_pixel_size(&self) -> &Vector2<f32> {
+        &self.size_in_pixels
     }
 
     fn load_healpix_tile_textures(&mut self,
@@ -116,7 +132,6 @@ impl<'a> HiPSSphere {
             let healpix_cells = if depth == 0 {
                 (0..12).collect::<Vec<_>>()
             } else {
-                console::log_1(&format!("AAAAA").into());
                 let moc = healpix::nested::polygon_coverage(depth as u8, &vertices, true);
                 let healpix_cells = moc.flat_iter()
                         .map(|hpx_idx_u64| hpx_idx_u64 as i32)
@@ -137,15 +152,8 @@ impl<'a> HiPSSphere {
         self.load_healpix_tile_textures(healpix_cells, depth, zoom);
     }
 
-    fn create_vertices_array(gl: &WebGl2Context, projection: &ProjectionType) -> Vec<f32> {
+    fn create_vertices_array(gl: &WebGl2Context, projection: &ProjectionType) -> (Vec<f32>, Vector2<f32>) {
         let (vertex_screen_space_positions, size_px) = projection.build_screen_map();
-
-        // Set the scissor here
-        let (width_screen, height_screen) = window_size_f32();
-
-        let xo = (width_screen / 2_f32) - size_px.x / 2_f32;
-        let yo = (height_screen / 2_f32) - size_px.y / 2_f32;
-        gl.scissor(xo as i32, yo as i32, size_px.x as i32, size_px.y as i32);
 
         let vertices_data = vertex_screen_space_positions
             .into_iter()
@@ -156,14 +164,12 @@ impl<'a> HiPSSphere {
                     pos_screen_space.x, pos_screen_space.y,
                 ).unwrap();
 
-                //console::log_1(&format!("pos world space {:?}", pos_world_space).into());
-
                 vec![pos_screen_space.x, pos_screen_space.y, pos_world_space.x, pos_world_space.y, pos_world_space.z]
             })
             .flatten()
             .collect::<Vec<_>>();
 
-        vertices_data
+        (vertices_data, size_px)
     }
 
     fn create_index_array() -> Vec<u16> {
@@ -217,29 +223,25 @@ use crate::renderable::buffers::array_buffer::ArrayBuffer;
 use crate::renderable::buffers::buffer_data::BufferData;
 use crate::renderable::buffers::element_array_buffer::ElementArrayBuffer;
 
-
-
 impl Mesh for HiPSSphere {
-    fn create_buffers(&self, gl: &WebGl2Context, projection: &ProjectionType) -> VertexArrayObject {
+    fn create_buffers(&self, gl: &WebGl2Context) -> VertexArrayObject {
         let mut vertex_array_object = VertexArrayObject::new(gl);
         vertex_array_object.bind();
 
         // ARRAY buffer creation
-        let vertices_data = Self::create_vertices_array(gl, projection);
         let array_buffer = ArrayBuffer::new(
             gl,
             5 * std::mem::size_of::<f32>(),
             &[2, 3],
             &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
-            BufferData(&vertices_data),
+            BufferData(self.vertices.as_ref()),
             WebGl2RenderingContext::STATIC_DRAW,
         );
 
         // ELEMENT ARRAY buffer creation
-        let indexes_data = Self::create_index_array();
         let indexes_buffer = ElementArrayBuffer::new(
             gl,
-            BufferData(&indexes_data),
+            BufferData(self.idx_vertices.as_ref()),
             WebGl2RenderingContext::STATIC_DRAW,
         );
 

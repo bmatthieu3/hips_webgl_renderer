@@ -4,9 +4,9 @@ use crate::renderable::buffers::buffer_data::BufferData;
 use std::convert::TryInto;
 
 
-const NUM_POINTS: usize = 20;
-const ISOLON_NUM_POINTS: usize = 20;
-const ISOLAT_NUM_POINTS: usize = 20;
+const NUM_POINTS: usize = 50;
+const ISOLON_NUM_POINTS: usize = 50;
+const ISOLAT_NUM_POINTS: usize = 50;
 
 use crate::renderable::Mesh;
 use std::rc::Rc;
@@ -111,8 +111,7 @@ impl ProjetedGrid {
         step_lon: cgmath::Rad<f32>,
         lat_bound: Option<Vector2<Rad<f32>>>,
         lon_bound: Option<Vector2<Rad<f32>>>,
-        projection: &ProjectionType,
-        viewport: &ViewPort) -> ProjetedGrid {
+        projection: &ProjectionType) -> ProjetedGrid {
         let (lat_min, lat_max) = if let Some(lat_bound) = lat_bound {
             (lat_bound.x.0, lat_bound.y.0)
         } else {
@@ -253,15 +252,19 @@ impl ProjetedGrid {
             color,
         };
 
-        grid.update(projection, &cgmath::Matrix4::identity(), viewport);
+        grid.update(projection, &cgmath::Matrix4::identity(), None);
 
         grid
     }
 
-    pub fn update(&mut self, projection: &ProjectionType, model: &cgmath::Matrix4<f32>, viewport: &ViewPort) {
+    pub fn update(&mut self, projection: &ProjectionType, model: &cgmath::Matrix4<f32>, viewport: Option<&ViewPort>) {
         let (width_screen, height_screen) = window_size_f32();
 
-        let viewport_zoom_factor = viewport.get_zoom_factor();
+        let viewport_zoom_factor = if let Some(viewport) = viewport {
+            viewport.get_zoom_factor()
+        } else {
+            1_f32
+        };
 
         // UPDATE LABEL POSITIONS
         self.label_pos_screen_space.clear();
@@ -306,9 +309,9 @@ impl ProjetedGrid {
         while idx_start < self.lat.len() * self.num_points_lon {
             let num_points_step = self.num_points_lon;
 
-            let idx_end = idx_start + num_points_step;
-            for idx in idx_start..(idx_end-1) {
-                let next_idx = (idx + 1) % num_points_step + idx_start;
+            for j in 0..(num_points_step - 1) {
+                let idx = idx_start + j;
+                let next_idx = idx + 1;
 
                 let cur_to_next_screen_pos = cgmath::Vector2::new(
                     self.pos_screen_space[2*next_idx] - self.pos_screen_space[2*idx],
@@ -321,16 +324,16 @@ impl ProjetedGrid {
                     i += 2;
                 }
             }
-            idx_start = idx_end;
+            idx_start += num_points_step;
         }
 
         console::log_1(&format!("idx {:?} idx_start {:?}", self.idx_vertices, idx_start).into());
         while idx_start < (self.lat.len() * self.num_points_lon + self.lon.len() * self.num_points_lat) {
             let num_points_step = self.num_points_lat;
 
-            let idx_end = idx_start + num_points_step;
-            for idx in idx_start..(idx_end-1) {
-                let next_idx = (idx + 1) % num_points_step + idx_start;
+            for j in 0..(num_points_step - 1) {
+                let idx = idx_start + j;
+                let next_idx = idx + 1;
 
                 let cur_to_next_screen_pos = cgmath::Vector2::new(
                     self.pos_screen_space[2*next_idx] - self.pos_screen_space[2*idx],
@@ -343,7 +346,7 @@ impl ProjetedGrid {
                     i += 2;
                 }
             }
-            idx_start = idx_end;
+            idx_start += num_points_step;
         }
     }
 
@@ -360,7 +363,7 @@ impl ProjetedGrid {
 
 use crate::WebGl2Context;
 impl Mesh for ProjetedGrid {
-    fn create_buffers(&self, gl: &WebGl2Context, projection: &ProjectionType) -> VertexArrayObject {
+    fn create_buffers(&self, gl: &WebGl2Context) -> VertexArrayObject {
         let mut vertex_array_object = VertexArrayObject::new(gl);
         vertex_array_object.bind();
 
