@@ -159,9 +159,6 @@ impl ProjetedGrid {
                 radec_to_xyz(lon, lat)
             })
             .collect::<Vec<_>>();
-        // Add the lat=pi/2 and lat=-pi/2
-        label_pos_local_space.push(radec_to_xyz(Rad(0_f32), Deg(90_f32).into()));
-        label_pos_local_space.push(radec_to_xyz(Rad(0_f32), Deg(-90_f32).into()));
 
         label_pos_local_space.extend(
             lon.iter()
@@ -181,9 +178,6 @@ impl ProjetedGrid {
                 lat.to_string() + "°"
             })
             .collect::<Vec<_>>();
-        // Add the labels for the lat=pi/2 and lat=-pi/2
-        label_text.push(String::from("90°"));
-        label_text.push(String::from("-90°"));
 
         label_text.extend(
             lon.iter()
@@ -256,8 +250,57 @@ impl ProjetedGrid {
 
         grid
     }
+}
 
-    pub fn update(&mut self, projection: &ProjectionType, model: &cgmath::Matrix4<f32>, viewport: Option<&ViewPort>) {
+use crate::WebGl2Context;
+use cgmath::Matrix4;
+impl Mesh for ProjetedGrid {
+    fn create_buffers(&self, gl: &WebGl2Context) -> VertexArrayObject {
+        let mut vertex_array_object = VertexArrayObject::new(gl);
+        vertex_array_object.bind();
+
+        let ref vertices_data = self.pos_screen_space;
+        let ref idx_data = self.idx_vertices;
+        // ARRAY buffer creation
+        console::log_1(&format!("vertices: {:?} {:?}", vertices_data.len(), vertices_data).into());
+
+        let array_buffer = ArrayBuffer::new(
+            gl,
+            2 * std::mem::size_of::<f32>(),
+            &[2],
+            &[0 * std::mem::size_of::<f32>()],
+            BufferData(&vertices_data),
+            WebGl2RenderingContext::DYNAMIC_DRAW,
+        );
+
+        // ELEMENT ARRAY buffer creation
+        console::log_1(&format!("indexes: {:?} {:?}", idx_data.len(), idx_data).into());
+        //console::log_1(&format!("indexes: {:?}, len {:?}", indexes_data.0, indexes_data.0.len()).into());
+        let indexes_buffer = ElementArrayBuffer::new(
+            gl,
+            BufferData(&idx_data),
+            WebGl2RenderingContext::DYNAMIC_DRAW,
+        );
+
+        vertex_array_object.set_array_buffer(array_buffer);
+        vertex_array_object.set_element_array_buffer(indexes_buffer);
+        console::log_1(&format!("grid init").into());
+        vertex_array_object.unbind();
+        // Unbind the buffer
+        //gl.bind_buffer(WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER, None);
+        vertex_array_object
+    }
+
+    fn send_uniforms(&self, gl: &WebGl2RenderingContext, shader: &Shader) {
+        let location_color = shader.get_uniform_location(gl, "location_color");
+        gl.uniform4f(location_color.as_ref(), self.color.x, self.color.y, self.color.z, self.color.w);
+    }
+
+    fn get_vertices<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>) {
+        (BufferData(&self.pos_screen_space), BufferData(&self.idx_vertices))
+    }
+
+    fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: Option<&ViewPort>) {
         let (width_screen, height_screen) = window_size_f32();
 
         let viewport_zoom_factor = if let Some(viewport) = viewport {
@@ -269,7 +312,7 @@ impl ProjetedGrid {
         // UPDATE LABEL POSITIONS
         self.label_pos_screen_space.clear();
         for (label_text, pos_local_space) in self.label_text.iter().zip(self.label_pos_local_space.iter()) {
-            let label_pos_world_space = model * pos_local_space;
+            let label_pos_world_space = local_to_world_mat * pos_local_space;
 
             let label_pos_screen_space = projection.world_to_screen_space(label_pos_world_space).unwrap();
 
@@ -288,7 +331,7 @@ impl ProjetedGrid {
         self.pos_screen_space.clear();
         // UPDATE GRID VERTICES POSITIONS
         for pos_local_space in self.pos_local_space.iter() {
-            let pos_world_space = model * pos_local_space;
+            let pos_world_space = local_to_world_mat * pos_local_space;
 
             let pos_screen_space = projection.world_to_screen_space(pos_world_space.clone()).unwrap();
 
@@ -349,8 +392,8 @@ impl ProjetedGrid {
             idx_start += num_points_step;
         }
     }
-
-    pub fn draw(&self) {
+    
+    fn draw_extra_things(&self) {
         // Clear the 2D canvas
         let (width_screen, height_screen) = window_size_f64();
         self.text_canvas.clear_rect(0_f64, 0_f64, width_screen, height_screen);
@@ -361,50 +404,11 @@ impl ProjetedGrid {
     }
 }
 
-use crate::WebGl2Context;
-impl Mesh for ProjetedGrid {
-    fn create_buffers(&self, gl: &WebGl2Context) -> VertexArrayObject {
-        let mut vertex_array_object = VertexArrayObject::new(gl);
-        vertex_array_object.bind();
-
-        let ref vertices_data = self.pos_screen_space;
-        let ref idx_data = self.idx_vertices;
-        // ARRAY buffer creation
-        console::log_1(&format!("vertices: {:?} {:?}", vertices_data.len(), vertices_data).into());
-
-        let array_buffer = ArrayBuffer::new(
-            gl,
-            2 * std::mem::size_of::<f32>(),
-            &[2],
-            &[0 * std::mem::size_of::<f32>()],
-            BufferData(&vertices_data),
-            WebGl2RenderingContext::DYNAMIC_DRAW,
-        );
-
-        // ELEMENT ARRAY buffer creation
-        console::log_1(&format!("indexes: {:?} {:?}", idx_data.len(), idx_data).into());
-        //console::log_1(&format!("indexes: {:?}, len {:?}", indexes_data.0, indexes_data.0.len()).into());
-        let indexes_buffer = ElementArrayBuffer::new(
-            gl,
-            BufferData(&idx_data),
-            WebGl2RenderingContext::DYNAMIC_DRAW,
-        );
-
-        vertex_array_object.set_array_buffer(array_buffer);
-        vertex_array_object.set_element_array_buffer(indexes_buffer);
-        console::log_1(&format!("grid init").into());
-        vertex_array_object.unbind();
-        // Unbind the buffer
-        //gl.bind_buffer(WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER, None);
-        vertex_array_object
-    }
-
-    fn send_uniforms(&self, gl: &WebGl2RenderingContext, shader: &Shader) {
-        let location_color = shader.get_uniform_location(gl, "location_color");
-        gl.uniform4f(location_color.as_ref(), self.color.x, self.color.y, self.color.z, self.color.w);
-    }
-
-    fn update_vertex_and_element_arrays<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>) {
-        (BufferData(&self.pos_screen_space), BufferData(&self.idx_vertices))
+use crate::renderable::DisableDrawing;
+impl DisableDrawing for ProjetedGrid {
+    fn disable(&mut self) {
+        // Clear the 2D canvas
+        let (width_screen, height_screen) = window_size_f64();
+        self.text_canvas.clear_rect(0_f64, 0_f64, width_screen, height_screen);
     }
 }

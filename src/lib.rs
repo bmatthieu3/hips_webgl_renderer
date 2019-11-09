@@ -58,6 +58,7 @@ use std::cell::{RefCell, Cell};
 use std::collections::HashMap;
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use crate::renderable::Mesh;
 
 struct App {
     gl: WebGl2Context,
@@ -66,6 +67,7 @@ struct App {
     projection: Rc<Cell<ProjectionType>>,
 
     shaders: HashMap<&'static str, Rc<Shader>>,
+
     // The sphere renderable
     hips_sphere: Rc<RefCell<Renderable<HiPSSphere>>>,
     // The grid renderable
@@ -104,9 +106,9 @@ impl App {
 
         // Grid definition
         let lon_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-30_f32).into(), cgmath::Deg(30_f32).into());
-        let lat_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-30_f32).into(), cgmath::Deg(30_f32).into());
+        let lat_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-80_f32).into(), cgmath::Deg(80_f32).into());
         //let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(10_f32).into(), cgmath::Deg(10_f32).into(), Some(lat_bound), Some(lon_bound), &projection.get(), &viewport.borrow());
-        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(10_f32).into(), cgmath::Deg(10_f32).into(), None, None, &projection.get());
+        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(20_f32).into(), cgmath::Deg(20_f32).into(), Some(lat_bound), None, &projection.get());
 
         // Renderable definition
         let hips_sphere = Rc::new(RefCell::new(Renderable::<HiPSSphere>::new(
@@ -250,17 +252,14 @@ impl App {
 
                             axis = axis.normalize();
                             hips_sphere.borrow_mut().apply_rotation(-axis, cgmath::Rad(dist));
-
-                            grid.borrow_mut().apply_rotation(-axis, cgmath::Rad(dist));
+                            // Move the grid the opposite way of the hips sphere
+                            grid.borrow_mut().set_model_mat(hips_sphere.borrow().get_inverted_model_mat());
 
                             grid.borrow_mut()
-                                .mesh_mut()
                                 .update(
                                     &projection.get(),
-                                    hips_sphere.as_ref().borrow().get_inverted_model_mat(),
-                                    Some(&viewport.borrow())
+                                    &viewport.borrow()
                                 );
-                            grid.as_ref().borrow_mut().update_vertex_array_object();
 
                             time_last_move.set(utils::get_current_time() as f32);
                             roll.set(true);
@@ -302,21 +301,15 @@ impl App {
                 RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
 
                 if delta_y < 0_f32 {
-                    viewport.borrow_mut().zoom(
-                        hips_sphere.borrow()
-                            .mesh()
-                            .current_depth
-                    );
+                    viewport.borrow_mut().zoom();
                 } else {
                     viewport.borrow_mut().unzoom();
                 }
 
                 grid.borrow_mut()
-                    .mesh_mut()
                     .update(
                         &projection.get(),
-                        hips_sphere.as_ref().borrow().get_inverted_model_mat(),
-                        Some(&viewport.borrow())
+                        &viewport.borrow()
                     );
 
                 // update the fov
@@ -384,8 +377,6 @@ impl App {
                 let ref viewport = viewport.as_ref().borrow();
                 hips_sphere.as_ref().borrow().draw(WebGl2RenderingContext::TRIANGLES, viewport);
                 grid.as_ref().borrow().draw(WebGl2RenderingContext::LINES, viewport);
-
-                grid.borrow().mesh().draw();
             }
             // Schedule ourself for another requestAnimationFrame callback.
             request_animation_frame(f.as_ref().borrow().as_ref().unwrap());
@@ -408,7 +399,8 @@ impl App {
         );
 
         // New grid
-        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), None, None, &projection);
+        let lat_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-80_f32).into(), cgmath::Deg(80_f32).into());
+        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(20_f32).into(), cgmath::Deg(20_f32).into(), Some(lat_bound), None, &projection);
         self.grid.replace(
             Renderable::<ProjetedGrid>::new(
                 &self.gl,
@@ -553,6 +545,22 @@ impl WebClient {
             },
             _ => {}
         }
+
+        Ok(())
+    }
+
+    /// Enable equatorial grid
+    pub fn enable_equatorial_grid(&mut self) -> Result<(), JsValue> {
+        self.app.grid.borrow_mut().enable();
+        RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
+
+        Ok(())
+    }
+
+    /// Disable equatorial grid
+    pub fn disable_equatorial_grid(&mut self) -> Result<(), JsValue> {
+        self.app.grid.borrow_mut().disable();
+        RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
 
         Ok(())
     }

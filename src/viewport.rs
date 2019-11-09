@@ -83,7 +83,7 @@ impl ViewPort {
         set_gl_scissor(&self.gl, size_px);
     }
 
-    pub fn zoom(&mut self, current_depth: i32) {
+    pub fn zoom(&mut self) {
         self.zoom_factor *= 1.2_f32;
 
         self.update_scissor();

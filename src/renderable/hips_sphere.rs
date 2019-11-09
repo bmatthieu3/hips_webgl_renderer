@@ -223,6 +223,8 @@ use crate::renderable::buffers::array_buffer::ArrayBuffer;
 use crate::renderable::buffers::buffer_data::BufferData;
 use crate::renderable::buffers::element_array_buffer::ElementArrayBuffer;
 
+use cgmath::Matrix4;
+
 impl Mesh for HiPSSphere {
     fn create_buffers(&self, gl: &WebGl2Context) -> VertexArrayObject {
         let mut vertex_array_object = VertexArrayObject::new(gl);
@@ -374,7 +376,20 @@ impl Mesh for HiPSSphere {
         }*/
     }
 
-    fn update_vertex_and_element_arrays<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>) {
+    fn get_vertices<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>) {
         unreachable!();
+    }
+
+    fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: Option<&ViewPort>) {
+        unreachable!();
+    }
+
+    fn draw_extra_things(&self) {
+    }
+}
+
+use crate::renderable::DisableDrawing;
+impl DisableDrawing for HiPSSphere {
+    fn disable(&mut self) {
     }
 }

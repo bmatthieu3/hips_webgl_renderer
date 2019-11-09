@@ -210,7 +210,7 @@ impl HEALPixTextureBuffer {
         onload.forget();
     }
 
-    pub fn load(&mut self, mut healpix_cell: HEALPixCellRequest, zoom: bool) {
+    pub fn load(&mut self, healpix_cell: HEALPixCellRequest, zoom: bool) {
         // discard base cells, they are stored in the buffer_zero_depth
         if healpix_cell.depth == 0 {
             return;

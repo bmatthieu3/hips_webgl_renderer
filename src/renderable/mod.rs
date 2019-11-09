@@ -21,17 +21,25 @@ trait VertexBufferObject {
 use buffers::vertex_array_object::VertexArrayObject;
 use buffers::buffer_data::BufferData;
 use crate::WebGl2Context;
+use cgmath::Matrix4;
 
 pub trait Mesh {
     fn create_buffers(&self, gl: &WebGl2Context) -> VertexArrayObject;
 
-    fn update_vertex_and_element_arrays<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>);
+    fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: Option<&ViewPort>);
+    fn get_vertices<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>);
 
     fn send_uniforms(&self, gl: &WebGl2RenderingContext, shader: &Shader);
+
+    fn draw_extra_things(&self);
+}
+
+pub trait DisableDrawing {
+    fn disable(&mut self);
 }
 
 pub struct Renderable<T>
-where T: Mesh {
+where T: Mesh + DisableDrawing {
     shader: Rc<Shader>,
     model_mat: cgmath::Matrix4::<f32>,
     inverted_model_mat: cgmath::Matrix4<f32>,
@@ -45,7 +53,8 @@ where T: Mesh {
 
     mesh: T,
 
-    gl: WebGl2Context
+    gl: WebGl2Context,
+    enabled: bool,
 }
 
 
@@ -55,7 +64,7 @@ use cgmath::SquareMatrix;
 use crate::utils;
 
 impl<T> Renderable<T>
-where T: Mesh {
+where T: Mesh + DisableDrawing {
     pub fn new(gl: &WebGl2Context, shader: Rc<Shader>, mesh: T) -> Renderable<T> {
         shader.bind(&gl);
 
@@ -69,6 +78,7 @@ where T: Mesh {
         let translation_mat = cgmath::Matrix4::identity();
 
         let gl = gl.clone();
+        let enabled = true;
         Renderable {
             // The shader to bind when drawing the renderable
             shader,
@@ -83,7 +93,18 @@ where T: Mesh {
             vertex_array_object,
             mesh,
             gl,
+            enabled,
         }
+    }
+
+    pub fn disable(&mut self) {
+        self.enabled = false;
+
+        self.mesh.disable();
+    }
+
+    pub fn enable(&mut self) {
+        self.enabled = true;
     }
 
     fn recompute_model_matrix(&mut self) {
@@ -114,8 +135,8 @@ where T: Mesh {
         return &self.inverted_model_mat;
     }
 
-    pub fn set_model_mat(&mut self, model_mat: cgmath::Matrix4<f32>) {
-        self.model_mat = model_mat;
+    pub fn set_model_mat(&mut self, model_mat: &cgmath::Matrix4<f32>) {
+        self.model_mat = *model_mat;
     }
 
     pub fn mesh(&self) -> &T {
@@ -126,13 +147,25 @@ where T: Mesh {
         &mut self.mesh
     }
 
-    pub fn update_vertex_array_object(&mut self) {
-        let (vertices_data, indexes_data) = self.mesh.update_vertex_and_element_arrays();
+    pub fn update(&mut self, projection: &ProjectionType, viewport: &ViewPort) {
+        // Update the mesh vertices/indexes
+        self.mesh.update(
+            projection,
+            &self.model_mat,
+            Some(viewport)
+        );
 
-        self.vertex_array_object.update_array_and_element_buffer(vertices_data, indexes_data);
+        // Get the new buffer data
+        let (vertices, idx_vertices) = self.mesh.get_vertices();
+        // Update the VAO with the new data
+        self.vertex_array_object.update_array_and_element_buffer(vertices, idx_vertices);
     }
 
     pub fn draw(&self, mode: u32, viewport: &ViewPort) {
+        if !self.enabled {
+            return;
+        }
+
         self.shader.bind(&self.gl);
 
         self.vertex_array_object.bind();
@@ -157,6 +190,7 @@ where T: Mesh {
             0,
         );
 
+        self.mesh.draw_extra_things();
         //self.vertex_array_object.unbind();
     }
 }
