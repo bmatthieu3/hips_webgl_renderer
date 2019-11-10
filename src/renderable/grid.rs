@@ -250,6 +250,45 @@ impl ProjetedGrid {
 
         grid
     }
+
+    pub fn update_label_positions(&mut self, local_to_world_mat: &Matrix4<f32>, projection: &ProjectionType, viewport: Option<&ViewPort>) {
+        let (width_screen, height_screen) = window_size_f32();
+
+        let viewport_zoom_factor = if let Some(viewport) = viewport {
+            viewport.get_zoom_factor()
+        } else {
+            1_f32
+        };
+
+        // UPDATE LABEL POSITIONS
+        self.label_pos_screen_space.clear();
+        for (label_text, pos_local_space) in self.label_text.iter().zip(self.label_pos_local_space.iter()) {
+            let label_pos_world_space = local_to_world_mat * pos_local_space;
+
+            let label_pos_screen_space = projection.world_to_screen_space(label_pos_world_space).unwrap();
+
+            let offset_pos_screen = self.text_canvas.measure_text(label_text).unwrap().width();
+            
+            // multiply by the zoom factor from the viewport
+            let mut pos_screen_space = cgmath::Vector2::new(
+                (((label_pos_screen_space.x * 0.5_f32) * viewport_zoom_factor + 0.5_f32) * width_screen) as f64,
+                ((-label_pos_screen_space.y * 0.5_f32) * width_screen * viewport_zoom_factor + 0.5_f32 * height_screen) as f64
+            );
+            pos_screen_space += cgmath::Vector2::new(-offset_pos_screen / 2_f64, self.font_size / 2_f64);
+
+            self.label_pos_screen_space.push(pos_screen_space);
+        }
+    }
+
+    pub fn draw_labels(&self) {
+        // Clear the 2D canvas
+        let (width_screen, height_screen) = window_size_f64();
+        self.text_canvas.clear_rect(0_f64, 0_f64, width_screen, height_screen);
+        // Fill
+        for (label_text, pos_screen_space) in self.label_text.iter().zip(self.label_pos_screen_space.iter()) {
+            self.text_canvas.fill_text(label_text, pos_screen_space.x as f64, pos_screen_space.y as f64).unwrap();
+        }
+    }
 }
 
 use crate::WebGl2Context;
@@ -301,32 +340,7 @@ impl Mesh for ProjetedGrid {
     }
 
     fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: Option<&ViewPort>) {
-        let (width_screen, height_screen) = window_size_f32();
-
-        let viewport_zoom_factor = if let Some(viewport) = viewport {
-            viewport.get_zoom_factor()
-        } else {
-            1_f32
-        };
-
-        // UPDATE LABEL POSITIONS
-        self.label_pos_screen_space.clear();
-        for (label_text, pos_local_space) in self.label_text.iter().zip(self.label_pos_local_space.iter()) {
-            let label_pos_world_space = local_to_world_mat * pos_local_space;
-
-            let label_pos_screen_space = projection.world_to_screen_space(label_pos_world_space).unwrap();
-
-            let offset_pos_screen = self.text_canvas.measure_text(label_text).unwrap().width();
-            
-            // multiply by the zoom factor from the viewport
-            let mut pos_screen_space = cgmath::Vector2::new(
-                (((label_pos_screen_space.x * 0.5_f32) * viewport_zoom_factor + 0.5_f32) * width_screen) as f64,
-                ((-label_pos_screen_space.y * 0.5_f32) * width_screen * viewport_zoom_factor + 0.5_f32 * height_screen) as f64
-            );
-            pos_screen_space += cgmath::Vector2::new(-offset_pos_screen / 2_f64, self.font_size / 2_f64);
-
-            self.label_pos_screen_space.push(pos_screen_space);
-        }
+        let (width_screen, _) = window_size_f32();
 
         self.pos_screen_space.clear();
         // UPDATE GRID VERTICES POSITIONS
@@ -390,16 +404,6 @@ impl Mesh for ProjetedGrid {
                 }
             }
             idx_start += num_points_step;
-        }
-    }
-    
-    fn draw_extra_things(&self) {
-        // Clear the 2D canvas
-        let (width_screen, height_screen) = window_size_f64();
-        self.text_canvas.clear_rect(0_f64, 0_f64, width_screen, height_screen);
-        // Fill
-        for (label_text, pos_screen_space) in self.label_text.iter().zip(self.label_pos_screen_space.iter()) {
-            self.text_canvas.fill_text(label_text, pos_screen_space.x as f64, pos_screen_space.y as f64).unwrap();
         }
     }
 }

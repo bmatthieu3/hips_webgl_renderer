@@ -30,8 +30,6 @@ pub trait Mesh {
     fn get_vertices<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>);
 
     fn send_uniforms(&self, gl: &WebGl2RenderingContext, shader: &Shader);
-
-    fn draw_extra_things(&self);
 }
 
 pub trait DisableDrawing {
@@ -189,8 +187,6 @@ where T: Mesh + DisableDrawing {
             WebGl2RenderingContext::UNSIGNED_SHORT,
             0,
         );
-
-        self.mesh.draw_extra_things();
         //self.vertex_array_object.unbind();
     }
 }

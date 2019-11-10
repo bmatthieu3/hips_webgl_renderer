@@ -344,6 +344,8 @@ impl App {
         //let render_next_frame = self.render_next_frame.clone();
 
         let viewport = self.viewport.clone();
+        let projection = self.projection.clone();
+
         let hips_sphere = self.hips_sphere.clone();
         let grid = self.grid.clone();
 
@@ -369,14 +371,30 @@ impl App {
                     }
                 }*/
 
-                //iso_lat_0.as_ref().borrow_mut().update_vertex_array_object(projection.clone());
+                /// Updating
+                // The camera. When the camera has reached its final position
+                // then we stop rendering the next frames!
+                viewport.borrow_mut().update_camera_movement();
+                // The grid label positions
+                grid.borrow_mut().mesh_mut().update_label_positions(
+                    hips_sphere.borrow().get_inverted_model_mat(),
+                    &projection.get(),
+                    Some(&viewport.borrow()),
+                );
+
                 // Render the scene
                 gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
 
-                // Draw renderable here
+                // Draw renderables here
                 let ref viewport = viewport.as_ref().borrow();
+                // Draw the HiPS sphere
                 hips_sphere.as_ref().borrow().draw(WebGl2RenderingContext::TRIANGLES, viewport);
+
+                /// Draw the grid
+                // The grid lines
                 grid.as_ref().borrow().draw(WebGl2RenderingContext::LINES, viewport);
+                // The labels
+                grid.borrow().mesh().draw_labels();
             }
             // Schedule ourself for another requestAnimationFrame callback.
             request_animation_frame(f.as_ref().borrow().as_ref().unwrap());
@@ -459,6 +477,9 @@ fn window_size_f64() -> (f64, f64) {
     let height = HEIGHT_SCREEN.load(Ordering::Relaxed);
 
     (width as f64, height as f64)
+}
+fn render_next_frame() {
+    RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
 }
 
 #[derive(Clone)]

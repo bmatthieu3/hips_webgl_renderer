@@ -6,10 +6,11 @@ use crate::renderable::hips_sphere::HiPSSphere;
 
 pub struct ViewPort {
     gl: WebGl2Context,
-    window: Rc<web_sys::Window>,
     canvas: Rc<web_sys::HtmlCanvasElement>,
 
-    zoom_factor: f32,
+    current_zoom: f32,
+    final_zoom: f32,
+
     resize_factor_x: f32,
     resize_factor_y: f32,
 
@@ -39,33 +40,35 @@ fn set_gl_scissor(gl: &WebGl2Context, size: Vector2<f32>) {
     gl.scissor(xo as i32, yo as i32, size.x as i32, size.y as i32);
 }
 
+use crate::render_next_frame;
 impl ViewPort {
     pub fn new(gl: &WebGl2Context, hips_sphere: Rc<RefCell<Renderable<HiPSSphere>>>) -> ViewPort {
-        let zoom_factor = 1_f32;
+        let current_zoom = 1_f32;
+        let final_zoom = current_zoom;
 
         let resize_factor_x = 1.0_f32;
         let resize_factor_y = 1.0_f32;
 
-        let window = Rc::new(web_sys::window().unwrap());
         let canvas = Rc::new(
             gl.canvas().unwrap()
-                .dyn_into::<web_sys::HtmlCanvasElement>().unwrap()
+                .dyn_into::<web_sys::HtmlCanvasElement>()
+                .unwrap()
         );
         set_gl_scissor(gl, *hips_sphere.borrow().mesh().get_default_pixel_size());
 
         let gl = gl.clone();
         let mut viewport = ViewPort {
             gl,
-            window,
             canvas,
 
-            zoom_factor,
+            current_zoom,
+            final_zoom,
+
             resize_factor_x,
             resize_factor_y,
 
             hips_sphere,
         };
-
 
         viewport.resize();
         viewport
@@ -79,22 +82,35 @@ impl ViewPort {
             .get_default_pixel_size()
             .clone();
         // Take into account the zoom factor
-        size_px *= self.zoom_factor;
+        size_px *= self.current_zoom;
         set_gl_scissor(&self.gl, size_px);
     }
 
     pub fn zoom(&mut self) {
-        self.zoom_factor *= 1.2_f32;
+        self.final_zoom *= 1.2_f32;
+        if self.final_zoom > 20_f32 {
+            self.final_zoom = 20_f32;
+        }
+        //self.zoom_factor *= 1.2_f32;
 
-        self.update_scissor();
+        //self.update_scissor();
     }
 
     pub fn unzoom(&mut self) {
-        self.zoom_factor /= 1.2_f32;
-        if self.zoom_factor < 0.5_f32 {
-            self.zoom_factor = 0.5_f32;
+        self.final_zoom /= 1.2_f32;
+        if self.final_zoom < 0.5_f32 {
+            self.final_zoom = 0.5_f32;
+        }
+    }
+
+    pub fn update_camera_movement(&mut self) {
+        if self.current_zoom == self.final_zoom {
+            return;
         }
 
+        self.current_zoom += (self.final_zoom - self.current_zoom) * 0.1_f32;
+
+        render_next_frame();
         self.update_scissor();
     }
 
@@ -118,7 +134,7 @@ impl ViewPort {
     }
 
     pub fn get_zoom_factor(&self) -> f32 {
-        self.zoom_factor
+        self.current_zoom
     }
 
     pub fn send_to_vertex_shader(&self, gl: &WebGl2RenderingContext, shader: &Shader) {
@@ -129,7 +145,7 @@ impl ViewPort {
 
         // Send zoom factor
         let zoom_factor_location = shader.get_uniform_location(gl, "zoom_factor");
-        gl.uniform1f(zoom_factor_location.as_ref(), self.zoom_factor);
+        gl.uniform1f(zoom_factor_location.as_ref(), self.current_zoom);
 
         // Send window size
         let location_resize_factor_x = shader.get_uniform_location(gl, "resize_factor_x");

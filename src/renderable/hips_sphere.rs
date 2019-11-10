@@ -383,9 +383,6 @@ impl Mesh for HiPSSphere {
     fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: Option<&ViewPort>) {
         unreachable!();
     }
-
-    fn draw_extra_things(&self) {
-    }
 }
 
 use crate::renderable::DisableDrawing;
