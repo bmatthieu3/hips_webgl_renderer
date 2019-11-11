@@ -1,11 +1,11 @@
 use web_sys::console;
 
 use web_sys::WebGl2RenderingContext;
-use web_sys::WebGlVertexArrayObject;
 
 use crate::renderable::projection::ProjectionType;
 
 use std::rc::Rc;
+use std::cell::RefCell;
 
 use crate::renderable::Mesh;
 use crate::shader::Shader;
@@ -15,11 +15,12 @@ const NUM_VERTICES_PER_STEP: usize = 50;
 const NUM_STEPS: usize = 20;
 const MAX_DEPTH: i32 = 9;
 
-use crate::texture::{HEALPixTextureBuffer, HEALPixCellRequest};
+use crate::texture::BufferTiles;
+use crate::texture::load_healpix_tile;
 
 #[derive(Clone)]
 pub struct HiPSSphere {
-    buffer_textures: HEALPixTextureBuffer,
+    buffer_base_tiles: Rc<RefCell<BufferTiles>>,
     pub current_depth: i32,
     pub hpx_cells_in_fov: i32,
 
@@ -27,6 +28,8 @@ pub struct HiPSSphere {
     idx_vertices: Vec<u16>,
 
     size_in_pixels: cgmath::Vector2<f32>,
+
+    gl: WebGl2Context,
 }
 
 use crate::viewport::ViewPort;
@@ -42,40 +45,39 @@ use crate::WebGl2Context;
 
 impl<'a> HiPSSphere {
     pub fn new(gl: &WebGl2Context, projection: &ProjectionType) -> HiPSSphere {
-        let buffer_textures = HEALPixTextureBuffer::new(gl);
+        let buffer_base_tiles = Rc::new(RefCell::new(BufferTiles::new(gl, 12)));
+        for idx in (0 as u64)..(12 as u64) {
+            load_healpix_tile(&gl, buffer_base_tiles.clone(), idx, 0);
+        }
 
         let (vertices, size_in_pixels) = HiPSSphere::create_vertices_array(gl, projection);
         let idx_vertices = HiPSSphere::create_index_array();
 
-        let mut hips_sphere = HiPSSphere {
-            buffer_textures : buffer_textures,
+        let gl = gl.clone();
+
+        HiPSSphere {
+            buffer_base_tiles : buffer_base_tiles,
             current_depth: 0,
             hpx_cells_in_fov: 0,
 
             vertices,
             idx_vertices,
 
-            size_in_pixels
-        };
+            size_in_pixels,
 
-        let idx_textures = ((0 as i32)..(12 as i32)).collect::<Vec<_>>();
-        hips_sphere.load_healpix_tile_textures(idx_textures, 0, false);
-        hips_sphere
+            gl,
+        }
     }
 
     pub fn get_default_pixel_size(&self) -> &Vector2<f32> {
         &self.size_in_pixels
     }
 
-    fn load_healpix_tile_textures(&mut self,
-        idx_textures_next: Vec<i32>,
-        depth: i32,
-        zoom: bool) {
-        for tile_idx_to_load in idx_textures_next.into_iter() {
-            let new_healpix_cell = HEALPixCellRequest::new(depth, tile_idx_to_load);
-            self.buffer_textures.load(new_healpix_cell, zoom);
+    /*fn load_healpix_tile_textures(&mut self, idx: &[i32], depth: i32) {
+        for i in idx {
+            self.buffer_base_tiles.load();
         }
-    }
+    }*/
 
     pub fn update_field_of_view(&mut self, projection: &ProjectionType, viewport: &ViewPort, model: &cgmath::Matrix4<f32>, zoom: bool) {
         let num_control_points_width = 5;
@@ -149,7 +151,10 @@ impl<'a> HiPSSphere {
         self.current_depth = depth;
         self.hpx_cells_in_fov = healpix_cells.len() as i32;
 
-        self.load_healpix_tile_textures(healpix_cells, depth, zoom);
+        /*for idx in healpix_cells {
+            load_healpix_tile(&self.gl, self.buffer_base_tiles.clone(), idx as u64, depth as u8);
+        }*/
+        //self.load_healpix_tile_textures(healpix_cells, depth, zoom);
     }
 
     fn create_vertices_array(gl: &WebGl2Context, projection: &ProjectionType) -> (Vec<f32>, Vector2<f32>) {
@@ -262,16 +267,13 @@ impl Mesh for HiPSSphere {
         gl.uniform1i(location_max_depth.as_ref(), MAX_DEPTH);
         // Send sampler 3D
         // textures buffer
-        let location_textures_buf = shader.get_uniform_location(gl, "textures_buffer");
+        /*let location_textures_buf = shader.get_uniform_location(gl, "textures_buffer");
         gl.active_texture(WebGl2RenderingContext::TEXTURE0);
         gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, self.buffer_textures.webgl_texture0.as_ref());
-        gl.uniform1i(location_textures_buf.as_ref(), 0);
+        gl.uniform1i(location_textures_buf.as_ref(), 0);*/
         // BASE CELL TEXTURES
-        let location_textures_zero_depth_buf = shader.get_uniform_location(gl, "textures_zero_depth_buffer");
-        gl.active_texture(WebGl2RenderingContext::TEXTURE1);
-        gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, self.buffer_textures.webgl_texture1.as_ref());
-        gl.uniform1i(location_textures_zero_depth_buf.as_ref(), 1);
-        let hpx_zero_depth_tiles = self.buffer_textures.get_zero_depth_tiles();
+        self.buffer_base_tiles.borrow().send_sampler_uniform(shader);
+        let hpx_zero_depth_tiles = self.buffer_base_tiles.borrow().tiles();
         for (i, hpx) in hpx_zero_depth_tiles.iter().enumerate() {
             let mut name = String::from("hpx_zero_depth");
             name += "[";
@@ -282,10 +284,13 @@ impl Mesh for HiPSSphere {
             gl.uniform1i(location_hpx_idx.as_ref(), hpx.idx);
 
             let location_buf_idx = shader.get_uniform_location(gl, &(name.clone() + "buf_idx"));
-            gl.uniform1i(location_buf_idx.as_ref(), hpx.buf_idx);
+            gl.uniform1i(location_buf_idx.as_ref(), hpx.texture_idx);
 
-            let location_time_received = shader.get_uniform_location(gl, &(name + "time_received"));
+            let location_time_received = shader.get_uniform_location(gl, &(name.clone() + "time_received"));
             gl.uniform1f(location_time_received.as_ref(), hpx.time_received);
+
+            let location_time_request = shader.get_uniform_location(gl, &(name + "time_request"));
+            gl.uniform1f(location_time_request.as_ref(), hpx.time_request);
         }
 
         /*let hpx_tiles = self.buffer_textures.get_tiles(self.current_depth);

@@ -177,7 +177,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
 
     uniform float zoom_factor;
     uniform sampler3D textures_buffer;
-    uniform sampler3D textures_zero_depth_buffer;
+    uniform sampler3D textures_0;
 
     const int BUFFER_TEX_SIZE = 48;
     const int BUFFER_ZERO_TEX_SIZE = 12;
@@ -277,14 +277,14 @@ pub static CONTENT: &'static str = r#"#version 300 es
             if (hpx_zero_depth[i].idx == tile_idx) {
                 HEALPixCell cell = hpx_zero_depth[i];
                 float idx_texture = float(cell.buf_idx)*tex_step_depth_zero;
-                vec3 color = texture(textures_zero_depth_buffer, vec3(uv, idx_texture)).rgb;
+                vec3 color = texture(textures_0, vec3(uv, idx_texture)).rgb;
 
                 return HEALPixCellContrib(cell, color);
             }
         }
         
         /*//float idx_texture = float(cell.buf_idx)*tex_step_depth_zero;
-        vec3 color = texture(textures_zero_depth_buffer, vec3(uv, 0)).rgb;
+        vec3 color = texture(textures_0, vec3(uv, 0)).rgb;
 
         return HEALPixCellContrib(hpx_zero_depth[0], color);*/
 
