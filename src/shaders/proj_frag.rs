@@ -182,13 +182,14 @@ pub static CONTENT: &'static str = r#"#version 300 es
     const int BUFFER_TEX_SIZE = 48;
     const int BUFFER_ZERO_TEX_SIZE = 12;
 
-    struct HEALPixCell {
+    struct Tile {
         int idx; // Healpix cell
-        int buf_idx; // Index in the texture buffer
+        int texture_idx; // Index in the texture buffer
         float time_received; // Absolute time that the load has been done in ms
+        float time_request;
     };
 
-    uniform int current_depth;
+    /*uniform int current_depth;
     uniform HEALPixCell hpx_current_depth[BUFFER_TEX_SIZE];
     uniform int num_current_depth_hpx_tiles;
 
@@ -198,17 +199,22 @@ pub static CONTENT: &'static str = r#"#version 300 es
 
     uniform int next_depth;
     uniform HEALPixCell hpx_next_depth[BUFFER_TEX_SIZE];
-    uniform int num_next_depth_hpx_tiles;
+    uniform int num_next_depth_hpx_tiles;*/
 
-    uniform HEALPixCell hpx_zero_depth[BUFFER_ZERO_TEX_SIZE];
+    uniform Tile hpx_zero_depth[BUFFER_ZERO_TEX_SIZE];
 
-    const HEALPixCell no_cell = HEALPixCell(-1, -1, 0.f);
-    struct HEALPixCellContrib {
-        HEALPixCell cell;
+    const Tile no_cell = Tile(-1, -1, 0.f, 0.f);
+    struct TileColor {
+        Tile tile;
         vec3 color;
     };
 
-    HEALPixCellContrib compute_current_depth_color_from_hips(vec3 pos) {
+    // ang2pix textures
+    uniform sampler2D ang2pix_0_texture;
+    uniform sampler2D ang2pix_1_texture;
+    uniform sampler2D ang2pix_2_texture;
+
+    /*HEALPixCellContrib compute_current_depth_color_from_hips(vec3 pos) {
         vec3 res = hash_with_dxdy(current_depth, pos.zxy);
         float tex_step = 1.f / float(BUFFER_TEX_SIZE - 1);
 
@@ -264,32 +270,47 @@ pub static CONTENT: &'static str = r#"#version 300 es
         }
 
         return HEALPixCellContrib(no_cell, vec3(0.f));
-    }
+    }*/
     const float tex_step_depth_zero = 0.0909090909f;
-    HEALPixCellContrib compute_zero_depth_color_from_hips(vec3 pos) {
-        vec3 res = hash_with_dxdy(0, pos.zxy);
-        //vec3 res = vec3(0.f);
+    TileColor get_tile_color(vec3 pos, float size, int depth) {
+        //vec3 res = hash_with_dxdy(depth, pos.zxy);
+        vec2 radec = vec2(atan(pos.x, pos.z), asin(pos.y));
+        radec.x = (radec.x/(2.f*PI)) + 0.5f;
+        radec.y = (radec.y/PI) + 0.5f;
 
-        int tile_idx = int(res.x);
-        vec2 uv = res.zy;
-
-        for(int i = 0; i < 12; i++) {
-            if (hpx_zero_depth[i].idx == tile_idx) {
-                HEALPixCell cell = hpx_zero_depth[i];
-                float idx_texture = float(cell.buf_idx)*tex_step_depth_zero;
-                vec3 color = texture(textures_0, vec3(uv, idx_texture)).rgb;
-
-                return HEALPixCellContrib(cell, color);
-            }
-        }
+        vec3 res = texture(ang2pix_0_texture, radec).rgb;
+        int idx = int(ceil(res.r * 11.f));
+        vec2 uv = res.gb;
         
-        /*//float idx_texture = float(cell.buf_idx)*tex_step_depth_zero;
-        vec3 color = texture(textures_0, vec3(uv, 0)).rgb;
+        float a = 0.f;
+        float b = size - 1.f;
 
-        return HEALPixCellContrib(hpx_zero_depth[0], color);*/
+        int i = int((b + a) / 2.f);
+
+        int h = int(log2(size)) + 1;
+
+        // Binary search among the tile idx
+        for(int step = 0; step < h; step++) {
+            if (idx == hpx_zero_depth[i].idx) {
+                Tile tile = hpx_zero_depth[i];
+                float idx_texture = float(tile.texture_idx)*tex_step_depth_zero;
+                vec3 color = texture(textures_0, vec3(uv, idx_texture)).rgb;
+                //vec3 color = texture(ang2pix_0_texture, uv).rgb;
+                //vec3 color = texture(ang2pix_0_texture, radec).rgb;
+
+                return TileColor(tile, color);
+            } else if (idx < hpx_zero_depth[i].idx) {
+                // go to left
+                b = float(i) - 1.f;
+            } else {
+                // go to right
+                a = float(i) + 1.f;
+            }
+            i = int((a + b)/2.f);
+        }
 
         // code unreachable
-        return HEALPixCellContrib(no_cell, vec3(0.f));
+        return TileColor(hpx_zero_depth[0], vec3(0.f));
     }
 
     const float duration = 500.f; // 1000 ms
@@ -300,7 +321,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
         vec3 frag_pos = normalize(out_vert_pos);
         // Get the HEALPix cell idx and the uv in the texture
         //HEALPixCellContrib current_cell = compute_current_depth_color_from_hips(frag_pos);
-        HEALPixCellContrib current_cell = compute_zero_depth_color_from_hips(frag_pos);
+        TileColor current_tile = get_tile_color(frag_pos, 12.f, 0);
         /*float alpha = 0.f;
         if (current_cell.cell.idx > -1) { // tile downloaded
             alpha = clamp((current_time - current_cell.cell.time_received) / duration, 0.f, 1.f);
@@ -341,7 +362,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
 
             out_color = mix(past_cell.color, current_cell.color, alpha);
         }*/
-        out_frag_color = vec4(current_cell.color, 1.f);
+        out_frag_color = vec4(current_tile.color, 1.f);
         //out_frag_color = vec4(1.f);
         //out_frag_color = vec4(vec3(1.f), 0.2f);
     }"#;

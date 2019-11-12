@@ -18,6 +18,9 @@ const MAX_DEPTH: i32 = 9;
 use crate::texture::BufferTiles;
 use crate::texture::load_healpix_tile;
 
+use crate::texture::Texture2D;
+use crate::texture::create_texture_2d;
+
 #[derive(Clone)]
 pub struct HiPSSphere {
     buffer_base_tiles: Rc<RefCell<BufferTiles>>,
@@ -28,6 +31,9 @@ pub struct HiPSSphere {
     idx_vertices: Vec<u16>,
 
     size_in_pixels: cgmath::Vector2<f32>,
+
+    // ang2pix textures
+    ang2pix_textures: [Texture2D; 1],
 
     gl: WebGl2Context,
 }
@@ -53,8 +59,14 @@ impl<'a> HiPSSphere {
         let (vertices, size_in_pixels) = HiPSSphere::create_vertices_array(gl, projection);
         let idx_vertices = HiPSSphere::create_index_array();
 
-        let gl = gl.clone();
+        // Load the ang2pix values
+        let ang2pix_textures = [
+            create_texture_2d(gl, "./textures/ang2pix_depth0.jpg"),
+            //create_texture_2d(gl, "./textures/ang2pix_depth1.jpg"),
+            //create_texture_2d(gl, "./textures/ang2pix_depth2.jpg"),
+        ];
 
+        let gl = gl.clone();
         HiPSSphere {
             buffer_base_tiles : buffer_base_tiles,
             current_depth: 0,
@@ -64,6 +76,7 @@ impl<'a> HiPSSphere {
             idx_vertices,
 
             size_in_pixels,
+            ang2pix_textures,
 
             gl,
         }
@@ -261,7 +274,7 @@ impl Mesh for HiPSSphere {
         vertex_array_object
     }
 
-    fn send_uniforms(&self, gl: &WebGl2RenderingContext, shader: &Shader) {
+    fn send_uniforms(&self, gl: &WebGl2Context, shader: &Shader) {
         // Send max depth of the current HiPS
         let location_max_depth = shader.get_uniform_location(gl, "max_depth");
         gl.uniform1i(location_max_depth.as_ref(), MAX_DEPTH);
@@ -283,7 +296,7 @@ impl Mesh for HiPSSphere {
             let location_hpx_idx = shader.get_uniform_location(gl, &(name.clone() + "idx"));
             gl.uniform1i(location_hpx_idx.as_ref(), hpx.idx);
 
-            let location_buf_idx = shader.get_uniform_location(gl, &(name.clone() + "buf_idx"));
+            let location_buf_idx = shader.get_uniform_location(gl, &(name.clone() + "texture_idx"));
             gl.uniform1i(location_buf_idx.as_ref(), hpx.texture_idx);
 
             let location_time_received = shader.get_uniform_location(gl, &(name.clone() + "time_received"));
@@ -292,6 +305,11 @@ impl Mesh for HiPSSphere {
             let location_time_request = shader.get_uniform_location(gl, &(name + "time_request"));
             gl.uniform1f(location_time_request.as_ref(), hpx.time_request);
         }
+
+        // ANG2PIX TEXTURES
+        self.ang2pix_textures[0].send_to_shader(gl, shader, "ang2pix_0_texture");
+        //self.ang2pix_textures[1].send_to_shader(gl, shader, "ang2pix_1_texture");
+        //self.ang2pix_textures[2].send_to_shader(gl, shader, "ang2pix_2_texture");
 
         /*let hpx_tiles = self.buffer_textures.get_tiles(self.current_depth);
         for (i, hpx) in hpx_tiles.iter().enumerate() {

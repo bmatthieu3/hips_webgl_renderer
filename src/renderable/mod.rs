@@ -29,7 +29,7 @@ pub trait Mesh {
     fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: Option<&ViewPort>);
     fn get_vertices<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>);
 
-    fn send_uniforms(&self, gl: &WebGl2RenderingContext, shader: &Shader);
+    fn send_uniforms(&self, gl: &WebGl2Context, shader: &Shader);
 }
 
 pub trait DisableDrawing {

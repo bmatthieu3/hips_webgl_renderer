@@ -330,7 +330,7 @@ impl Mesh for ProjetedGrid {
         vertex_array_object
     }
 
-    fn send_uniforms(&self, gl: &WebGl2RenderingContext, shader: &Shader) {
+    fn send_uniforms(&self, gl: &WebGl2Context, shader: &Shader) {
         let location_color = shader.get_uniform_location(gl, "location_color");
         gl.uniform4f(location_color.as_ref(), self.color.x, self.color.y, self.color.z, self.color.w);
     }

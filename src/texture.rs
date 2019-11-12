@@ -386,6 +386,7 @@ impl Ord for Tile {
     }
 }
 
+#[derive(Debug)]
 pub struct TileGPU {
     pub idx: i32,
     pub depth: i32,
@@ -406,10 +407,9 @@ impl Eq for TileGPU {}
 impl PartialOrd for TileGPU {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         // Order by UNIQ notation
-        let u1: i32 = 1 << (2*(self.depth + 1)) + self.idx;
-        let u2: i32 = 1 << (2*(other.depth + 1)) + other.idx;
-
-        u1.partial_cmp(&u2)
+        /*let u1: i32 = 1 << (2*(self.depth + 1)) + self.idx;
+        let u2: i32 = 1 << (2*(other.depth + 1)) + other.idx;*/
+        self.idx.partial_cmp(&other.idx)
     }
 }
 impl Ord for TileGPU {
@@ -707,4 +707,83 @@ fn create_sampler_3d(gl: &WebGl2Context, size_buffer: u32) -> (Option<web_sys::W
     gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_3D);
 
     (webgl_texture, idx_texture_unit)
+}
+
+use web_sys::WebGlTexture;
+#[derive(Clone)]
+pub struct Texture2D {
+    texture: Rc<RefCell<Option<WebGlTexture>>>,
+    idx_texture_unit: u32,
+}
+
+impl Texture2D {
+    fn new(texture: Rc<RefCell<Option<WebGlTexture>>>, idx_texture_unit: u32) -> Texture2D {
+        Texture2D {
+            texture,
+            idx_texture_unit
+        }
+    }
+
+    pub fn send_to_shader(&self, gl: &WebGl2Context, shader: &Shader, name: &'static str) {
+        let location_tex = shader.get_uniform_location(gl, name);
+        gl.active_texture(self.idx_texture_unit);
+        gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, self.texture.borrow().as_ref());
+
+        let idx_sampler: i32 = (self.idx_texture_unit - WebGl2RenderingContext::TEXTURE0).try_into().unwrap();
+        gl.uniform1i(location_tex.as_ref(), idx_sampler);
+    }
+}
+
+pub fn create_texture_2d(gl: &WebGl2Context, src: &'static str) -> Texture2D {
+    let image = Rc::new(RefCell::new(HtmlImageElement::new().unwrap()));
+
+    let webgl_texture = Rc::new(RefCell::new(gl.create_texture()));
+    let idx_texture_unit = unsafe { NUM_TEXTURE_UNIT };
+
+    unsafe {
+        NUM_TEXTURE_UNIT += 1;
+    }
+    let onerror = {
+        Closure::wrap(Box::new(move || {
+            console::log_1(&format!("Cannot load texture located at: {:?}", src).into());
+        }) as Box<dyn Fn()>)
+    };
+
+    let onload = {
+        let image = image.clone();
+        let gl = gl.clone();
+        let webgl_texture = webgl_texture.clone();
+
+        Closure::wrap(Box::new(move || {
+            gl.active_texture(idx_texture_unit);
+            gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, webgl_texture.borrow().as_ref());
+
+            gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::NEAREST as i32);
+            gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::NEAREST as i32);
+
+            // Prevents s-coordinate wrapping (repeating)
+            gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
+            // Prevents t-coordinate wrapping (repeating)
+            gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_WRAP_T, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
+
+            gl.tex_image_2d_with_u32_and_u32_and_html_image_element(
+                WebGl2RenderingContext::TEXTURE_2D,
+                0,
+                WebGl2RenderingContext::RGB as i32,
+                WebGl2RenderingContext::RGB,
+                WebGl2RenderingContext::UNSIGNED_BYTE,
+                &image.borrow()
+            ).expect("Texture 2D");
+        }) as Box<dyn Fn()>)
+    };
+
+    image.borrow_mut().set_onload(Some(onload.as_ref().unchecked_ref()));
+    image.borrow_mut().set_onerror(Some(onerror.as_ref().unchecked_ref()));
+
+    image.borrow_mut().set_cross_origin(Some(""));
+    image.borrow_mut().set_src(src);
+
+    onload.forget();
+
+    Texture2D::new(webgl_texture, idx_texture_unit)
 }
