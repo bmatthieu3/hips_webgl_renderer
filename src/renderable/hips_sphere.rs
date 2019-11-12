@@ -61,7 +61,7 @@ impl<'a> HiPSSphere {
 
         // Load the ang2pix values
         let ang2pix_textures = [
-            create_texture_2d(gl, "./textures/ang2pix_depth0.jpg"),
+            create_texture_2d(gl, "./textures/ang2pix_depth0.png"),
             //create_texture_2d(gl, "./textures/ang2pix_depth1.jpg"),
             //create_texture_2d(gl, "./textures/ang2pix_depth2.jpg"),
         ];

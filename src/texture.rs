@@ -769,8 +769,8 @@ pub fn create_texture_2d(gl: &WebGl2Context, src: &'static str) -> Texture2D {
             gl.tex_image_2d_with_u32_and_u32_and_html_image_element(
                 WebGl2RenderingContext::TEXTURE_2D,
                 0,
-                WebGl2RenderingContext::RGB as i32,
-                WebGl2RenderingContext::RGB,
+                WebGl2RenderingContext::RGBA as i32,
+                WebGl2RenderingContext::RGBA,
                 WebGl2RenderingContext::UNSIGNED_BYTE,
                 &image.borrow()
             ).expect("Texture 2D");

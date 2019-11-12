@@ -1,6 +1,7 @@
 pub static CONTENT: &'static str = r#"#version 300 es
     precision mediump float;
     precision lowp sampler3D;
+    precision lowp sampler2D;
 
     in vec3 out_vert_pos;
 
@@ -275,12 +276,12 @@ pub static CONTENT: &'static str = r#"#version 300 es
     TileColor get_tile_color(vec3 pos, float size, int depth) {
         //vec3 res = hash_with_dxdy(depth, pos.zxy);
         vec2 radec = vec2(atan(pos.x, pos.z), asin(pos.y));
-        radec.x = (radec.x/(2.f*PI)) + 0.5f;
-        radec.y = (radec.y/PI) + 0.5f;
+        //vec2 radec = vec2(0.f);
+        radec = radec * vec2(-1.f/(2.f*PI), 1.f/PI) + 0.5f;
 
         vec3 res = texture(ang2pix_0_texture, radec).rgb;
-        int idx = int(ceil(res.r * 11.f));
-        vec2 uv = res.gb;
+        int idx = int(res.r * 255.f);
+        vec2 uv = res.bg;
         
         float a = 0.f;
         float b = size - 1.f;
@@ -288,15 +289,12 @@ pub static CONTENT: &'static str = r#"#version 300 es
         int i = int((b + a) / 2.f);
 
         int h = int(log2(size)) + 1;
-
         // Binary search among the tile idx
         for(int step = 0; step < h; step++) {
             if (idx == hpx_zero_depth[i].idx) {
                 Tile tile = hpx_zero_depth[i];
                 float idx_texture = float(tile.texture_idx)*tex_step_depth_zero;
                 vec3 color = texture(textures_0, vec3(uv, idx_texture)).rgb;
-                //vec3 color = texture(ang2pix_0_texture, uv).rgb;
-                //vec3 color = texture(ang2pix_0_texture, radec).rgb;
 
                 return TileColor(tile, color);
             } else if (idx < hpx_zero_depth[i].idx) {
@@ -310,7 +308,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
         }
 
         // code unreachable
-        return TileColor(hpx_zero_depth[0], vec3(0.f));
+        //return TileColor(hpx_zero_depth[0], vec3(0.f));
     }
 
     const float duration = 500.f; // 1000 ms

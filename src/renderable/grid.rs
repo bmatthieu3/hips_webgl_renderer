@@ -301,7 +301,7 @@ impl Mesh for ProjetedGrid {
         let ref vertices_data = self.pos_screen_space;
         let ref idx_data = self.idx_vertices;
         // ARRAY buffer creation
-        console::log_1(&format!("vertices: {:?} {:?}", vertices_data.len(), vertices_data).into());
+        //console::log_1(&format!("vertices: {:?} {:?}", vertices_data.len(), vertices_data).into());
 
         let array_buffer = ArrayBuffer::new(
             gl,
@@ -313,7 +313,7 @@ impl Mesh for ProjetedGrid {
         );
 
         // ELEMENT ARRAY buffer creation
-        console::log_1(&format!("indexes: {:?} {:?}", idx_data.len(), idx_data).into());
+        //console::log_1(&format!("indexes: {:?} {:?}", idx_data.len(), idx_data).into());
         //console::log_1(&format!("indexes: {:?}, len {:?}", indexes_data.0, indexes_data.0.len()).into());
         let indexes_buffer = ElementArrayBuffer::new(
             gl,
@@ -384,7 +384,7 @@ impl Mesh for ProjetedGrid {
             idx_start += num_points_step;
         }
 
-        console::log_1(&format!("idx {:?} idx_start {:?}", self.idx_vertices, idx_start).into());
+        //console::log_1(&format!("idx {:?} idx_start {:?}", self.idx_vertices, idx_start).into());
         while idx_start < (self.lat.len() * self.num_points_lon + self.lon.len() * self.num_points_lat) {
             let num_points_step = self.num_points_lat;
 

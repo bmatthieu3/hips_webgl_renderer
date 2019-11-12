@@ -245,7 +245,7 @@ impl App {
                             let pos_rotated = model_mat * pos;
                             let pos_rotated = cgmath::Vector3::<f32>::new(pos_rotated.x, pos_rotated.y, pos_rotated.z);
 
-                            console::log_1(&format!("REAL pos clic {:?}", start_pos_rotated).into());
+                            //console::log_1(&format!("REAL pos clic {:?}", start_pos_rotated).into());
 
                             let mut axis = start_pos_rotated.cross(pos_rotated);
                             let dist = math::angular_distance_xyz(start_pos_rotated, pos_rotated);

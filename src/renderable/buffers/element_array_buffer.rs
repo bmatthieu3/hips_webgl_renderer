@@ -70,7 +70,7 @@ impl<'a> ElementArrayBuffer {
 
     pub fn update(&mut self, data: BufferData<'a, u16>) {
         //self.buffer_size = data.0.len();
-        console::log_1(&format!("update element buffer size: {:?} {:?}", self.buffer_size, data.0.len()).into());
+        //console::log_1(&format!("update element buffer size: {:?} {:?}", self.buffer_size, data.0.len()).into());
         let data: js_sys::Uint16Array = data.try_into().unwrap();
         
         // offset expressed in bytes where data replacement will begin in the buffer
