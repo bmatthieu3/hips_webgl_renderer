@@ -289,11 +289,11 @@ pub fn load_healpix_tile(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>, i
 
         url
     };
-    
     let onerror = {
         let buffer = buffer.clone();
 
         Closure::wrap(Box::new(move || {
+            console::log_1(&format!("ERROR tile").into());
             buffer.borrow_mut().remove_from_requested_tile(depth, idx);
         }) as Box<dyn Fn()>)
     };
@@ -324,6 +324,7 @@ pub fn load_healpix_tile(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>, i
     image.borrow_mut().set_src(&url);
 
     onload.forget();
+    onerror.forget();
 }
 
 fn create_sampler_3d(gl: &WebGl2Context, size_buffer: u32) -> (Option<web_sys::WebGlTexture>, u32) {
@@ -456,6 +457,7 @@ pub fn create_texture_2d(gl: &WebGl2Context, src: &'static str) -> Texture2D {
     image.borrow_mut().set_src(src);
 
     onload.forget();
+    onerror.forget();
 
     Texture2D::new(webgl_texture, idx_texture_unit)
 }

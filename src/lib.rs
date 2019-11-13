@@ -180,7 +180,7 @@ impl App {
         let lon_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-30_f32).into(), cgmath::Deg(30_f32).into());
         let lat_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-80_f32).into(), cgmath::Deg(80_f32).into());
         //let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(10_f32).into(), cgmath::Deg(10_f32).into(), Some(lat_bound), Some(lon_bound), &projection.get(), &viewport.borrow());
-        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(20_f32).into(), cgmath::Deg(20_f32).into(), Some(lat_bound), None, &projection.get());
+        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(40_f32).into(), cgmath::Deg(40_f32).into(), Some(lat_bound), None, &projection.get());
 
         // Renderable definition
         let hips_sphere = Rc::new(RefCell::new(Renderable::<HiPSSphere>::new(
