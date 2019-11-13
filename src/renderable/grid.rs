@@ -289,6 +289,11 @@ impl ProjetedGrid {
             self.text_canvas.fill_text(label_text, pos_screen_space.x as f64, pos_screen_space.y as f64).unwrap();
         }
     }
+
+    pub fn clear_canvas(&mut self) {
+        let (width_screen, height_screen) = window_size_f64();
+        self.text_canvas.clear_rect(0_f64, 0_f64, width_screen, height_screen); 
+    }
 }
 
 use crate::WebGl2Context;
@@ -331,8 +336,8 @@ impl Mesh for ProjetedGrid {
     }
 
     fn send_uniforms(&self, gl: &WebGl2Context, shader: &Shader) {
-        let location_color = shader.get_uniform_location(gl, "location_color");
-        gl.uniform4f(location_color.as_ref(), self.color.x, self.color.y, self.color.z, self.color.w);
+        let location_color = shader.get_uniform_location("location_color");
+        gl.uniform4f(location_color, self.color.x, self.color.y, self.color.z, self.color.w);
     }
 
     fn get_vertices<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>) {

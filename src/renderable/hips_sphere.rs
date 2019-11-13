@@ -276,8 +276,8 @@ impl Mesh for HiPSSphere {
 
     fn send_uniforms(&self, gl: &WebGl2Context, shader: &Shader) {
         // Send max depth of the current HiPS
-        let location_max_depth = shader.get_uniform_location(gl, "max_depth");
-        gl.uniform1i(location_max_depth.as_ref(), MAX_DEPTH);
+        let location_max_depth = shader.get_uniform_location("max_depth");
+        gl.uniform1i(location_max_depth, MAX_DEPTH);
         // Send sampler 3D
         // textures buffer
         /*let location_textures_buf = shader.get_uniform_location(gl, "textures_buffer");
@@ -285,7 +285,7 @@ impl Mesh for HiPSSphere {
         gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, self.buffer_textures.webgl_texture0.as_ref());
         gl.uniform1i(location_textures_buf.as_ref(), 0);*/
         // BASE CELL TEXTURES
-        self.buffer_base_tiles.borrow().send_sampler_uniform(shader);
+        self.buffer_base_tiles.borrow().send_sampler_uniform(shader, "textures_0");
         let hpx_zero_depth_tiles = self.buffer_base_tiles.borrow().tiles();
         for (i, hpx) in hpx_zero_depth_tiles.iter().enumerate() {
             let mut name = String::from("hpx_zero_depth");
@@ -293,17 +293,17 @@ impl Mesh for HiPSSphere {
             name += &i.to_string();
             name += "].";
 
-            let location_hpx_idx = shader.get_uniform_location(gl, &(name.clone() + "idx"));
-            gl.uniform1i(location_hpx_idx.as_ref(), hpx.idx);
+            let location_hpx_idx = shader.get_uniform_location(&(name.clone() + "idx"));
+            gl.uniform1i(location_hpx_idx, hpx.idx);
 
-            let location_buf_idx = shader.get_uniform_location(gl, &(name.clone() + "texture_idx"));
-            gl.uniform1i(location_buf_idx.as_ref(), hpx.texture_idx);
+            let location_buf_idx = shader.get_uniform_location(&(name.clone() + "texture_idx"));
+            gl.uniform1i(location_buf_idx, hpx.texture_idx);
 
-            let location_time_received = shader.get_uniform_location(gl, &(name.clone() + "time_received"));
-            gl.uniform1f(location_time_received.as_ref(), hpx.time_received);
+            let location_time_received = shader.get_uniform_location(&(name.clone() + "time_received"));
+            gl.uniform1f(location_time_received, hpx.time_received);
 
-            let location_time_request = shader.get_uniform_location(gl, &(name + "time_request"));
-            gl.uniform1f(location_time_request.as_ref(), hpx.time_request);
+            let location_time_request = shader.get_uniform_location(&(name + "time_request"));
+            gl.uniform1f(location_time_request, hpx.time_request);
         }
 
         // ANG2PIX TEXTURES
@@ -333,8 +333,8 @@ impl Mesh for HiPSSphere {
         gl.uniform1i(location_num_current_depth_tiles.as_ref(), hpx_tiles.len() as i32);
         */
         // Send current depth
-        let location_current_depth = shader.get_uniform_location(gl, "current_depth");
-        gl.uniform1i(location_current_depth.as_ref(), self.current_depth);
+        let location_current_depth = shader.get_uniform_location("current_depth");
+        gl.uniform1i(location_current_depth, self.current_depth);
         /*
         // PREVIOUS DEPTH TILES
         if self.current_depth > 0 {

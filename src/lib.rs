@@ -2,11 +2,10 @@
 extern crate lazy_static;
 
 extern crate itertools_num;
-extern crate slab;
 
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use web_sys::{WebGl2RenderingContext, console};
+use web_sys::{WebGl2RenderingContext, console, Window};
 
 use cgmath;
 use cgmath::{InnerSpace, Vector3, Vector4};
@@ -31,11 +30,10 @@ use crate::renderable::grid::ProjetedGrid;
 
 use std::sync::Mutex;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-fn request_animation_frame(f: &Closure<FnMut()>) {
-    web_sys::window()
-        .unwrap()
-        .request_animation_frame(f.as_ref().unchecked_ref())
+fn request_animation_frame(f: &Closure<FnMut()>, window: &Window) {
+    window.request_animation_frame(f.as_ref().unchecked_ref())
         .expect("should register `requestAnimationFrame` OK");
 }
 
@@ -89,11 +87,85 @@ impl App {
         // Shader definition
         let shader_2d_proj = Rc::new(Shader::new(&gl,
             shaders::proj_vert::CONTENT,
-            shaders::proj_frag::CONTENT
+            shaders::proj_frag::CONTENT,
+            // uniform list
+            [
+                // General uniforms
+                "current_time",
+                "model",
+                // Viewport uniforms
+                "zoom_factor",
+                "aspect",
+                // HiPS Sphere-specific uniforms
+                "current_depth",
+                "max_depth",
+                "ang2pix_0_texture",
+                "ang2pix_1_texture",
+                "ang2pix_2_texture",
+                "textures_0",
+                "hpx_zero_depth[0].idx",
+                "hpx_zero_depth[0].texture_idx",
+                "hpx_zero_depth[0].time_received",
+                "hpx_zero_depth[0].time_request",
+                "hpx_zero_depth[1].idx",
+                "hpx_zero_depth[1].texture_idx",
+                "hpx_zero_depth[1].time_received",
+                "hpx_zero_depth[1].time_request",
+                "hpx_zero_depth[2].idx",
+                "hpx_zero_depth[2].texture_idx",
+                "hpx_zero_depth[2].time_received",
+                "hpx_zero_depth[2].time_request",
+                "hpx_zero_depth[3].idx",
+                "hpx_zero_depth[3].texture_idx",
+                "hpx_zero_depth[3].time_received",
+                "hpx_zero_depth[3].time_request",
+                "hpx_zero_depth[4].idx",
+                "hpx_zero_depth[4].texture_idx",
+                "hpx_zero_depth[4].time_received",
+                "hpx_zero_depth[4].time_request",
+                "hpx_zero_depth[5].idx",
+                "hpx_zero_depth[5].texture_idx",
+                "hpx_zero_depth[5].time_received",
+                "hpx_zero_depth[5].time_request",
+                "hpx_zero_depth[6].idx",
+                "hpx_zero_depth[6].texture_idx",
+                "hpx_zero_depth[6].time_received",
+                "hpx_zero_depth[6].time_request",
+                "hpx_zero_depth[7].idx",
+                "hpx_zero_depth[7].texture_idx",
+                "hpx_zero_depth[7].time_received",
+                "hpx_zero_depth[7].time_request",
+                "hpx_zero_depth[8].idx",
+                "hpx_zero_depth[8].texture_idx",
+                "hpx_zero_depth[8].time_received",
+                "hpx_zero_depth[8].time_request",
+                "hpx_zero_depth[9].idx",
+                "hpx_zero_depth[9].texture_idx",
+                "hpx_zero_depth[9].time_received",
+                "hpx_zero_depth[9].time_request",
+                "hpx_zero_depth[10].idx",
+                "hpx_zero_depth[10].texture_idx",
+                "hpx_zero_depth[10].time_received",
+                "hpx_zero_depth[10].time_request",
+                "hpx_zero_depth[11].idx",
+                "hpx_zero_depth[11].texture_idx",
+                "hpx_zero_depth[11].time_received",
+                "hpx_zero_depth[11].time_request",
+            ].as_ref()
         ));
         let shader_grid = Rc::new(Shader::new(&gl,
             shaders::grid_projeted_vert::CONTENT,
-            shaders::grid_frag::CONTENT
+            shaders::grid_frag::CONTENT,
+            [
+                // General uniforms
+                "current_time",
+                "model",
+                // Viewport uniforms
+                "zoom_factor",
+                "aspect",
+                // Grid-specific uniforms
+                "location_color",
+            ].as_ref()
         ));
         let mut shaders = HashMap::new();
         shaders.insert("hips_sphere", shader_2d_proj);
@@ -255,11 +327,13 @@ impl App {
                             // Move the grid the opposite way of the hips sphere
                             grid.borrow_mut().set_model_mat(hips_sphere.borrow().get_inverted_model_mat());
 
-                            grid.borrow_mut()
-                                .update(
-                                    &projection.get(),
-                                    &viewport.borrow()
-                                );
+                            if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
+                                grid.borrow_mut()
+                                    .update(
+                                        &projection.get(),
+                                        &viewport.borrow()
+                                    );
+                            }
 
                             time_last_move.set(utils::get_current_time() as f32);
                             roll.set(true);
@@ -306,11 +380,13 @@ impl App {
                     viewport.borrow_mut().unzoom();
                 }
 
-                grid.borrow_mut()
-                    .update(
-                        &projection.get(),
-                        &viewport.borrow()
-                    );
+                if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
+                    grid.borrow_mut()
+                        .update(
+                            &projection.get(),
+                            &viewport.borrow()
+                        );
+                }
 
                 // update the fov
                 let model_mat = &hips_sphere.as_ref().borrow().get_model_mat();
@@ -339,7 +415,7 @@ impl App {
         Ok(app)
     }
 
-    fn run(&self) {
+    fn run(&self, window: Rc<web_sys::Window>) {
         let gl = self.gl.clone();
         //let render_next_frame = self.render_next_frame.clone();
 
@@ -353,8 +429,21 @@ impl App {
         let g = f.clone();
         gl.clear_color(0.08, 0.08, 0.08, 1.0);
 
+        let fps_counter = Rc::new(window
+            .document().unwrap()
+            .get_element_by_id("fps-counter").unwrap()
+            .dyn_into::<web_sys::HtmlElement>().unwrap()
+        );
+
+        let performance = Rc::new(window
+            .performance()
+            .expect("performance should be available")
+        );
+
+        let window_2 = window.clone();
         *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
             if RENDER_NEXT_FRAME.load(Ordering::Relaxed) {
+                let start_frame = performance.now();
                 RENDER_NEXT_FRAME.store(false, Ordering::Relaxed);
                 /*if !pressed.get() && roll.get() {
                     let next_dist = compute_speed(time_last_move.get(), last_dist.get() * 0.5_f32);
@@ -376,11 +465,13 @@ impl App {
                 // then we stop rendering the next frames!
                 viewport.borrow_mut().update_camera_movement();
                 // The grid label positions
-                grid.borrow_mut().mesh_mut().update_label_positions(
-                    hips_sphere.borrow().get_inverted_model_mat(),
-                    &projection.get(),
-                    Some(&viewport.borrow()),
-                );
+                if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
+                    grid.borrow_mut().mesh_mut().update_label_positions(
+                        hips_sphere.borrow().get_inverted_model_mat(),
+                        &projection.get(),
+                        Some(&viewport.borrow()),
+                    );
+                }
 
                 // Render the scene
                 gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
@@ -390,17 +481,28 @@ impl App {
                 // Draw the HiPS sphere
                 hips_sphere.as_ref().borrow().draw(WebGl2RenderingContext::TRIANGLES, viewport);
 
-                /// Draw the grid
-                // The grid lines
-                grid.as_ref().borrow().draw(WebGl2RenderingContext::LINES, viewport);
-                // The labels
-                grid.borrow().mesh().draw_labels();
+                // Draw the grid
+                if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
+                    // The grid lines
+                    grid.as_ref().borrow().draw(WebGl2RenderingContext::LINES, viewport);
+                    // The labels
+                    grid.borrow().mesh().draw_labels();
+                }
+                gl.finish();
+
+                let end_frame = performance.now();
+                let frame_duration_sec = (end_frame - start_frame) / 1000_f64;
+                let frames_per_second = 1_f64 / frame_duration_sec;
+                fps_counter.set_inner_text(&frames_per_second.to_string()); 
             }
+
+            //console::log_1(&format!("FPS: {:?}", frames_per_second).into());
+
             // Schedule ourself for another requestAnimationFrame callback.
-            request_animation_frame(f.as_ref().borrow().as_ref().unwrap());
+            request_animation_frame(f.borrow().as_ref().unwrap(), &window_2);
         }) as Box<dyn FnMut()>));
 
-        request_animation_frame(g.as_ref().borrow().as_ref().unwrap());
+        request_animation_frame(g.borrow().as_ref().unwrap(), &window);
     }
 
     fn set_projection(&mut self, projection: ProjectionType) {
@@ -430,6 +532,35 @@ impl App {
         self.viewport.borrow().update_scissor();
         RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
     }
+
+    fn reload_hips_sphere(&mut self, hips_url: String) {
+        *HIPS_NAME.lock().unwrap() = hips_url;
+
+        let ref projection = self.projection.get();
+        let hips_sphere_mesh = HiPSSphere::new(&self.gl, projection);
+
+        // New HiPS sphere
+        self.hips_sphere.replace(
+            Renderable::<HiPSSphere>::new(
+                &self.gl,
+                self.shaders["hips_sphere"].clone(),
+                hips_sphere_mesh,
+            )
+        );
+
+        // New grid
+        let lat_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-80_f32).into(), cgmath::Deg(80_f32).into());
+        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(20_f32).into(), cgmath::Deg(20_f32).into(), Some(lat_bound), None, projection);
+        self.grid.replace(
+            Renderable::<ProjetedGrid>::new(
+                &self.gl,
+                self.shaders["grid"].clone(),
+                projeted_grid_mesh,
+            )
+        );
+
+        RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
+    }
 }
 
 lazy_static! {
@@ -454,7 +585,16 @@ lazy_static! {
                 .unwrap() as u32)
         )
     );
+    static ref ENABLED_WIDGETS: Arc<Mutex<HashMap<&'static str, bool>>> = {
+        let mut m = HashMap::new();
+        m.insert("hips_sphere", true);
+        m.insert("grid", true);
+        Arc::new(Mutex::new(m))
+    };
+
+    static ref HIPS_NAME: Arc<Mutex<String>> = Arc::new(Mutex::new(String::from("http://alasky.u-strasbg.fr/DSS/DSSColor")));
 }
+
 
 fn set_window_size(new_width: u32, new_height: u32) {
     WIDTH_SCREEN.store(new_width, Ordering::Relaxed);
@@ -530,6 +670,7 @@ impl Deref for WebGl2Context {
 #[wasm_bindgen]
 pub struct WebClient {
     app: App,
+    window: Rc<web_sys::Window>,
 }
 
 #[wasm_bindgen]
@@ -539,17 +680,20 @@ impl WebClient {
     pub fn new() -> WebClient {
         let gl = WebGl2Context::new();
         let app = App::new(&gl).unwrap();
+
+        let window = Rc::new(web_sys::window().unwrap());
         //let gl = Rc::new(create_webgl_context(Rc::clone(&app)).unwrap());
 
         WebClient {
             app,
+            window
         }
     }
 
     /// Start our WebGL Water application. `index.html` will call this function in order
     /// to begin rendering.
     pub fn start(&self) -> Result<(), JsValue> {
-        self.app.run();
+        self.app.run(self.window.clone());
 
         Ok(())
     }
@@ -572,7 +716,15 @@ impl WebClient {
 
     /// Enable equatorial grid
     pub fn enable_equatorial_grid(&mut self) -> Result<(), JsValue> {
-        self.app.grid.borrow_mut().enable();
+        //self.app.grid.borrow_mut().enable();
+        if let Some(grid) = ENABLED_WIDGETS.lock().unwrap().get_mut("grid") {
+            *grid = true;
+            self.app.grid.borrow_mut()
+                .update(
+                    &self.app.projection.get(),
+                    &self.app.viewport.borrow()
+                );
+        }
         RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
 
         Ok(())
@@ -580,8 +732,17 @@ impl WebClient {
 
     /// Disable equatorial grid
     pub fn disable_equatorial_grid(&mut self) -> Result<(), JsValue> {
-        self.app.grid.borrow_mut().disable();
+        if let Some(grid) = ENABLED_WIDGETS.lock().unwrap().get_mut("grid") {
+            *grid = false;
+            self.app.grid.borrow_mut().mesh_mut().clear_canvas();
+        }
         RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
+
+        Ok(())
+    }
+
+    pub fn change_hips(&mut self, hips_url: String) -> Result<(), JsValue> {
+        self.app.reload_hips_sphere(hips_url);
 
         Ok(())
     }

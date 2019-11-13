@@ -274,15 +274,15 @@ pub static CONTENT: &'static str = r#"#version 300 es
     }*/
     const float tex_step_depth_zero = 0.0909090909f;
     TileColor get_tile_color(vec3 pos, float size, int depth) {
-        //vec3 res = hash_with_dxdy(depth, pos.zxy);
-        vec2 radec = vec2(atan(pos.x, pos.z), asin(pos.y));
-        //vec2 radec = vec2(0.f);
+        vec3 res = hash_with_dxdy(depth, pos.zxy);
+        int idx = int(res.x);
+        /*vec2 radec = vec2(atan(pos.x, pos.z), asin(pos.y));
         radec = radec * vec2(-1.f/(2.f*PI), 1.f/PI) + 0.5f;
-
         vec3 res = texture(ang2pix_0_texture, radec).rgb;
-        int idx = int(res.r * 255.f);
-        vec2 uv = res.bg;
-        
+        int idx = int(res.r * 255.f);*/
+
+        vec2 uv = res.zy;
+
         float a = 0.f;
         float b = size - 1.f;
 
@@ -308,7 +308,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
         }
 
         // code unreachable
-        //return TileColor(hpx_zero_depth[0], vec3(0.f));
+        return TileColor(hpx_zero_depth[0], vec3(0.f));
     }
 
     const float duration = 500.f; // 1000 ms

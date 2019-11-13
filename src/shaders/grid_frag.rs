@@ -1,5 +1,5 @@
 pub static CONTENT: &'static str = r#"#version 300 es
-    precision highp float;
+    precision lowp float;
 
     out vec4 color;
 

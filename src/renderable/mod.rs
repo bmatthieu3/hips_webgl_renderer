@@ -52,7 +52,6 @@ where T: Mesh + DisableDrawing {
     mesh: T,
 
     gl: WebGl2Context,
-    enabled: bool,
 }
 
 
@@ -64,7 +63,7 @@ use crate::utils;
 impl<T> Renderable<T>
 where T: Mesh + DisableDrawing {
     pub fn new(gl: &WebGl2Context, shader: Rc<Shader>, mesh: T) -> Renderable<T> {
-        shader.bind(&gl);
+        shader.bind(gl);
 
         let vertex_array_object = mesh.create_buffers(gl);
 
@@ -76,7 +75,6 @@ where T: Mesh + DisableDrawing {
         let translation_mat = cgmath::Matrix4::identity();
 
         let gl = gl.clone();
-        let enabled = true;
         Renderable {
             // The shader to bind when drawing the renderable
             shader,
@@ -91,18 +89,7 @@ where T: Mesh + DisableDrawing {
             vertex_array_object,
             mesh,
             gl,
-            enabled,
         }
-    }
-
-    pub fn disable(&mut self) {
-        self.enabled = false;
-
-        self.mesh.disable();
-    }
-
-    pub fn enable(&mut self) {
-        self.enabled = true;
     }
 
     fn recompute_model_matrix(&mut self) {
@@ -160,10 +147,6 @@ where T: Mesh + DisableDrawing {
     }
 
     pub fn draw(&self, mode: u32, viewport: &ViewPort) {
-        if !self.enabled {
-            return;
-        }
-
         self.shader.bind(&self.gl);
 
         self.vertex_array_object.bind();
@@ -173,13 +156,13 @@ where T: Mesh + DisableDrawing {
         self.mesh.send_uniforms(&self.gl, &self.shader);
 
         // Send model matrix
-        let model_mat_location = self.shader.get_uniform_location(&self.gl, "model");
+        let model_mat_location = self.shader.get_uniform_location("model");
         let model_mat_f32_slice: &[f32; 16] = self.model_mat.as_ref();
-        self.gl.uniform_matrix4fv_with_f32_array(model_mat_location.as_ref(), false, model_mat_f32_slice);
+        self.gl.uniform_matrix4fv_with_f32_array(model_mat_location, false, model_mat_f32_slice);
 
         // Send current time
-        let location_time = self.shader.get_uniform_location(&self.gl, "current_time");
-        self.gl.uniform1f(location_time.as_ref(), utils::get_current_time());
+        let location_time = self.shader.get_uniform_location("current_time");
+        self.gl.uniform1f(location_time, utils::get_current_time());
 
         self.gl.draw_elements_with_i32(
             mode,

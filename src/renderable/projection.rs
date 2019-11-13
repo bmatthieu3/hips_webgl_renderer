@@ -1,9 +1,8 @@
-use cgmath::{Vector3, Vector4, InnerSpace};
 use crate::viewport::ViewPort;
 
 use web_sys::console;
 
-use crate::{WIDTH_SCREEN, HEIGHT_SCREEN, window_size_f32};
+use crate::{window_size_f32};
 
 pub fn screen_pixels_to_homogenous(x: f32, y: f32, viewport: &ViewPort) -> (f32, f32) {
     // Screen space in pixels to homogeneous screen space (values between [-1, 1])

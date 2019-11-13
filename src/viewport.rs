@@ -104,7 +104,8 @@ impl ViewPort {
     }
 
     pub fn update_camera_movement(&mut self) {
-        if self.current_zoom == self.final_zoom {
+        if (self.current_zoom - self.final_zoom).abs() < 1e-2 {
+            self.current_zoom = self.final_zoom;
             return;
         }
 
@@ -144,22 +145,21 @@ impl ViewPort {
         gl.uniform_matrix4fv_with_f32_array(view_mat_location.as_ref(), false, view_mat_f32_slice);*/
 
         // Send zoom factor
-        let zoom_factor_location = shader.get_uniform_location(gl, "zoom_factor");
-        gl.uniform1f(zoom_factor_location.as_ref(), self.current_zoom);
+        let zoom_factor_location = shader.get_uniform_location("zoom_factor");
+        gl.uniform1f(zoom_factor_location, self.current_zoom);
 
         // Send window size
-        let location_resize_factor_x = shader.get_uniform_location(gl, "resize_factor_x");
+        /*let location_resize_factor_x = shader.get_uniform_location(gl, "resize_factor_x");
         gl.uniform1f(location_resize_factor_x.as_ref(), self.resize_factor_x);
         
         let location_resize_factor_y = shader.get_uniform_location(gl, "resize_factor_y");
         gl.uniform1f(location_resize_factor_y.as_ref(), self.resize_factor_y);
-
-        let location_aspect = shader.get_uniform_location(gl, "aspect");
+        */
+        let location_aspect = shader.get_uniform_location("aspect");
 
         let (width, height) = window_size_f32();
-
         let aspect = width / height;
-        gl.uniform1f(location_aspect.as_ref(), aspect);
+        gl.uniform1f(location_aspect, aspect);
         /*let location_starting_window = shader.get_uniform_location(gl, "window_size_default").unwrap();
         gl.uniform2f(Some(&location_starting_window), self.starting_width, self.starting_height);
         let location_current_window = shader.get_uniform_location(gl, "current_window_size").unwrap();

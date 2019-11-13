@@ -39,13 +39,18 @@
             background-color: gray;
         }
 
+        p {
+            margin: 0;
+        }
+
 		</style>
+        <link rel="stylesheet" href="./css/auto-complete.css">
 	</head>
 	<body>
+        <script src="./js/auto-complete.js"></script>
 		<div class="webgl_view">
 			<canvas id="canvas"></canvas>
 			<canvas id="labels_grid"></canvas>
-
             <div class="ui">
                 <h1>WebGL2 Aladin-Lite</h1>
                 <label for="proj-select">Projection:</label>
@@ -56,6 +61,12 @@
                 <br />
                 <label for="enable-grid">Equatorial grid:</label>
                 <input id="enable-grid" type="checkbox" checked />
+                <br />
+                <label for="fps-counter">Rendering time (no unit):</label>
+                <p id="fps-counter"></p>
+                <label for="hips-selector">HiPS selector</label>
+                <input id="hips-selector" autofocus type="text" name="q" placeholder="HiPS ..." style="width:100%;outline:0">
+                <input id="hips-selector-validate" type="button" value="Change HiPS!">
             </div>
 		</div>
         
