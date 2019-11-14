@@ -105,6 +105,7 @@ use cgmath::{SquareMatrix, InnerSpace};
 use wasm_bindgen::JsCast;
 use crate::math::radec_to_xyz;
 use crate::{window_size_f32, window_size_f64, window_size_u32};
+use crate::DEGRADE_CANVAS_RATIO;
 
 impl ProjetedGrid {
     pub fn new(step_lat: cgmath::Rad<f32>,
@@ -198,10 +199,12 @@ impl ProjetedGrid {
             .get_element_by_id("labels_grid").unwrap()
             .dyn_into::<web_sys::HtmlCanvasElement>().unwrap();
 
-        let (width, height) = window_size_u32();
+        let (mut width, mut height) = window_size_f32();
+        width *= DEGRADE_CANVAS_RATIO;
+        height *= DEGRADE_CANVAS_RATIO; 
 
-        text_canvas.set_width(width);
-        text_canvas.set_height(height);
+        text_canvas.set_width(width as u32);
+        text_canvas.set_height(height as u32);
 
         let text_canvas = text_canvas.get_context("2d")
             .unwrap()
@@ -252,7 +255,9 @@ impl ProjetedGrid {
     }
 
     pub fn update_label_positions(&mut self, local_to_world_mat: &Matrix4<f32>, projection: &ProjectionType, viewport: Option<&ViewPort>) {
-        let (width_screen, height_screen) = window_size_f32();
+        let (mut width_screen, mut height_screen) = window_size_f32();
+        width_screen *= DEGRADE_CANVAS_RATIO;
+        height_screen *= DEGRADE_CANVAS_RATIO;
 
         let viewport_zoom_factor = if let Some(viewport) = viewport {
             viewport.get_zoom_factor()
@@ -282,7 +287,9 @@ impl ProjetedGrid {
 
     pub fn draw_labels(&self) {
         // Clear the 2D canvas
-        let (width_screen, height_screen) = window_size_f64();
+        let (mut width_screen, mut height_screen) = window_size_f64();
+        width_screen *= DEGRADE_CANVAS_RATIO as f64;
+        height_screen *= DEGRADE_CANVAS_RATIO as f64;
         self.text_canvas.clear_rect(0_f64, 0_f64, width_screen, height_screen);
         // Fill
         for (label_text, pos_screen_space) in self.label_text.iter().zip(self.label_pos_screen_space.iter()) {
@@ -291,7 +298,10 @@ impl ProjetedGrid {
     }
 
     pub fn clear_canvas(&mut self) {
-        let (width_screen, height_screen) = window_size_f64();
+        let (mut width_screen, mut height_screen) = window_size_f64();
+        width_screen *= DEGRADE_CANVAS_RATIO as f64;
+        height_screen *= DEGRADE_CANVAS_RATIO as f64;
+
         self.text_canvas.clear_rect(0_f64, 0_f64, width_screen, height_screen); 
     }
 }
@@ -345,7 +355,8 @@ impl Mesh for ProjetedGrid {
     }
 
     fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: Option<&ViewPort>) {
-        let (width_screen, _) = window_size_f32();
+        let (mut width_screen, _) = window_size_f32();
+        width_screen *= DEGRADE_CANVAS_RATIO;
 
         self.pos_screen_space.clear();
         // UPDATE GRID VERTICES POSITIONS
@@ -363,7 +374,7 @@ impl Mesh for ProjetedGrid {
         //let num_vertices = self.lat.len() * (self.num_points_lon - 1) * 2;
         self.idx_vertices = vec![0; num_vertices];
 
-        let mut threshold_px = 2_f32 * (200_f32 / width_screen);
+        let mut threshold_px = 2_f32 * (100_f32 / width_screen);
         threshold_px = threshold_px * threshold_px;
 
         let mut i = 0;

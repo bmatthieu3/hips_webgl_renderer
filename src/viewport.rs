@@ -23,7 +23,7 @@ use web_sys::WebGl2RenderingContext;
 
 use crate::WebGl2Context;
 
-use crate::{set_window_size, window_size_f32};
+use crate::{set_window_size, window_size_f32, window_size_u32};
 use wasm_bindgen::JsCast;
 
 use cgmath::Vector2;
@@ -116,14 +116,17 @@ impl ViewPort {
     }
 
     pub fn resize(&mut self) {
-        let width = web_sys::window().unwrap().inner_width()
+        /*let width = web_sys::window().unwrap().inner_width()
             .unwrap()
             .as_f64()
             .unwrap() as u32;
         let height = web_sys::window().unwrap().inner_height()
             .unwrap()
             .as_f64()
-            .unwrap() as u32;
+            .unwrap() as u32;*/
+        /*let width = 1024;
+        let height = 768;*/
+        let (width, height) = window_size_u32();
 
         set_window_size(width, height);
 

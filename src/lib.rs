@@ -178,9 +178,9 @@ impl App {
 
         // Grid definition
         let lon_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-30_f32).into(), cgmath::Deg(30_f32).into());
-        let lat_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-80_f32).into(), cgmath::Deg(80_f32).into());
+        let lat_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-90_f32).into(), cgmath::Deg(90_f32).into());
         //let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(10_f32).into(), cgmath::Deg(10_f32).into(), Some(lat_bound), Some(lon_bound), &projection.get(), &viewport.borrow());
-        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(40_f32).into(), cgmath::Deg(40_f32).into(), Some(lat_bound), None, &projection.get());
+        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, &projection.get());
 
         // Renderable definition
         let hips_sphere = Rc::new(RefCell::new(Renderable::<HiPSSphere>::new(
@@ -519,8 +519,8 @@ impl App {
         );
 
         // New grid
-        let lat_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-80_f32).into(), cgmath::Deg(80_f32).into());
-        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(20_f32).into(), cgmath::Deg(20_f32).into(), Some(lat_bound), None, &projection);
+        let lat_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-90_f32).into(), cgmath::Deg(90_f32).into());
+        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, &projection);
         self.grid.replace(
             Renderable::<ProjetedGrid>::new(
                 &self.gl,
@@ -549,8 +549,8 @@ impl App {
         );
 
         // New grid
-        let lat_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-80_f32).into(), cgmath::Deg(80_f32).into());
-        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(20_f32).into(), cgmath::Deg(20_f32).into(), Some(lat_bound), None, projection);
+        let lat_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-90_f32).into(), cgmath::Deg(90_f32).into());
+        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, projection);
         self.grid.replace(
             Renderable::<ProjetedGrid>::new(
                 &self.gl,
@@ -563,6 +563,8 @@ impl App {
     }
 }
 
+static DEGRADE_CANVAS_RATIO: f32 = 1.4_f32;
+
 lazy_static! {
     // Note: Render_next_frame is global for the moment
     // A Rc cannot be instanciated as global because it cannot be shared between
@@ -571,18 +573,32 @@ lazy_static! {
     static ref RENDER_NEXT_FRAME: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
     static ref WIDTH_SCREEN: Arc<AtomicU32> = Arc::new(
         AtomicU32::new(
+            /*web_sys::window().unwrap()
+                .document().unwrap()
+                .get_element_by_id("canvas").unwrap()
+                .dyn_into::<web_sys::HtmlCanvasElement>().unwrap()
+                .width() as u32*/
+            //1024
             (web_sys::window().unwrap().inner_width()
                 .unwrap()
                 .as_f64()
-                .unwrap() as u32)
+                .unwrap() / (DEGRADE_CANVAS_RATIO as f64)) as u32
+            //512 as u32
         )
     );
     static ref HEIGHT_SCREEN: Arc<AtomicU32> = Arc::new(
         AtomicU32::new(
+            /*web_sys::window().unwrap()
+                .document().unwrap()
+                .get_element_by_id("canvas").unwrap()
+                .dyn_into::<web_sys::HtmlCanvasElement>().unwrap()
+                .height() as u32*/
+            //768
             (web_sys::window().unwrap().inner_height()
                 .unwrap()
                 .as_f64()
-                .unwrap() as u32)
+                .unwrap() / (DEGRADE_CANVAS_RATIO as f64)) as u32
+            //512 as u32
         )
     );
     static ref ENABLED_WIDGETS: Arc<Mutex<HashMap<&'static str, bool>>> = {
@@ -594,7 +610,6 @@ lazy_static! {
 
     static ref HIPS_NAME: Arc<Mutex<String>> = Arc::new(Mutex::new(String::from("http://alasky.u-strasbg.fr/DSS/DSSColor")));
 }
-
 
 fn set_window_size(new_width: u32, new_height: u32) {
     WIDTH_SCREEN.store(new_width, Ordering::Relaxed);

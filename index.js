@@ -1,12 +1,34 @@
-// For more comments about what's going on here, check out the `hello_world`
-// example.
+const autoComplete = require('./js/auto-complete.js');
 window.addEventListener('load', function () {
     import('./pkg/webgl')
         .then((webgl) => {
+            let hipsesArray = [];
+            let hipsesMap = new Map();
+            new autoComplete({
+                selector: '#hips-selector',
+                minChars: 2,
+                source: function(term, suggest) {
+                    term = term.toLowerCase();
+                    var choices = hipsesArray;
+                    var matches = [];
+                    for (i=0; i<choices.length; i++) {
+                        if (choices[i].toLowerCase().indexOf(term)>=0) {
+                            matches.push(choices[i]);
+                        }
+                    }
+                    suggest(matches);
+                },
+                renderItem: function (item, search) {
+                    search = search.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+                    var re = new RegExp("(" + search.split(' ').join('|') + ")", "gi");
+                    return '<div class="autocomplete-suggestion" data-val="' + item + '">' + item.replace(re, "<b>$1</b>") + '</div>';
+                },
+            });
+
             // Start our Rust application. You can find `WebClient` in `src/lib.rs`
             const webClient = new webgl.WebClient();
             webClient.start();
-            let hipsesArray = [];
+
             const url = 'https://alasky.u-strasbg.fr/MocServer/query?hips_service_url*=*alasky*&&dataproduct_type=image&&hips_tile_format=*jpeg*&get=record&fmt=json';
             // Create our request constructor with all the parameters we need
             var request = {
@@ -19,34 +41,13 @@ window.addEventListener('load', function () {
                 .then(response => response.json())
                 .then((hipses) => {
                     for (var k = 0; k < hipses.length; k++) {
-                        var hips = hipses[k];
-                        var id = hips.ID;
-            
-                        hipsesArray.push(hips);
+                        var hips_id = hipses[k].ID;
+
+                        hipsesMap[hips_id] = hipses[k].hips_service_url;
+                        hipsesArray.push(hips_id);
                     }
                     console.log(hipsesArray);
                 });
-
-            new autoComplete({
-                selector: '#hips-selector',
-                minChars: 2,
-                source: function(term, suggest) {
-                    term = term.toLowerCase();
-                    var choices = hipsesArray;
-                    var matches = [];
-                    for (i=0; i<choices.length; i++) {
-                        if (choices[i].ID.toLowerCase().indexOf(term)>=0) {
-                            matches.push(choices[i].hips_service_url);
-                        }
-                    }
-                    suggest(matches);
-                },
-                renderItem: function (item, search) {
-                    search = search.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-                    var re = new RegExp("(" + search.split(' ').join('|') + ")", "gi");
-                    return '<div class="autocomplete-suggestion" data-val="' + item + '">' + item.replace(re, "<b>$1</b>") + '</div>';
-                },
-            });
 
             // Add the UI event listeners
             let select_projection = document.getElementById("proj-select");
@@ -79,10 +80,10 @@ window.addEventListener('load', function () {
 
             // - Change HiPS
             hips_selector_validate.addEventListener("click", () => {
-                let hips = hips_selector.value;
-                console.log(hips);
+                let hips_id = hips_selector.value;
+                console.log(hips_id, hipsesMap);
 
-                webClient.change_hips(hips);
+                webClient.change_hips(hipsesMap[hips_id]);
             });
         })
         .catch(console.error);
