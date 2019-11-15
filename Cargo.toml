@@ -50,6 +50,7 @@ features = [
   'CanvasRenderingContext2d',
   'TextMetrics',
   'ImageData',
+  'Storage',
 ]
 
 [profile.release]

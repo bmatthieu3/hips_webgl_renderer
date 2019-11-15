@@ -62,8 +62,7 @@ impl Ord for Tile {
 
 #[derive(Debug)]
 pub struct TileGPU {
-    pub idx: i32,
-    pub depth: i32,
+    pub uniq: i32,
 
     pub texture_idx: i32,
 
@@ -73,7 +72,7 @@ pub struct TileGPU {
 
 impl PartialEq for TileGPU {
     fn eq(&self, other: &Self) -> bool {
-        self.idx == other.idx && self.depth == other.depth
+        self.uniq == other.uniq
     }
 }
 impl Eq for TileGPU {}
@@ -81,9 +80,10 @@ impl Eq for TileGPU {}
 impl PartialOrd for TileGPU {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         // Order by UNIQ notation
-        /*let u1: i32 = 1 << (2*(self.depth + 1)) + self.idx;
-        let u2: i32 = 1 << (2*(other.depth + 1)) + other.idx;*/
-        self.idx.partial_cmp(&other.idx)
+        //let u1: i32 = 1 << (2*(self.depth + 1)) + self.idx;
+        //let u2: i32 = 1 << (2*(other.depth + 1)) + other.idx;
+
+        self.uniq.partial_cmp(&other.uniq)
     }
 }
 impl Ord for TileGPU {
@@ -92,11 +92,11 @@ impl Ord for TileGPU {
     }
 }
 
-
 impl From<Tile> for TileGPU {
     fn from(tile: Tile) -> Self {
         let idx = tile.idx as i32;
         let depth = tile.depth as i32;
+        let uniq = (1 << (2*(depth + 1))) + idx;
 
         let texture_idx = tile.texture_idx as i32;
 
@@ -104,8 +104,7 @@ impl From<Tile> for TileGPU {
         let time_received = tile.time_received.unwrap();
 
         TileGPU {
-            idx,
-            depth,
+            uniq,
 
             texture_idx,
 
@@ -115,9 +114,12 @@ impl From<Tile> for TileGPU {
     }
 }
 
+use web_sys::Storage;
+
 #[derive(Clone)]
 pub struct BufferTiles {
     gl: WebGl2Context,
+    storage: TileLocalStorage,
 
     buffer: BinaryHeap<Tile>,
     requested_tiles: HashSet<(u8, u64)>,
@@ -138,9 +140,14 @@ impl BufferTiles {
 
         let (texture, idx_texture_unit) = create_sampler_3d(gl, size as u32);
 
+        let storage = TileLocalStorage::new();
+
         let gl = gl.clone();
         BufferTiles {
             gl,
+
+            storage,
+
             buffer,
             requested_tiles,
             size,
@@ -150,7 +157,7 @@ impl BufferTiles {
     }
     
     // Add a new tile to the buffer
-    pub fn add(&mut self, depth: u8, idx: u64, time_request: f32) -> usize {
+    pub fn add(&mut self, depth: u8, idx: u64, time_request: f32, image: Rc<RefCell<HtmlImageElement>>) -> usize {
         let texture_idx = if self.buffer.len() == self.size {
             // Remove the oldest tile from the buffer and from the
             // hashset
@@ -175,6 +182,7 @@ impl BufferTiles {
             time_received,
         };
 
+        // Push it to the GPU buffer
         self.buffer.push(tile);
 
         texture_idx
@@ -205,6 +213,7 @@ impl BufferTiles {
                 console::log_1(&format!("found healpix cell").into());
                 // Found 
                 tile.time_request = time_request;
+                //tile.time_received = Some(utils::get_current_time());
 
                 // Push it to the buffer again
                 let mut buffer = BinaryHeap::new();
@@ -225,10 +234,10 @@ impl BufferTiles {
         }
     }
 
-    fn replace_texture_sampler_3d(&self, gl: &WebGl2Context, idx: i32, image: &HtmlImageElement) {
-        gl.active_texture(self.idx_texture_unit);
-        gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, self.texture.as_ref());
-        gl.tex_sub_image_3d_with_html_image_element(
+    fn replace_texture_sampler_3d(&self, idx: i32, image: &HtmlImageElement) {
+        self.gl.active_texture(self.idx_texture_unit);
+        self.gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, self.texture.as_ref());
+        self.gl.tex_sub_image_3d_with_html_image_element(
             WebGl2RenderingContext::TEXTURE_3D,
             0,
             0,
@@ -268,13 +277,78 @@ impl BufferTiles {
     }
 }
 
+#[derive(Clone)]
+struct TileLocalStorage {
+    storage: Option<Storage>,
+}
+
+impl TileLocalStorage {
+    fn new() -> TileLocalStorage {
+        let storage = web_sys::window().unwrap()
+            .local_storage()
+            .map_err(|_| console::log_1(&format!("No local storage found!").into()))
+            .unwrap();
+
+        if let Some(ref storage) = storage {
+            // Free the local storage when a new buffer is created
+            storage.clear().unwrap();
+        }
+
+        TileLocalStorage {
+            storage
+        }
+    }
+/*
+    fn get_tile_image(&self, depth: u8, idx: u64) -> Option<Rc<RefCell<HtmlImageElement>>> {
+        if let Some(ref storage) = self.storage {
+            let uniq = idx + (1 << (2*(depth + 1)));
+            let ref key = uniq.to_string();
+            if let Some(ref stringified_image) = storage.get_item(key).unwrap() {
+                // Parse the stringified image
+                Some(
+                    Rc::new(RefCell::new(JSON::parse(stringified_image)
+                        .unwrap()
+                        .dyn_into::<web_sys::HtmlImageElement>()
+                        .unwrap()))
+                )
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    fn store_tile_image(&mut self, depth: u8, idx: u64, image: Rc<RefCell<HtmlImageElement>>) {
+        if let Some(ref mut storage) = self.storage {
+            let uniq = idx + (1 << (2*(depth + 1)));
+            let ref key = uniq.to_string();
+
+            let value: String = JSON::stringify(&image.borrow()).unwrap().into();
+            storage.set_item(key, &value);
+        }
+    }
+    */
+}
+
+
 use crate::HIPS_NAME;
+use js_sys::JSON;
+use std::cell::Cell;
+
+use std::sync::Arc;
+use std::sync::Mutex;
+
 pub fn load_healpix_tile(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>, idx: u64, depth: u8) {
     let time_request = utils::get_current_time();
     
+    // Check whether is already into the 24 tiles GPU buffer
     if buffer.borrow_mut().replace_tile(depth, idx, time_request) {
         return;
     }
+
+    //let uniq = idx + (1 << (2*(depth + 1)));
+    //if STORAGE.lock().unwrap().get_tile_image(uniq)
 
     // Add it to the loaded cells hashset
     buffer.borrow_mut().add_to_requested_tile(depth, idx);
@@ -302,14 +376,12 @@ pub fn load_healpix_tile(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>, i
 
     let onload = {
         let image = image.clone();
-        let gl = gl.clone();
 
         Closure::wrap(Box::new(move || {
             console::log_1(&format!("load new tile").into());
-
             // Add the received tile to the buffer
-            let idx_texture = buffer.borrow_mut().add(depth, idx, time_request);
-            buffer.borrow().replace_texture_sampler_3d(&gl, idx_texture as i32, &image.borrow());
+            let idx_texture = buffer.borrow_mut().add(depth, idx, time_request, image.clone());
+            buffer.borrow().replace_texture_sampler_3d(idx_texture as i32, &image.borrow());
 
             // Tell the app to render the next frame
             // because a a new has been received
@@ -334,7 +406,7 @@ fn create_sampler_3d(gl: &WebGl2Context, size_buffer: u32) -> (Option<web_sys::W
     let canvas: web_sys::HtmlCanvasElement = canvas.dyn_into::<web_sys::HtmlCanvasElement>().unwrap();
     canvas.set_width(WIDTH_TEXTURE as u32);
     canvas.set_height((HEIGHT_TEXTURE as u32) * size_buffer);
-    
+
     let ctx = Rc::new(
         RefCell::new(
             canvas.get_context("2d")
@@ -349,7 +421,7 @@ fn create_sampler_3d(gl: &WebGl2Context, size_buffer: u32) -> (Option<web_sys::W
     unsafe {
         NUM_TEXTURE_UNIT += 1;
     }
-    
+
     gl.active_texture(idx_texture_unit);
     gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, webgl_texture.as_ref());
 

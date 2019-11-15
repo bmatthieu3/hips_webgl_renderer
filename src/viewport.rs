@@ -88,8 +88,8 @@ impl ViewPort {
 
     pub fn zoom(&mut self) {
         self.final_zoom *= 1.2_f32;
-        if self.final_zoom > 20_f32 {
-            self.final_zoom = 20_f32;
+        if self.final_zoom > 1000_f32 {
+            self.final_zoom = 1000_f32;
         }
         //self.zoom_factor *= 1.2_f32;
 

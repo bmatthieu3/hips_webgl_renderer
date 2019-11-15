@@ -51,7 +51,7 @@ use crate::WebGl2Context;
 
 impl<'a> HiPSSphere {
     pub fn new(gl: &WebGl2Context, projection: &ProjectionType) -> HiPSSphere {
-        let buffer_base_tiles = Rc::new(RefCell::new(BufferTiles::new(gl, 12)));
+        let buffer_base_tiles = Rc::new(RefCell::new(BufferTiles::new(gl, 24)));
         for idx in (0 as u64)..(12 as u64) {
             load_healpix_tile(&gl, buffer_base_tiles.clone(), idx, 0);
         }
@@ -92,7 +92,7 @@ impl<'a> HiPSSphere {
         }
     }*/
 
-    pub fn update_field_of_view(&mut self, projection: &ProjectionType, viewport: &ViewPort, model: &cgmath::Matrix4<f32>, zoom: bool) {
+    pub fn update_field_of_view(&mut self, projection: &ProjectionType, viewport: &ViewPort, model: &cgmath::Matrix4<f32>) {
         let num_control_points_width = 5;
         let num_control_points_height = 5;
         let num_control_points = 4 + 2*num_control_points_width + 2*num_control_points_height;
@@ -164,9 +164,9 @@ impl<'a> HiPSSphere {
         self.current_depth = depth;
         self.hpx_cells_in_fov = healpix_cells.len() as i32;
 
-        /*for idx in healpix_cells {
+        for idx in healpix_cells {
             load_healpix_tile(&self.gl, self.buffer_base_tiles.clone(), idx as u64, depth as u8);
-        }*/
+        }
         //self.load_healpix_tile_textures(healpix_cells, depth, zoom);
     }
 
@@ -293,8 +293,8 @@ impl Mesh for HiPSSphere {
             name += &i.to_string();
             name += "].";
 
-            let location_hpx_idx = shader.get_uniform_location(&(name.clone() + "idx"));
-            gl.uniform1i(location_hpx_idx, hpx.idx);
+            let location_hpx_idx = shader.get_uniform_location(&(name.clone() + "uniq"));
+            gl.uniform1i(location_hpx_idx, hpx.uniq);
 
             let location_buf_idx = shader.get_uniform_location(&(name.clone() + "texture_idx"));
             gl.uniform1i(location_buf_idx, hpx.texture_idx);

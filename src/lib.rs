@@ -103,54 +103,102 @@ impl App {
                 "ang2pix_1_texture",
                 "ang2pix_2_texture",
                 "textures_0",
-                "hpx_zero_depth[0].idx",
+                "hpx_zero_depth[0].uniq",
                 "hpx_zero_depth[0].texture_idx",
                 "hpx_zero_depth[0].time_received",
                 "hpx_zero_depth[0].time_request",
-                "hpx_zero_depth[1].idx",
+                "hpx_zero_depth[1].uniq",
                 "hpx_zero_depth[1].texture_idx",
                 "hpx_zero_depth[1].time_received",
                 "hpx_zero_depth[1].time_request",
-                "hpx_zero_depth[2].idx",
+                "hpx_zero_depth[2].uniq",
                 "hpx_zero_depth[2].texture_idx",
                 "hpx_zero_depth[2].time_received",
                 "hpx_zero_depth[2].time_request",
-                "hpx_zero_depth[3].idx",
+                "hpx_zero_depth[3].uniq",
                 "hpx_zero_depth[3].texture_idx",
                 "hpx_zero_depth[3].time_received",
                 "hpx_zero_depth[3].time_request",
-                "hpx_zero_depth[4].idx",
+                "hpx_zero_depth[4].uniq",
                 "hpx_zero_depth[4].texture_idx",
                 "hpx_zero_depth[4].time_received",
                 "hpx_zero_depth[4].time_request",
-                "hpx_zero_depth[5].idx",
+                "hpx_zero_depth[5].uniq",
                 "hpx_zero_depth[5].texture_idx",
                 "hpx_zero_depth[5].time_received",
                 "hpx_zero_depth[5].time_request",
-                "hpx_zero_depth[6].idx",
+                "hpx_zero_depth[6].uniq",
                 "hpx_zero_depth[6].texture_idx",
                 "hpx_zero_depth[6].time_received",
                 "hpx_zero_depth[6].time_request",
-                "hpx_zero_depth[7].idx",
+                "hpx_zero_depth[7].uniq",
                 "hpx_zero_depth[7].texture_idx",
                 "hpx_zero_depth[7].time_received",
                 "hpx_zero_depth[7].time_request",
-                "hpx_zero_depth[8].idx",
+                "hpx_zero_depth[8].uniq",
                 "hpx_zero_depth[8].texture_idx",
                 "hpx_zero_depth[8].time_received",
                 "hpx_zero_depth[8].time_request",
-                "hpx_zero_depth[9].idx",
+                "hpx_zero_depth[9].uniq",
                 "hpx_zero_depth[9].texture_idx",
                 "hpx_zero_depth[9].time_received",
                 "hpx_zero_depth[9].time_request",
-                "hpx_zero_depth[10].idx",
+                "hpx_zero_depth[10].uniq",
                 "hpx_zero_depth[10].texture_idx",
                 "hpx_zero_depth[10].time_received",
                 "hpx_zero_depth[10].time_request",
-                "hpx_zero_depth[11].idx",
+                "hpx_zero_depth[11].uniq",
                 "hpx_zero_depth[11].texture_idx",
                 "hpx_zero_depth[11].time_received",
                 "hpx_zero_depth[11].time_request",
+                "hpx_zero_depth[12].uniq",
+                "hpx_zero_depth[12].texture_idx",
+                "hpx_zero_depth[12].time_received",
+                "hpx_zero_depth[12].time_request",
+                "hpx_zero_depth[13].uniq",
+                "hpx_zero_depth[13].texture_idx",
+                "hpx_zero_depth[13].time_received",
+                "hpx_zero_depth[13].time_request",
+                "hpx_zero_depth[14].uniq",
+                "hpx_zero_depth[14].texture_idx",
+                "hpx_zero_depth[14].time_received",
+                "hpx_zero_depth[14].time_request",
+                "hpx_zero_depth[15].uniq",
+                "hpx_zero_depth[15].texture_idx",
+                "hpx_zero_depth[15].time_received",
+                "hpx_zero_depth[15].time_request",
+                "hpx_zero_depth[16].uniq",
+                "hpx_zero_depth[16].texture_idx",
+                "hpx_zero_depth[16].time_received",
+                "hpx_zero_depth[16].time_request",
+                "hpx_zero_depth[17].uniq",
+                "hpx_zero_depth[17].texture_idx",
+                "hpx_zero_depth[17].time_received",
+                "hpx_zero_depth[17].time_request",
+                "hpx_zero_depth[18].uniq",
+                "hpx_zero_depth[18].texture_idx",
+                "hpx_zero_depth[18].time_received",
+                "hpx_zero_depth[18].time_request",
+                "hpx_zero_depth[19].uniq",
+                "hpx_zero_depth[19].texture_idx",
+                "hpx_zero_depth[19].time_received",
+                "hpx_zero_depth[19].time_request",
+                "hpx_zero_depth[20].uniq",
+                "hpx_zero_depth[20].texture_idx",
+                "hpx_zero_depth[20].time_received",
+                "hpx_zero_depth[20].time_request",
+                "hpx_zero_depth[21].uniq",
+                "hpx_zero_depth[21].texture_idx",
+                "hpx_zero_depth[21].time_received",
+                "hpx_zero_depth[21].time_request",
+                "hpx_zero_depth[22].uniq",
+                "hpx_zero_depth[22].texture_idx",
+                "hpx_zero_depth[22].time_received",
+                "hpx_zero_depth[22].time_request",
+                "hpx_zero_depth[23].uniq",
+                "hpx_zero_depth[23].texture_idx",
+                "hpx_zero_depth[23].time_received",
+                "hpx_zero_depth[23].time_request",
             ].as_ref()
         ));
         let shader_grid = Rc::new(Shader::new(&gl,
@@ -345,11 +393,6 @@ impl App {
 
                             last_axis.set(axis);
                             last_dist.set(dist);
-
-                            // update the fov
-                            hips_sphere.borrow_mut()
-                                .mesh_mut()
-                                .update_field_of_view(&projection.get(), &viewport.borrow(), model_mat, false);
                         }
                     }
                 }
@@ -387,12 +430,6 @@ impl App {
                             &viewport.borrow()
                         );
                 }
-
-                // update the fov
-                let model_mat = &hips_sphere.as_ref().borrow().get_model_mat();
-                hips_sphere.borrow_mut()
-                    .mesh_mut()
-                    .update_field_of_view(&projection.get(), &viewport.borrow(), model_mat, true);
             }) as Box<dyn FnMut(_)>);
             canvas.add_event_listener_with_callback("wheel", closure.as_ref().unchecked_ref())?;
             closure.forget();
@@ -464,6 +501,12 @@ impl App {
                 // The camera. When the camera has reached its final position
                 // then we stop rendering the next frames!
                 viewport.borrow_mut().update_camera_movement();
+                // update the fov
+                let model_mat = &hips_sphere.as_ref().borrow().get_model_mat();
+                hips_sphere.borrow_mut()
+                    .mesh_mut()
+                    .update_field_of_view(&projection.get(), &viewport.borrow(), model_mat);
+
                 // The grid label positions
                 if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
                     grid.borrow_mut().mesh_mut().update_label_positions(
@@ -488,7 +531,7 @@ impl App {
                     // The labels
                     grid.borrow().mesh().draw_labels();
                 }
-                gl.finish();
+                //gl.finish();
 
                 let end_frame = performance.now();
                 let frame_duration_sec = (end_frame - start_frame) / 1000_f64;
@@ -563,7 +606,7 @@ impl App {
     }
 }
 
-static DEGRADE_CANVAS_RATIO: f32 = 1.4_f32;
+static DEGRADE_CANVAS_RATIO: f32 = 1.0_f32;
 
 lazy_static! {
     // Note: Render_next_frame is global for the moment
