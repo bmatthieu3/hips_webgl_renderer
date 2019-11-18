@@ -122,6 +122,8 @@ impl<'a> HiPSSphere {
             .collect::<Vec<_>>();
 
         let (depth, healpix_cells) = if pos_ws.len() == num_control_points {
+            console::log_1(&format!("projection ok!").into());
+
             let idx_r = num_control_points_width + 1 + (((num_control_points_height as f32)/2_f32).ceil() as usize);
             let idx_l = 2 * num_control_points_width + 3 + num_control_points_height + (((num_control_points_height as f32)/2_f32).ceil() as usize);
             

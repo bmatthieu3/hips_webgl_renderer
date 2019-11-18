@@ -113,6 +113,8 @@ use cgmath::Vector2;
 
 const NUM_VERTICES_PER_STEP: usize = 50;
 const NUM_STEPS: usize = 20;
+
+use crate::math::signed_distance_ellipse;
 impl Projection for Aitoff {
     fn build_screen_map() -> (Vec<cgmath::Vector2<f32>>, cgmath::Vector2<f32>) {
         let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
@@ -131,7 +133,6 @@ impl Projection for Aitoff {
                     (width/2_f32 - 1_f32) * radius * angle.cos(),
                     ((width/2_f32 - 1_f32) / 2_f32) * radius * angle.sin()
                 );
-                //console::log_1(&format!("pos_screen {:?}", pos_screen_space).into());
 
                 pos_screen_space += Vector2::<f32>::new(width / 2_f32, height / 2_f32);
                 vertices_screen.push(
@@ -162,6 +163,15 @@ impl Projection for Aitoff {
         let (width, height) = window_size_f32();
         let aspect = width / height;
 
+        let a = 1_f32;
+        let b = 1_f32 / (2_f32 * aspect);
+        let d = signed_distance_ellipse(&cgmath::Vector2::new(x, y), a, b);
+
+        if d > 0_f32 {
+            console::log_1(&format!("out of projection, {:?}, {:?}", d, (x * width, y * height)).into());
+            return None;
+        }
+
         let (x, y) = (x, y/aspect);
 
         let xw_2 = 1_f32 - x*x - y*y;
@@ -171,7 +181,8 @@ impl Projection for Aitoff {
             //da uv a lat/lon
             let mut phi = 0_f32;
             let mut theta = 0_f32;
-            let c = (v*v + u*u).sqrt();	
+            let c = (v*v + u*u).sqrt();
+
             if c != 0_f32 {
                 phi = (v * c.sin() / c).asin();
                 theta = (u * c.sin()).atan2(c * c.cos());

@@ -80,6 +80,9 @@ impl App {
                 .dyn_into::<web_sys::HtmlCanvasElement>().unwrap()
         );
 
+        let d = crate::math::signed_distance_ellipse(&cgmath::Vector2::new(1.1_f32, 0.5_f32), 1_f32, 0.5_f32);
+        console::log_1(&format!("DDD, {:?}", d).into());
+        
         gl.enable(WebGl2RenderingContext::BLEND);
         gl.blend_func(WebGl2RenderingContext::SRC_ALPHA, WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA);
         gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
@@ -481,7 +484,7 @@ impl App {
         *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
             if RENDER_NEXT_FRAME.load(Ordering::Relaxed) {
                 let start_frame = performance.now();
-                RENDER_NEXT_FRAME.store(false, Ordering::Relaxed);
+                //RENDER_NEXT_FRAME.store(false, Ordering::Relaxed);
                 /*if !pressed.get() && roll.get() {
                     let next_dist = compute_speed(time_last_move.get(), last_dist.get() * 0.5_f32);
                     if next_dist > 1e-4 {

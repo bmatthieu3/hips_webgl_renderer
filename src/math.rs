@@ -34,3 +34,18 @@ pub fn ang_per_pixel_to_depth(x: f32) -> i32 {
     }
     depth
 }
+
+use cgmath::Vector2;
+use web_sys::console;
+pub fn signed_distance_ellipse(screen_pos: &cgmath::Vector2<f32>, a: f32, b: f32) -> f32 {
+    let k0 = Vector2::new(screen_pos.x / a, screen_pos.y / b).magnitude();
+    let k1 = Vector2::new(screen_pos.x / (a * a), screen_pos.y / (b * b)).magnitude();
+
+    if k1 == 0_f32 {
+        return -1_f32;
+    }
+    
+    console::log_1(&format!("k0, {:?}, k1, {:?}", k0, k1).into());
+
+    return k0 * (k0 - 1.0_f32) / k1;
+}

@@ -210,7 +210,7 @@ impl BufferTiles {
                 });
 
             if let Some(mut tile) = tile {
-                console::log_1(&format!("found healpix cell").into());
+                //console::log_1(&format!("found healpix cell").into());
                 // Found 
                 tile.time_request = time_request;
                 //tile.time_received = Some(utils::get_current_time());

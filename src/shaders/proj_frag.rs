@@ -268,10 +268,10 @@ pub static CONTENT: &'static str = r#"#version 300 es
         int next_depth = min(29, current_depth + 1);
         //TileColor base_tile = get_tile_color(frag_pos, 24.f, 0);
         TileColor current_tile = get_tile_color(frag_pos, 24.f, current_depth);
-        TileColor prev_tile = get_tile_color(frag_pos, 24.f, prev_depth);
-        TileColor next_tile = get_tile_color(frag_pos, 24.f, next_depth);
+        //TileColor prev_tile = get_tile_color(frag_pos, 24.f, prev_depth);
+        //TileColor next_tile = get_tile_color(frag_pos, 24.f, next_depth);
 
-        float alpha = clamp((current_time - current_tile.tile.time_received) / duration, 0.f, 1.f);
+        /*float alpha = clamp((current_time - current_tile.tile.time_received) / duration, 0.f, 1.f);
         vec3 out_color = vec3(0.f);
         if(prev_tile.tile.time_request > next_tile.tile.time_request) {
             // zoom
@@ -279,7 +279,8 @@ pub static CONTENT: &'static str = r#"#version 300 es
         } else {
             // dezoom
             out_color = mix(prev_tile.color, current_tile.color, alpha);
-        }
+        }*/
+        vec3 out_color = vec3(current_tile.color);
 
         /*float alpha = 0.f;
         if (current_cell.cell.idx > -1) { // tile downloaded
