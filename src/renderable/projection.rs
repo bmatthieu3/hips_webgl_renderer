@@ -114,7 +114,7 @@ use cgmath::Vector2;
 const NUM_VERTICES_PER_STEP: usize = 50;
 const NUM_STEPS: usize = 20;
 
-use crate::math::signed_distance_ellipse;
+use crate::math::is_inside_ellipse;
 impl Projection for Aitoff {
     fn build_screen_map() -> (Vec<cgmath::Vector2<f32>>, cgmath::Vector2<f32>) {
         let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
@@ -163,33 +163,25 @@ impl Projection for Aitoff {
         let (width, height) = window_size_f32();
         let aspect = width / height;
 
-        let a = 1_f32;
-        let b = 1_f32 / (2_f32 * aspect);
-        let d = signed_distance_ellipse(&cgmath::Vector2::new(x, y), a, b);
-
-        if d > 0_f32 {
-            console::log_1(&format!("out of projection, {:?}, {:?}", d, (x * width, y * height)).into());
-            return None;
-        }
-
         let (x, y) = (x, y/aspect);
 
-        let xw_2 = 1_f32 - x*x - y*y;
-        if xw_2 > 0_f32 {
+        let a = 1_f32;
+        let b = 0.5_f32;
+        if is_inside_ellipse(&cgmath::Vector2::new(x, y), a, b) {
             let u = x * std::f32::consts::PI * 0.5_f32;
             let v = y * std::f32::consts::PI;
             //da uv a lat/lon
-            let mut phi = 0_f32;
-            let mut theta = 0_f32;
             let c = (v*v + u*u).sqrt();
 
-            if c != 0_f32 {
-                phi = (v * c.sin() / c).asin();
-                theta = (u * c.sin()).atan2(c * c.cos());
+            let (phi, mut theta) = if c != 0_f32 {
+                let phi = (v * c.sin() / c).asin();
+                let theta = (u * c.sin()).atan2(c * c.cos());
+                (phi, theta)
             } else {
-                phi = v.asin();
-                theta = u.atan();
-            }
+                let phi = v.asin();
+                let theta = u.atan();
+                (phi, theta)
+            };
             theta *= 2_f32;
 
             let pos_world_space = cgmath::Vector4::new(

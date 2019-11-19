@@ -46,6 +46,7 @@ use std::iter;
 use crate::window_size_f32;
 
 use cgmath::Vector2;
+use cgmath::InnerSpace;
 
 use crate::WebGl2Context;
 
@@ -53,7 +54,7 @@ impl<'a> HiPSSphere {
     pub fn new(gl: &WebGl2Context, projection: &ProjectionType) -> HiPSSphere {
         let buffer_base_tiles = Rc::new(RefCell::new(BufferTiles::new(gl, 24)));
         for idx in (0 as u64)..(12 as u64) {
-            load_healpix_tile(&gl, buffer_base_tiles.clone(), idx, 0);
+            load_healpix_tile(&gl, buffer_base_tiles.clone(), idx, 0, false);
         }
 
         let (vertices, size_in_pixels) = HiPSSphere::create_vertices_array(gl, projection);
@@ -122,16 +123,15 @@ impl<'a> HiPSSphere {
             .collect::<Vec<_>>();
 
         let (depth, healpix_cells) = if pos_ws.len() == num_control_points {
-            console::log_1(&format!("projection ok!").into());
-
-            let idx_r = num_control_points_width + 1 + (((num_control_points_height as f32)/2_f32).ceil() as usize);
-            let idx_l = 2 * num_control_points_width + 3 + num_control_points_height + (((num_control_points_height as f32)/2_f32).ceil() as usize);
-            
+            //let idx_r = num_control_points_width + 1 + (((num_control_points_height as f32)/2_f32).ceil() as usize);
+            //let idx_l = 2 * num_control_points_width + 3 + num_control_points_height + (((num_control_points_height as f32)/2_f32).ceil() as usize);
+            let idx_r = 0;
+            let idx_l = num_control_points_width + num_control_points_height + 2;
             let pos_r_world_space = cgmath::Vector3::new(pos_ws[idx_r].x, pos_ws[idx_r].y, pos_ws[idx_r].z);
             let pos_l_world_space = cgmath::Vector3::new(pos_ws[idx_l].x, pos_ws[idx_l].y, pos_ws[idx_l].z);
 
             let fov = math::angular_distance_xyz(pos_r_world_space, pos_l_world_space);
-            console::log_1(&format!("fov {:?}", fov).into());
+            //console::log_1(&format!("fov {:?}", fov).into());
 
             let vertices = pos_ws.into_iter()
                 .map(|pos_world_space| {
@@ -143,16 +143,18 @@ impl<'a> HiPSSphere {
                     (ra as f64, dec as f64)
                 })
                 .collect::<Vec<_>>();
-            let (width, _) = window_size_f32();
-            let depth = std::cmp::min(math::ang_per_pixel_to_depth(fov / width), MAX_DEPTH);
-            //let depth = math::ang_per_pixel_to_depth(fov / (width as f32));
+            let (width, height) = window_size_f32();
+            let l = Vector2::new(width, height).magnitude();
+            let depth = std::cmp::min(math::ang_per_pixel_to_depth(fov / l), MAX_DEPTH);
+
             let healpix_cells = if depth == 0 {
                 (0..12).collect::<Vec<_>>()
             } else {
                 let moc = healpix::nested::polygon_coverage(depth as u8, &vertices, true);
                 let healpix_cells = moc.flat_iter()
-                        .map(|hpx_idx_u64| hpx_idx_u64 as i32)
-                        .collect::<Vec<_>>();
+                    .map(|hpx_idx_u64| hpx_idx_u64 as i32)
+                    .collect::<Vec<_>>();
+
                 healpix_cells
             };
             console::log_1(&format!("current depth {:?}, num cells in fov {:?}", depth, healpix_cells.len()).into());
@@ -163,11 +165,17 @@ impl<'a> HiPSSphere {
             (depth, healpix_cells_in_fov)
         };
 
+        let reset_time_received = if self.current_depth != depth {
+            true
+        } else {
+            false
+        };
         self.current_depth = depth;
         self.hpx_cells_in_fov = healpix_cells.len() as i32;
 
+        self.buffer_base_tiles.borrow_mut().prepare_for_loading();
         for idx in healpix_cells {
-            load_healpix_tile(&self.gl, self.buffer_base_tiles.clone(), idx as u64, depth as u8);
+            load_healpix_tile(&self.gl, self.buffer_base_tiles.clone(), idx as u64, depth as u8, reset_time_received);
         }
         //self.load_healpix_tile_textures(healpix_cells, depth, zoom);
     }

@@ -7,7 +7,6 @@ use wasm_bindgen::JsCast;
 use web_sys::{HtmlImageElement, CanvasRenderingContext2d};
 use web_sys::WebGl2RenderingContext;
 
-use crate::renderable::hips_sphere::MAX_NUMBER_TEXTURE;
 use std::collections::{BinaryHeap, HashSet};
 
 const HEIGHT_TEXTURE: i32 = 512;
@@ -114,12 +113,17 @@ impl From<Tile> for TileGPU {
     }
 }
 
+/*use std::sync::Arc;
+use std::sync::atomic::AtomicU8;
+lazy_static! {
+    static ref num_load_tiles: Arc<AtomicU8> = Arc::new(AtomicU8::new(0));
+}*/
+
 use web_sys::Storage;
 
 #[derive(Clone)]
 pub struct BufferTiles {
     gl: WebGl2Context,
-    storage: TileLocalStorage,
 
     buffer: BinaryHeap<Tile>,
     requested_tiles: HashSet<(u8, u64)>,
@@ -127,6 +131,8 @@ pub struct BufferTiles {
     idx_texture_unit: u32,
 
     texture: Option<web_sys::WebGlTexture>,
+
+    num_load_tiles: u8,
 }
 
 use crate::utils;
@@ -140,24 +146,24 @@ impl BufferTiles {
 
         let (texture, idx_texture_unit) = create_sampler_3d(gl, size as u32);
 
-        let storage = TileLocalStorage::new();
-
         let gl = gl.clone();
+        let num_load_tiles = 0;
         BufferTiles {
             gl,
 
-            storage,
-
             buffer,
+
             requested_tiles,
             size,
             idx_texture_unit,
             texture,
+
+            num_load_tiles,
         }
     }
-    
+
     // Add a new tile to the buffer
-    pub fn add(&mut self, depth: u8, idx: u64, time_request: f32, image: Rc<RefCell<HtmlImageElement>>) -> usize {
+    pub fn add(&mut self, depth: u8, idx: u64, time_request: f32) -> usize {
         let texture_idx = if self.buffer.len() == self.size {
             // Remove the oldest tile from the buffer and from the
             // hashset
@@ -183,9 +189,23 @@ impl BufferTiles {
         };
 
         // Push it to the GPU buffer
-        self.buffer.push(tile);
+        self.push_tile(tile);
 
         texture_idx
+    }
+
+    pub fn prepare_for_loading(&mut self) {
+        self.num_load_tiles = 0;
+    }
+
+    fn push_tile(&mut self, tile: Tile) {
+        self.buffer.push(tile);
+        self.num_load_tiles += 1;
+
+        if self.num_load_tiles == (self.size as u8) {
+            // Do not render next frame
+            RENDER_NEXT_FRAME.lock().unwrap().set_for_duration_seconds(1000_f32);
+        }
     }
 
     pub fn add_to_requested_tile(&mut self, depth: u8, idx: u64) {
@@ -198,7 +218,7 @@ impl BufferTiles {
         self.requested_tiles.remove(&tile);
     }
 
-    pub fn replace_tile(&mut self, depth: u8, idx: u64, time_request: f32) -> bool {
+    pub fn replace_tile(&mut self, depth: u8, idx: u64, time_request: f32, reset_time_received: bool) -> bool {
         let tile_request = (depth, idx);
         if self.requested_tiles.contains(&tile_request) {
             // Change its priority in the buffer (if it is present!).
@@ -211,8 +231,11 @@ impl BufferTiles {
 
             if let Some(mut tile) = tile {
                 //console::log_1(&format!("found healpix cell").into());
-                // Found 
+                // Found
                 tile.time_request = time_request;
+                if reset_time_received {
+                    tile.time_received = Some(utils::get_current_time());
+                }
                 //tile.time_received = Some(utils::get_current_time());
 
                 // Push it to the buffer again
@@ -223,9 +246,10 @@ impl BufferTiles {
                     }
                 }
                 
-                buffer.push(tile);
-
                 self.buffer = buffer;
+
+                // Push it to the GPU buffer
+                self.push_tile(tile);
             }
 
             true
@@ -277,73 +301,12 @@ impl BufferTiles {
     }
 }
 
-#[derive(Clone)]
-struct TileLocalStorage {
-    storage: Option<Storage>,
-}
-
-impl TileLocalStorage {
-    fn new() -> TileLocalStorage {
-        let storage = web_sys::window().unwrap()
-            .local_storage()
-            .map_err(|_| console::log_1(&format!("No local storage found!").into()))
-            .unwrap();
-
-        if let Some(ref storage) = storage {
-            // Free the local storage when a new buffer is created
-            storage.clear().unwrap();
-        }
-
-        TileLocalStorage {
-            storage
-        }
-    }
-/*
-    fn get_tile_image(&self, depth: u8, idx: u64) -> Option<Rc<RefCell<HtmlImageElement>>> {
-        if let Some(ref storage) = self.storage {
-            let uniq = idx + (1 << (2*(depth + 1)));
-            let ref key = uniq.to_string();
-            if let Some(ref stringified_image) = storage.get_item(key).unwrap() {
-                // Parse the stringified image
-                Some(
-                    Rc::new(RefCell::new(JSON::parse(stringified_image)
-                        .unwrap()
-                        .dyn_into::<web_sys::HtmlImageElement>()
-                        .unwrap()))
-                )
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-
-    fn store_tile_image(&mut self, depth: u8, idx: u64, image: Rc<RefCell<HtmlImageElement>>) {
-        if let Some(ref mut storage) = self.storage {
-            let uniq = idx + (1 << (2*(depth + 1)));
-            let ref key = uniq.to_string();
-
-            let value: String = JSON::stringify(&image.borrow()).unwrap().into();
-            storage.set_item(key, &value);
-        }
-    }
-    */
-}
-
-
 use crate::HIPS_NAME;
-use js_sys::JSON;
-use std::cell::Cell;
-
-use std::sync::Arc;
-use std::sync::Mutex;
-
-pub fn load_healpix_tile(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>, idx: u64, depth: u8) {
+pub fn load_healpix_tile(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>, idx: u64, depth: u8, reset_time_received: bool) {
     let time_request = utils::get_current_time();
     
     // Check whether is already into the 24 tiles GPU buffer
-    if buffer.borrow_mut().replace_tile(depth, idx, time_request) {
+    if buffer.borrow_mut().replace_tile(depth, idx, time_request, reset_time_received) {
         return;
     }
 
@@ -380,12 +343,12 @@ pub fn load_healpix_tile(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>, i
         Closure::wrap(Box::new(move || {
             console::log_1(&format!("load new tile").into());
             // Add the received tile to the buffer
-            let idx_texture = buffer.borrow_mut().add(depth, idx, time_request, image.clone());
+            let idx_texture = buffer.borrow_mut().add(depth, idx, time_request);
             buffer.borrow().replace_texture_sampler_3d(idx_texture as i32, &image.borrow());
 
             // Tell the app to render the next frame
             // because a a new has been received
-            RENDER_NEXT_FRAME.store(true, atomic::Ordering::Relaxed);
+            //RENDER_NEXT_FRAME.store(true, atomic::Ordering::Relaxed);
         }) as Box<dyn Fn()>)
     };
 
@@ -425,8 +388,8 @@ fn create_sampler_3d(gl: &WebGl2Context, size_buffer: u32) -> (Option<web_sys::W
     gl.active_texture(idx_texture_unit);
     gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, webgl_texture.as_ref());
 
-    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::NEAREST as i32);
-    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::NEAREST as i32);
+    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::LINEAR as i32);
+    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::LINEAR_MIPMAP_LINEAR as i32);
 
     // Prevents s-coordinate wrapping (repeating)
     gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);

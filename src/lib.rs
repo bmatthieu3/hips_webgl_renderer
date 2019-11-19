@@ -18,6 +18,7 @@ mod texture;
 mod math;
 mod utils;
 mod projeted_grid;
+mod render_next_frame;
 
 use shader::Shader;
 use renderable::Renderable;
@@ -57,6 +58,7 @@ use std::collections::HashMap;
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use crate::renderable::Mesh;
+use crate::render_next_frame::RENDER_NEXT_FRAME;
 
 struct App {
     gl: WebGl2Context,
@@ -80,7 +82,7 @@ impl App {
                 .dyn_into::<web_sys::HtmlCanvasElement>().unwrap()
         );
 
-        let d = crate::math::signed_distance_ellipse(&cgmath::Vector2::new(1.1_f32, 0.5_f32), 1_f32, 0.5_f32);
+        let d = crate::math::is_inside_ellipse(&cgmath::Vector2::new(1_f32, 0_f32), 1_f32, 0.5_f32);
         console::log_1(&format!("DDD, {:?}", d).into());
         
         gl.enable(WebGl2RenderingContext::BLEND);
@@ -99,6 +101,7 @@ impl App {
                 // Viewport uniforms
                 "zoom_factor",
                 "aspect",
+                "last_user_action",
                 // HiPS Sphere-specific uniforms
                 "current_depth",
                 "max_depth",
@@ -214,6 +217,7 @@ impl App {
                 // Viewport uniforms
                 "zoom_factor",
                 "aspect",
+                "last_user_action",
                 // Grid-specific uniforms
                 "location_color",
             ].as_ref()
@@ -304,7 +308,7 @@ impl App {
             Closure::wrap(Box::new(move || {
                 console::log_1(&format!("resize").into());
 
-                RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
+                //RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
                 viewport.borrow_mut().resize();
 
                 //hips_sphere
@@ -360,7 +364,7 @@ impl App {
                     let result = projection.get().screen_to_world_space(x_screen_homogeous_space, y_screen_homogeous_space);
                     if let Some(pos) = result {
                         if event_x != mouse_clic_x.get() || event_y != mouse_clic_y.get() {
-                            RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
+                            //RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
 
                             let start_pos_rotated = model_mat * start_pos.get();
                             let start_pos_rotated = cgmath::Vector3::<f32>::new(start_pos_rotated.x, start_pos_rotated.y, start_pos_rotated.z);
@@ -396,6 +400,8 @@ impl App {
 
                             last_axis.set(axis);
                             last_dist.set(dist);
+
+                            viewport.borrow_mut().displacement();
                         }
                     }
                 }
@@ -418,7 +424,7 @@ impl App {
 
             let closure = Closure::wrap(Box::new(move |event: web_sys::WheelEvent| {
                 let delta_y = event.delta_y() as f32;
-                RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
+                //RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
 
                 if delta_y < 0_f32 {
                     viewport.borrow_mut().zoom();
@@ -482,7 +488,7 @@ impl App {
 
         let window_2 = window.clone();
         *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
-            if RENDER_NEXT_FRAME.load(Ordering::Relaxed) {
+            if RENDER_NEXT_FRAME.lock().unwrap().get() {
                 let start_frame = performance.now();
                 //RENDER_NEXT_FRAME.store(false, Ordering::Relaxed);
                 /*if !pressed.get() && roll.get() {
@@ -534,13 +540,14 @@ impl App {
                     // The labels
                     grid.borrow().mesh().draw_labels();
                 }
-                //gl.finish();
 
                 let end_frame = performance.now();
                 let frame_duration_sec = (end_frame - start_frame) / 1000_f64;
                 let frames_per_second = 1_f64 / frame_duration_sec;
                 fps_counter.set_inner_text(&frames_per_second.to_string()); 
             }
+
+            RENDER_NEXT_FRAME.lock().unwrap().update();
 
             //console::log_1(&format!("FPS: {:?}", frames_per_second).into());
 
@@ -576,7 +583,8 @@ impl App {
         );
 
         self.viewport.borrow().update_scissor();
-        RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
+
+        RENDER_NEXT_FRAME.lock().unwrap().set(true);
     }
 
     fn reload_hips_sphere(&mut self, hips_url: String) {
@@ -605,18 +613,13 @@ impl App {
             )
         );
 
-        RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
+        RENDER_NEXT_FRAME.lock().unwrap().set(true);
     }
 }
 
 static DEGRADE_CANVAS_RATIO: f32 = 1.0_f32;
 
 lazy_static! {
-    // Note: Render_next_frame is global for the moment
-    // A Rc cannot be instanciated as global because it cannot be shared between
-    // threads (Rc does not impl the Sync trait)
-    // Arc can be shared between threads => it is used here.
-    static ref RENDER_NEXT_FRAME: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
     static ref WIDTH_SCREEN: Arc<AtomicU32> = Arc::new(
         AtomicU32::new(
             /*web_sys::window().unwrap()
@@ -679,9 +682,9 @@ fn window_size_f64() -> (f64, f64) {
 
     (width as f64, height as f64)
 }
-fn render_next_frame() {
+/*fn render_next_frame() {
     RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
-}
+}*/
 
 #[derive(Clone)]
 pub struct WebGl2Context {
@@ -786,7 +789,7 @@ impl WebClient {
                     &self.app.viewport.borrow()
                 );
         }
-        RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
+        RENDER_NEXT_FRAME.lock().unwrap().set(true);
 
         Ok(())
     }
@@ -797,7 +800,7 @@ impl WebClient {
             *grid = false;
             self.app.grid.borrow_mut().mesh_mut().clear_canvas();
         }
-        RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
+        RENDER_NEXT_FRAME.lock().unwrap().set(true);
 
         Ok(())
     }

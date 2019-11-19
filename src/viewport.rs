@@ -4,6 +4,14 @@ use std::cell::RefCell;
 use crate::renderable::Renderable;
 use crate::renderable::hips_sphere::HiPSSphere;
 
+#[derive(Clone, Copy)]
+enum LastUserAction {
+    Zoom = 1,
+    Unzoom = 2,
+    Move = 3,
+    Start = 4
+}
+
 pub struct ViewPort {
     gl: WebGl2Context,
     canvas: Rc<web_sys::HtmlCanvasElement>,
@@ -11,8 +19,7 @@ pub struct ViewPort {
     current_zoom: f32,
     final_zoom: f32,
 
-    resize_factor_x: f32,
-    resize_factor_y: f32,
+    last_user_action: LastUserAction,
 
     // Immutable counted reference to the HiPS sphere
     hips_sphere: Rc<RefCell<Renderable<HiPSSphere>>>,
@@ -46,15 +53,14 @@ impl ViewPort {
         let current_zoom = 1_f32;
         let final_zoom = current_zoom;
 
-        let resize_factor_x = 1.0_f32;
-        let resize_factor_y = 1.0_f32;
-
         let canvas = Rc::new(
             gl.canvas().unwrap()
                 .dyn_into::<web_sys::HtmlCanvasElement>()
                 .unwrap()
         );
         set_gl_scissor(gl, *hips_sphere.borrow().mesh().get_default_pixel_size());
+
+        let last_user_action = LastUserAction::Start;
 
         let gl = gl.clone();
         let mut viewport = ViewPort {
@@ -64,8 +70,7 @@ impl ViewPort {
             current_zoom,
             final_zoom,
 
-            resize_factor_x,
-            resize_factor_y,
+            last_user_action,
 
             hips_sphere,
         };
@@ -87,6 +92,8 @@ impl ViewPort {
     }
 
     pub fn zoom(&mut self) {
+        self.last_user_action = LastUserAction::Zoom;
+
         self.final_zoom *= 1.2_f32;
         if self.final_zoom > 1000_f32 {
             self.final_zoom = 1000_f32;
@@ -97,10 +104,16 @@ impl ViewPort {
     }
 
     pub fn unzoom(&mut self) {
+        self.last_user_action = LastUserAction::Unzoom;
+
         self.final_zoom /= 1.2_f32;
         if self.final_zoom < 0.5_f32 {
             self.final_zoom = 0.5_f32;
         }
+    }
+
+    pub fn displacement(&mut self) {
+        self.last_user_action = LastUserAction::Move;
     }
 
     pub fn update_camera_movement(&mut self) {
@@ -111,9 +124,11 @@ impl ViewPort {
 
         self.current_zoom += (self.final_zoom - self.current_zoom) * 0.1_f32;
 
-        render_next_frame();
+        //render_next_frame();
         self.update_scissor();
     }
+
+
 
     pub fn resize(&mut self) {
         /*let width = web_sys::window().unwrap().inner_width()
@@ -141,6 +156,7 @@ impl ViewPort {
         self.current_zoom
     }
 
+    /// Warning: this is executed by all the shaders
     pub fn send_to_vertex_shader(&self, gl: &WebGl2RenderingContext, shader: &Shader) {
         /*// Send view matrix
         let view_mat_f32_slice: &[f32; 16] = self.view_mat.as_ref();
@@ -151,6 +167,9 @@ impl ViewPort {
         let zoom_factor_location = shader.get_uniform_location("zoom_factor");
         gl.uniform1f(zoom_factor_location, self.current_zoom);
 
+        // Send last user action
+        let last_user_action_location = shader.get_uniform_location("last_user_action");
+        gl.uniform1i(last_user_action_location, self.last_user_action as i32);
         // Send window size
         /*let location_resize_factor_x = shader.get_uniform_location(gl, "resize_factor_x");
         gl.uniform1f(location_resize_factor_x.as_ref(), self.resize_factor_x);

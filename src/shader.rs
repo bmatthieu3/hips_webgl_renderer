@@ -75,6 +75,7 @@ impl Shader {
         let uniform_locations = name_uniforms.iter()
             .map(|name| {
                 let location_uniform = gl.get_uniform_location(&program, name);
+                //console::log_1(&format!("{:?}", *name).into());
                 (*name, location_uniform)
             })
             .collect::<HashMap<_, _>>();
