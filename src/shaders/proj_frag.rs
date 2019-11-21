@@ -177,12 +177,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
     }
 
     uniform float zoom_factor;
-    uniform int last_user_action;
-    uniform sampler3D textures_buffer;
-    uniform sampler3D textures_0;
-
-    const int BUFFER_TEX_SIZE = 48;
-    const int BUFFER_ZERO_TEX_SIZE = 24;
+    uniform int last_zoom_action;
 
     struct Tile {
         int uniq; // Healpix cell
@@ -192,30 +187,29 @@ pub static CONTENT: &'static str = r#"#version 300 es
     };
 
     uniform int current_depth;
-    uniform Tile hpx_zero_depth[BUFFER_ZERO_TEX_SIZE];
+    
+    uniform sampler3D textures;
+    uniform Tile textures_tiles[24];
+
+    uniform sampler3D textures_0;
+    uniform Tile textures_0_tiles[12];
 
     uniform float current_time; // current time in ms
     struct TileColor {
         Tile tile;
         vec3 color;
+        bool found;
     };
 
     // ang2pix textures
     uniform sampler2D ang2pix_0_texture;
     uniform sampler2D ang2pix_1_texture;
     uniform sampler2D ang2pix_2_texture;
-    
-    const float tex_step_depth_zero = 1.f/(24.f);
+
     TileColor get_tile_color(vec3 pos, float size, int depth) {
         vec3 res = hash_with_dxdy(depth, pos.zxy);
         int idx = int(res.x);
         int uniq = (1 << (2*(depth + 1))) + idx;
-
-        /*vec2 radec = vec2(atan(pos.x, pos.z), asin(pos.y));
-        radec = radec * vec2(-1.f/(2.f*PI), 1.f/PI) + 0.5f;
-        vec3 res = texture(ang2pix_0_texture, radec).rgb;
-        int idx = int(res.r * 255.f);
-        int uniq = (1 << (2*(depth + 1))) + idx;*/
 
         vec2 uv = res.zy;
 
@@ -227,13 +221,14 @@ pub static CONTENT: &'static str = r#"#version 300 es
         int h = int(log2(size)) + 1;
         // Binary search among the tile idx
         for(int step = 0; step < h; step++) {
-            if (uniq == hpx_zero_depth[i].uniq) {
-                Tile tile = hpx_zero_depth[i];
-                float idx_texture = (float(tile.texture_idx) + 0.5f) * tex_step_depth_zero;
-                vec3 color = texture(textures_0, vec3(uv, idx_texture)).rgb;
+            if (uniq == textures_tiles[i].uniq) {
+                Tile tile = textures_tiles[i];
+                float step_depth_texture = 1.f / size;
+                float idx_texture = (float(tile.texture_idx) + 0.5f) * step_depth_texture;
+                vec3 color = texture(textures, vec3(uv, idx_texture)).rgb;
 
-                return TileColor(tile, color);
-            } else if (uniq < hpx_zero_depth[i].uniq) {
+                return TileColor(tile, color, true);
+            } else if (uniq < textures_tiles[i].uniq) {
                 // go to left
                 b = i - 1;
             } else {
@@ -245,10 +240,53 @@ pub static CONTENT: &'static str = r#"#version 300 es
 
         // code unreachable
         Tile empty = Tile(-1, -1, current_time, 0.f);
-        return TileColor(empty, vec3(0.f));
+        return TileColor(empty, vec3(0.f), false);
     }
 
-    const float duration = 500.f; // 500 ms
+    TileColor get_depth_0_tile(vec3 pos) {
+        vec3 res = hash_with_dxdy(0, pos.zxy);
+        int idx = int(res.x);
+        int uniq = 4 + idx;
+
+        /*vec2 radec = vec2(atan(pos.x, pos.z), asin(pos.y));
+        radec = radec * vec2(-1.f/(2.f*PI), 1.f/PI) + 0.5f;
+        vec3 res = texture(ang2pix_0_texture, radec).rgb;
+        int idx = int(res.r * 255.f);
+        int uniq = 4 + idx;*/
+
+        vec2 uv = res.zy;
+
+        int a = 0;
+        int b = 11;
+
+        int i = 5;
+
+        int h = 4;
+        // Binary search among the tile idx
+        for(int step = 0; step < h; step++) {
+            if (uniq == textures_0_tiles[i].uniq) {
+                Tile tile = textures_0_tiles[i];
+                float step_depth_texture = 1.f / 12.f;
+                float idx_texture = (float(tile.texture_idx) + 0.5f) * step_depth_texture;
+                vec3 color = texture(textures_0, vec3(uv, idx_texture)).rgb;
+
+                return TileColor(tile, color, true);
+            } else if (uniq < textures_0_tiles[i].uniq) {
+                // go to left
+                b = i - 1;
+            } else {
+                // go to right
+                a = i + 1;
+            }
+            i = (a + b)/2;
+        }
+
+        // code unreachable
+        Tile empty = Tile(-1, -1, current_time, 0.f);
+        return TileColor(empty, vec3(0.f), false);
+    }
+
+    const float duration = 500.f; // 500ms
     uniform int max_depth; // max depth of the HiPS
 
     void main() {
@@ -265,24 +303,20 @@ pub static CONTENT: &'static str = r#"#version 300 es
             return;
         }
         vec3 out_color = vec3(0.f);
-        if (last_user_action == 1) {
+        int depth = 0;
+        if (last_zoom_action == 1) {
             // zoom
-            int prev_depth = max(0, current_depth - 1);
-
-            TileColor prev_tile = get_tile_color(frag_pos, 24.f, prev_depth);
-            out_color = mix(prev_tile.color, current_tile.color, alpha);
-        } else if (last_user_action == 2) {
-            // unzoom
-            int next_depth = min(29, current_depth + 1);
-
-            TileColor next_tile = get_tile_color(frag_pos, 24.f, next_depth);
-            out_color = mix(next_tile.color, current_tile.color, alpha);
+            depth = max(0, current_depth - 1);
         } else {
-            // TODO: move merge with base cells
-            out_color = mix(vec3(1, 0, 0), current_tile.color, alpha);
+            // unzoom
+            depth = min(29, current_depth + 1);
         }
-        out_frag_color = vec4(out_color, 1.f);
 
-        //out_frag_color = vec4(1.f);
-        //out_frag_color = vec4(vec3(1.f), 0.2f);
+        TileColor tile = get_tile_color(frag_pos, 24.f, depth);
+        if (!tile.found) {
+            tile = get_depth_0_tile(frag_pos);
+        }
+
+        out_color = mix(tile.color, current_tile.color, alpha);
+        out_frag_color = vec4(out_color, 1.f);
     }"#;

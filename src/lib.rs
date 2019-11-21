@@ -5,10 +5,10 @@ extern crate itertools_num;
 
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use web_sys::{WebGl2RenderingContext, console, Window};
+use web_sys::{WebGl2RenderingContext, console};
 
 use cgmath;
-use cgmath::{InnerSpace, Vector3, Vector4};
+use cgmath::{InnerSpace, Vector3, Vector4, Rad};
 
 mod shader;
 mod shaders;
@@ -19,6 +19,7 @@ mod math;
 mod utils;
 mod projeted_grid;
 mod render_next_frame;
+mod field_of_view;
 
 use shader::Shader;
 use renderable::Renderable;
@@ -31,33 +32,21 @@ use crate::renderable::grid::ProjetedGrid;
 
 use std::sync::Mutex;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
-fn request_animation_frame(f: &Closure<FnMut()>, window: &Window) {
-    window.request_animation_frame(f.as_ref().unchecked_ref())
-        .expect("should register `requestAnimationFrame` OK");
+macro_rules! print_to_console {
+    ( $text:expr, $( $x:expr ),* ) => {
+        {
+            console::log_1(&format!($text, $($x)*).into());
+        }
+    };
 }
-
-/*fn compute_speed(t_start: f32, speed_max: f32) -> f32 {
-    let t = utils::get_current_time() as f32; 
-    let t_duration = 1200_f32; // in ms
-    let t_end = t_start + t_duration;
-
-    if t > t_end {
-        0_f32
-    } else {
-        let speed = (-t*speed_max / t_duration) + t_end*speed_max/t_duration;
-        speed
-    }
-}*/
 
 use std::rc::Rc;
 use std::cell::{RefCell, Cell};
 
 use std::collections::HashMap;
 
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use crate::renderable::Mesh;
+use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 use crate::render_next_frame::RENDER_NEXT_FRAME;
 
 struct App {
@@ -82,12 +71,11 @@ impl App {
                 .dyn_into::<web_sys::HtmlCanvasElement>().unwrap()
         );
 
-        let d = crate::math::is_inside_ellipse(&cgmath::Vector2::new(1_f32, 0_f32), 1_f32, 0.5_f32);
-        console::log_1(&format!("DDD, {:?}", d).into());
-        
         gl.enable(WebGl2RenderingContext::BLEND);
         gl.blend_func(WebGl2RenderingContext::SRC_ALPHA, WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA);
         gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
+
+        gl.clear_color(0.08, 0.08, 0.08, 1.0);
 
         // Shader definition
         let shader_2d_proj = Rc::new(Shader::new(&gl,
@@ -101,7 +89,7 @@ impl App {
                 // Viewport uniforms
                 "zoom_factor",
                 "aspect",
-                "last_user_action",
+                "last_zoom_action",
                 // HiPS Sphere-specific uniforms
                 "current_depth",
                 "max_depth",
@@ -109,102 +97,151 @@ impl App {
                 "ang2pix_1_texture",
                 "ang2pix_2_texture",
                 "textures_0",
-                "hpx_zero_depth[0].uniq",
-                "hpx_zero_depth[0].texture_idx",
-                "hpx_zero_depth[0].time_received",
-                "hpx_zero_depth[0].time_request",
-                "hpx_zero_depth[1].uniq",
-                "hpx_zero_depth[1].texture_idx",
-                "hpx_zero_depth[1].time_received",
-                "hpx_zero_depth[1].time_request",
-                "hpx_zero_depth[2].uniq",
-                "hpx_zero_depth[2].texture_idx",
-                "hpx_zero_depth[2].time_received",
-                "hpx_zero_depth[2].time_request",
-                "hpx_zero_depth[3].uniq",
-                "hpx_zero_depth[3].texture_idx",
-                "hpx_zero_depth[3].time_received",
-                "hpx_zero_depth[3].time_request",
-                "hpx_zero_depth[4].uniq",
-                "hpx_zero_depth[4].texture_idx",
-                "hpx_zero_depth[4].time_received",
-                "hpx_zero_depth[4].time_request",
-                "hpx_zero_depth[5].uniq",
-                "hpx_zero_depth[5].texture_idx",
-                "hpx_zero_depth[5].time_received",
-                "hpx_zero_depth[5].time_request",
-                "hpx_zero_depth[6].uniq",
-                "hpx_zero_depth[6].texture_idx",
-                "hpx_zero_depth[6].time_received",
-                "hpx_zero_depth[6].time_request",
-                "hpx_zero_depth[7].uniq",
-                "hpx_zero_depth[7].texture_idx",
-                "hpx_zero_depth[7].time_received",
-                "hpx_zero_depth[7].time_request",
-                "hpx_zero_depth[8].uniq",
-                "hpx_zero_depth[8].texture_idx",
-                "hpx_zero_depth[8].time_received",
-                "hpx_zero_depth[8].time_request",
-                "hpx_zero_depth[9].uniq",
-                "hpx_zero_depth[9].texture_idx",
-                "hpx_zero_depth[9].time_received",
-                "hpx_zero_depth[9].time_request",
-                "hpx_zero_depth[10].uniq",
-                "hpx_zero_depth[10].texture_idx",
-                "hpx_zero_depth[10].time_received",
-                "hpx_zero_depth[10].time_request",
-                "hpx_zero_depth[11].uniq",
-                "hpx_zero_depth[11].texture_idx",
-                "hpx_zero_depth[11].time_received",
-                "hpx_zero_depth[11].time_request",
-                "hpx_zero_depth[12].uniq",
-                "hpx_zero_depth[12].texture_idx",
-                "hpx_zero_depth[12].time_received",
-                "hpx_zero_depth[12].time_request",
-                "hpx_zero_depth[13].uniq",
-                "hpx_zero_depth[13].texture_idx",
-                "hpx_zero_depth[13].time_received",
-                "hpx_zero_depth[13].time_request",
-                "hpx_zero_depth[14].uniq",
-                "hpx_zero_depth[14].texture_idx",
-                "hpx_zero_depth[14].time_received",
-                "hpx_zero_depth[14].time_request",
-                "hpx_zero_depth[15].uniq",
-                "hpx_zero_depth[15].texture_idx",
-                "hpx_zero_depth[15].time_received",
-                "hpx_zero_depth[15].time_request",
-                "hpx_zero_depth[16].uniq",
-                "hpx_zero_depth[16].texture_idx",
-                "hpx_zero_depth[16].time_received",
-                "hpx_zero_depth[16].time_request",
-                "hpx_zero_depth[17].uniq",
-                "hpx_zero_depth[17].texture_idx",
-                "hpx_zero_depth[17].time_received",
-                "hpx_zero_depth[17].time_request",
-                "hpx_zero_depth[18].uniq",
-                "hpx_zero_depth[18].texture_idx",
-                "hpx_zero_depth[18].time_received",
-                "hpx_zero_depth[18].time_request",
-                "hpx_zero_depth[19].uniq",
-                "hpx_zero_depth[19].texture_idx",
-                "hpx_zero_depth[19].time_received",
-                "hpx_zero_depth[19].time_request",
-                "hpx_zero_depth[20].uniq",
-                "hpx_zero_depth[20].texture_idx",
-                "hpx_zero_depth[20].time_received",
-                "hpx_zero_depth[20].time_request",
-                "hpx_zero_depth[21].uniq",
-                "hpx_zero_depth[21].texture_idx",
-                "hpx_zero_depth[21].time_received",
-                "hpx_zero_depth[21].time_request",
-                "hpx_zero_depth[22].uniq",
-                "hpx_zero_depth[22].texture_idx",
-                "hpx_zero_depth[22].time_received",
-                "hpx_zero_depth[22].time_request",
-                "hpx_zero_depth[23].uniq",
-                "hpx_zero_depth[23].texture_idx",
-                "hpx_zero_depth[23].time_received",
-                "hpx_zero_depth[23].time_request",
+                "textures",
+                "textures_0_tiles[0].uniq",
+                "textures_0_tiles[0].texture_idx",
+                "textures_0_tiles[0].time_received",
+                "textures_0_tiles[0].time_request",
+                "textures_0_tiles[1].uniq",
+                "textures_0_tiles[1].texture_idx",
+                "textures_0_tiles[1].time_received",
+                "textures_0_tiles[1].time_request",
+                "textures_0_tiles[2].uniq",
+                "textures_0_tiles[2].texture_idx",
+                "textures_0_tiles[2].time_received",
+                "textures_0_tiles[2].time_request",
+                "textures_0_tiles[3].uniq",
+                "textures_0_tiles[3].texture_idx",
+                "textures_0_tiles[3].time_received",
+                "textures_0_tiles[3].time_request",
+                "textures_0_tiles[4].uniq",
+                "textures_0_tiles[4].texture_idx",
+                "textures_0_tiles[4].time_received",
+                "textures_0_tiles[4].time_request",
+                "textures_0_tiles[5].uniq",
+                "textures_0_tiles[5].texture_idx",
+                "textures_0_tiles[5].time_received",
+                "textures_0_tiles[5].time_request",
+                "textures_0_tiles[6].uniq",
+                "textures_0_tiles[6].texture_idx",
+                "textures_0_tiles[6].time_received",
+                "textures_0_tiles[6].time_request",
+                "textures_0_tiles[7].uniq",
+                "textures_0_tiles[7].texture_idx",
+                "textures_0_tiles[7].time_received",
+                "textures_0_tiles[7].time_request",
+                "textures_0_tiles[8].uniq",
+                "textures_0_tiles[8].texture_idx",
+                "textures_0_tiles[8].time_received",
+                "textures_0_tiles[8].time_request",
+                "textures_0_tiles[9].uniq",
+                "textures_0_tiles[9].texture_idx",
+                "textures_0_tiles[9].time_received",
+                "textures_0_tiles[9].time_request",
+                "textures_0_tiles[10].uniq",
+                "textures_0_tiles[10].texture_idx",
+                "textures_0_tiles[10].time_received",
+                "textures_0_tiles[10].time_request",
+                "textures_0_tiles[11].uniq",
+                "textures_0_tiles[11].texture_idx",
+                "textures_0_tiles[11].time_received",
+                "textures_0_tiles[11].time_request",
+                "textures_tiles[0].uniq",
+                "textures_tiles[0].texture_idx",
+                "textures_tiles[0].time_received",
+                "textures_tiles[0].time_request",
+                "textures_tiles[1].uniq",
+                "textures_tiles[1].texture_idx",
+                "textures_tiles[1].time_received",
+                "textures_tiles[1].time_request",
+                "textures_tiles[2].uniq",
+                "textures_tiles[2].texture_idx",
+                "textures_tiles[2].time_received",
+                "textures_tiles[2].time_request",
+                "textures_tiles[3].uniq",
+                "textures_tiles[3].texture_idx",
+                "textures_tiles[3].time_received",
+                "textures_tiles[3].time_request",
+                "textures_tiles[4].uniq",
+                "textures_tiles[4].texture_idx",
+                "textures_tiles[4].time_received",
+                "textures_tiles[4].time_request",
+                "textures_tiles[5].uniq",
+                "textures_tiles[5].texture_idx",
+                "textures_tiles[5].time_received",
+                "textures_tiles[5].time_request",
+                "textures_tiles[6].uniq",
+                "textures_tiles[6].texture_idx",
+                "textures_tiles[6].time_received",
+                "textures_tiles[6].time_request",
+                "textures_tiles[7].uniq",
+                "textures_tiles[7].texture_idx",
+                "textures_tiles[7].time_received",
+                "textures_tiles[7].time_request",
+                "textures_tiles[8].uniq",
+                "textures_tiles[8].texture_idx",
+                "textures_tiles[8].time_received",
+                "textures_tiles[8].time_request",
+                "textures_tiles[9].uniq",
+                "textures_tiles[9].texture_idx",
+                "textures_tiles[9].time_received",
+                "textures_tiles[9].time_request",
+                "textures_tiles[10].uniq",
+                "textures_tiles[10].texture_idx",
+                "textures_tiles[10].time_received",
+                "textures_tiles[10].time_request",
+                "textures_tiles[11].uniq",
+                "textures_tiles[11].texture_idx",
+                "textures_tiles[11].time_received",
+                "textures_tiles[11].time_request",
+                "textures_tiles[12].uniq",
+                "textures_tiles[12].texture_idx",
+                "textures_tiles[12].time_received",
+                "textures_tiles[12].time_request",
+                "textures_tiles[13].uniq",
+                "textures_tiles[13].texture_idx",
+                "textures_tiles[13].time_received",
+                "textures_tiles[13].time_request",
+                "textures_tiles[14].uniq",
+                "textures_tiles[14].texture_idx",
+                "textures_tiles[14].time_received",
+                "textures_tiles[14].time_request",
+                "textures_tiles[15].uniq",
+                "textures_tiles[15].texture_idx",
+                "textures_tiles[15].time_received",
+                "textures_tiles[15].time_request",
+                "textures_tiles[16].uniq",
+                "textures_tiles[16].texture_idx",
+                "textures_tiles[16].time_received",
+                "textures_tiles[16].time_request",
+                "textures_tiles[17].uniq",
+                "textures_tiles[17].texture_idx",
+                "textures_tiles[17].time_received",
+                "textures_tiles[17].time_request",
+                "textures_tiles[18].uniq",
+                "textures_tiles[18].texture_idx",
+                "textures_tiles[18].time_received",
+                "textures_tiles[18].time_request",
+                "textures_tiles[19].uniq",
+                "textures_tiles[19].texture_idx",
+                "textures_tiles[19].time_received",
+                "textures_tiles[19].time_request",
+                "textures_tiles[20].uniq",
+                "textures_tiles[20].texture_idx",
+                "textures_tiles[20].time_received",
+                "textures_tiles[20].time_request",
+                "textures_tiles[21].uniq",
+                "textures_tiles[21].texture_idx",
+                "textures_tiles[21].time_received",
+                "textures_tiles[21].time_request",
+                "textures_tiles[22].uniq",
+                "textures_tiles[22].texture_idx",
+                "textures_tiles[22].time_received",
+                "textures_tiles[22].time_request",
+                "textures_tiles[23].uniq",
+                "textures_tiles[23].texture_idx",
+                "textures_tiles[23].time_received",
+                "textures_tiles[23].time_request",
             ].as_ref()
         ));
         let shader_grid = Rc::new(Shader::new(&gl,
@@ -217,7 +254,7 @@ impl App {
                 // Viewport uniforms
                 "zoom_factor",
                 "aspect",
-                "last_user_action",
+                "last_zoom_action",
                 // Grid-specific uniforms
                 "location_color",
             ].as_ref()
@@ -262,7 +299,7 @@ impl App {
         let start_pos = Rc::new(Cell::new(Vector4::<f32>::new(0_f32, 0_f32, 0_f32, 1_f32)));
 
         let last_axis = Rc::new(Cell::new(Vector3::<f32>::new(0_f32, 0_f32, 0_f32)));
-        let last_dist = Rc::new(Cell::new(0_f32));
+        let last_dist = Rc::new(Cell::new(Rad(0_f32)));
         let roll = Rc::new(Cell::new(false));
 
         let time_last_move = Rc::new(Cell::new(utils::get_current_time() as f32));
@@ -323,10 +360,12 @@ impl App {
         // Mouse up pression event
         {
             let pressed = pressed.clone();
+            let viewport = viewport.clone();
 
             let closure = Closure::wrap(Box::new(move |_: web_sys::MouseEvent| {
                 console::log_1(&format!("mouse up").into());
                 pressed.set(false);
+                viewport.borrow_mut().stop_displacement();
             }) as Box<dyn FnMut(_)>);
             canvas.add_event_listener_with_callback("mouseup", closure.as_ref().unchecked_ref())?;
             closure.forget();
@@ -378,7 +417,7 @@ impl App {
                             let dist = math::angular_distance_xyz(start_pos_rotated, pos_rotated);
 
                             axis = axis.normalize();
-                            hips_sphere.borrow_mut().apply_rotation(-axis, cgmath::Rad(dist));
+                            hips_sphere.borrow_mut().apply_rotation(-axis, dist);
                             // Move the grid the opposite way of the hips sphere
                             grid.borrow_mut().set_model_mat(hips_sphere.borrow().get_inverted_model_mat());
 
@@ -412,24 +451,19 @@ impl App {
         }
         // Mouse wheel event
         {
-            let gl = gl.clone();
-            
-            let hips_sphere = hips_sphere.clone();
             let grid = grid.clone();
 
             let viewport = viewport.clone();
 
             let projection = projection.clone();
-            //let render_next_frame = render_next_frame.clone();
 
             let closure = Closure::wrap(Box::new(move |event: web_sys::WheelEvent| {
                 let delta_y = event.delta_y() as f32;
-                //RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
 
                 if delta_y < 0_f32 {
-                    viewport.borrow_mut().zoom();
+                    viewport.borrow_mut().zoom(1_f32);
                 } else {
-                    viewport.borrow_mut().unzoom();
+                    viewport.borrow_mut().unzoom(1_f32);
                 }
 
                 if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
@@ -459,103 +493,67 @@ impl App {
         };
 
         Ok(app)
+    } 
+
+    fn update(&self, dt: f32) {
+        // Update the camera. When the camera has reached its final position
+        // then we stop rendering the next frames!
+        self.viewport.borrow_mut().update(&self.projection.get());
+
+        // Updating
+        if RENDER_NEXT_FRAME.lock().unwrap().get() {
+            // update the fov
+            let model_mat = &self.hips_sphere.as_ref().borrow().get_model_mat();
+            self.hips_sphere.borrow_mut()
+                .mesh_mut()
+                .update(self.viewport.borrow().field_of_view(), model_mat);
+
+            // The grid label positions
+            if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
+                self.grid.borrow_mut().mesh_mut().update_label_positions(
+                    self.hips_sphere.borrow().get_inverted_model_mat(),
+                    &self.projection.get(),
+                    Some(&self.viewport.borrow()),
+                );
+            }
+        }
     }
 
-    fn run(&self, window: Rc<web_sys::Window>) {
-        let gl = self.gl.clone();
-        //let render_next_frame = self.render_next_frame.clone();
+    fn render(&self) {
+        if RENDER_NEXT_FRAME.lock().unwrap().get() {
+            //RENDER_NEXT_FRAME.store(false, Ordering::Relaxed);
+            /*if !pressed.get() && roll.get() {
+                let next_dist = compute_speed(time_last_move.get(), last_dist.get() * 0.5_f32);
+                if next_dist > 1e-4 {
+                    sphere.borrow_mut().apply_rotation(-last_axis.get(), cgmath::Rad(next_dist));
+                    projeted_grid.borrow_mut().apply_rotation(-last_axis.get(), cgmath::Rad(next_dist));
 
-        let viewport = self.viewport.clone();
-        let projection = self.projection.clone();
-
-        let hips_sphere = self.hips_sphere.clone();
-        let grid = self.grid.clone();
-
-        let f = Rc::new(RefCell::new(None));
-        let g = f.clone();
-        gl.clear_color(0.08, 0.08, 0.08, 1.0);
-
-        let fps_counter = Rc::new(window
-            .document().unwrap()
-            .get_element_by_id("fps-counter").unwrap()
-            .dyn_into::<web_sys::HtmlElement>().unwrap()
-        );
-
-        let performance = Rc::new(window
-            .performance()
-            .expect("performance should be available")
-        );
-
-        let window_2 = window.clone();
-        *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
-            if RENDER_NEXT_FRAME.lock().unwrap().get() {
-                let start_frame = performance.now();
-                //RENDER_NEXT_FRAME.store(false, Ordering::Relaxed);
-                /*if !pressed.get() && roll.get() {
-                    let next_dist = compute_speed(time_last_move.get(), last_dist.get() * 0.5_f32);
-                    if next_dist > 1e-4 {
-                        sphere.borrow_mut().apply_rotation(-last_axis.get(), cgmath::Rad(next_dist));
-                        projeted_grid.borrow_mut().apply_rotation(-last_axis.get(), cgmath::Rad(next_dist));
-
-                        let model_mat = &sphere.as_ref().borrow().get_model_mat();
-                        hips_sphere_mesh.borrow_mut().update_field_of_view(gl.clone(), &projection.as_ref().borrow(), &viewport.borrow(), model_mat, false);
-                    }
-                } else if pressed.get() {
-                    if (utils::get_current_time() as f32) - time_last_move.get() > 50_f32 {
-                        roll.set(false);
-                    }
-                }*/
-
-                /// Updating
-                // The camera. When the camera has reached its final position
-                // then we stop rendering the next frames!
-                viewport.borrow_mut().update_camera_movement();
-                // update the fov
-                let model_mat = &hips_sphere.as_ref().borrow().get_model_mat();
-                hips_sphere.borrow_mut()
-                    .mesh_mut()
-                    .update_field_of_view(&projection.get(), &viewport.borrow(), model_mat);
-
-                // The grid label positions
-                if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
-                    grid.borrow_mut().mesh_mut().update_label_positions(
-                        hips_sphere.borrow().get_inverted_model_mat(),
-                        &projection.get(),
-                        Some(&viewport.borrow()),
-                    );
+                    let model_mat = &sphere.as_ref().borrow().get_model_mat();
+                    hips_sphere_mesh.borrow_mut().update_field_of_view(gl.clone(), &projection.as_ref().borrow(), &viewport.borrow(), model_mat, false);
                 }
-
-                // Render the scene
-                gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
-
-                // Draw renderables here
-                let ref viewport = viewport.as_ref().borrow();
-                // Draw the HiPS sphere
-                hips_sphere.as_ref().borrow().draw(WebGl2RenderingContext::TRIANGLES, viewport);
-
-                // Draw the grid
-                if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
-                    // The grid lines
-                    grid.as_ref().borrow().draw(WebGl2RenderingContext::LINES, viewport);
-                    // The labels
-                    grid.borrow().mesh().draw_labels();
+            } else if pressed.get() {
+                if (utils::get_current_time() as f32) - time_last_move.get() > 50_f32 {
+                    roll.set(false);
                 }
+            }*/
 
-                let end_frame = performance.now();
-                let frame_duration_sec = (end_frame - start_frame) / 1000_f64;
-                let frames_per_second = 1_f64 / frame_duration_sec;
-                fps_counter.set_inner_text(&frames_per_second.to_string()); 
+            // Render the scene
+            self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+
+            // Draw renderables here
+            let ref viewport = self.viewport.as_ref().borrow();
+            // Draw the HiPS sphere
+            self.hips_sphere.as_ref().borrow().draw(WebGl2RenderingContext::TRIANGLES, viewport);
+
+            // Draw the grid
+            if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
+                // The grid lines
+                self.grid.as_ref().borrow().draw(WebGl2RenderingContext::LINES, viewport);
+                // The labels
+                self.grid.borrow().mesh().draw_labels();
             }
-
-            RENDER_NEXT_FRAME.lock().unwrap().update();
-
-            //console::log_1(&format!("FPS: {:?}", frames_per_second).into());
-
-            // Schedule ourself for another requestAnimationFrame callback.
-            request_animation_frame(f.borrow().as_ref().unwrap(), &window_2);
-        }) as Box<dyn FnMut()>));
-
-        request_animation_frame(g.borrow().as_ref().unwrap(), &window);
+        }
+        RENDER_NEXT_FRAME.lock().unwrap().update(&self.viewport.borrow());
     }
 
     fn set_projection(&mut self, projection: ProjectionType) {
@@ -587,8 +585,10 @@ impl App {
         RENDER_NEXT_FRAME.lock().unwrap().set(true);
     }
 
-    fn reload_hips_sphere(&mut self, hips_url: String) {
+    fn reload_hips_sphere(&mut self, hips_url: String, hips_depth: u8) {
         *HIPS_NAME.lock().unwrap() = hips_url;
+        MAX_DEPTH.store(hips_depth, Ordering::Relaxed);
+        print_to_console!("MAX DEPTH NEW HIPS {:?}", hips_depth);
 
         let ref projection = self.projection.get();
         let hips_sphere_mesh = HiPSSphere::new(&self.gl, projection);
@@ -658,6 +658,7 @@ lazy_static! {
     };
 
     static ref HIPS_NAME: Arc<Mutex<String>> = Arc::new(Mutex::new(String::from("http://alasky.u-strasbg.fr/DSS/DSSColor")));
+    static ref MAX_DEPTH: Arc<AtomicU8> = Arc::new(AtomicU8::new(9));
 }
 
 fn set_window_size(new_width: u32, new_height: u32) {
@@ -682,9 +683,6 @@ fn window_size_f64() -> (f64, f64) {
 
     (width as f64, height as f64)
 }
-/*fn render_next_frame() {
-    RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
-}*/
 
 #[derive(Clone)]
 pub struct WebGl2Context {
@@ -734,7 +732,6 @@ impl Deref for WebGl2Context {
 #[wasm_bindgen]
 pub struct WebClient {
     app: App,
-    window: Rc<web_sys::Window>,
 }
 
 #[wasm_bindgen]
@@ -745,19 +742,23 @@ impl WebClient {
         let gl = WebGl2Context::new();
         let app = App::new(&gl).unwrap();
 
-        let window = Rc::new(web_sys::window().unwrap());
-        //let gl = Rc::new(create_webgl_context(Rc::clone(&app)).unwrap());
-
         WebClient {
             app,
-            window
         }
     }
 
-    /// Start our WebGL Water application. `index.html` will call this function in order
+    /// Update our WebGL Water application. `index.html` will call this function in order
     /// to begin rendering.
-    pub fn start(&self) -> Result<(), JsValue> {
-        self.app.run(self.window.clone());
+    pub fn update(&self, dt: f32) -> Result<(), JsValue> {
+        self.app.update(dt);
+
+        Ok(())
+    }
+
+    /// Update our WebGL Water application. `index.html` will call this function in order
+    /// to begin rendering.
+    pub fn render(&self) -> Result<(), JsValue> {
+        self.app.render();
 
         Ok(())
     }
@@ -805,8 +806,8 @@ impl WebClient {
         Ok(())
     }
 
-    pub fn change_hips(&mut self, hips_url: String) -> Result<(), JsValue> {
-        self.app.reload_hips_sphere(hips_url);
+    pub fn change_hips(&mut self, hips_url: String, hips_depth: i32) -> Result<(), JsValue> {
+        self.app.reload_hips_sphere(hips_url, hips_depth as u8);
 
         Ok(())
     }

@@ -1,8 +1,6 @@
 use crate::viewport::ViewPort;
 
-use web_sys::console;
-
-use crate::{window_size_f32};
+use crate::window_size_f32;
 use crate::DEGRADE_CANVAS_RATIO;
 
 pub fn screen_pixels_to_homogenous(x: f32, y: f32, viewport: &ViewPort) -> (f32, f32) {
@@ -221,10 +219,10 @@ impl Projection for Aitoff {
             alpha / alpha.sin()
         };
 
-        let X = -2_f32 * inv_sinc_alpha * delta.cos() * theta_by_two.sin();
-        let Y = inv_sinc_alpha * delta.sin();
+        let x = -2_f32 * inv_sinc_alpha * delta.cos() * theta_by_two.sin();
+        let y = inv_sinc_alpha * delta.sin();
 
-        Some(cgmath::Vector2::new(X / std::f32::consts::PI, Y / std::f32::consts::PI))
+        Some(cgmath::Vector2::new(x / std::f32::consts::PI, y / std::f32::consts::PI))
     }
 }
 

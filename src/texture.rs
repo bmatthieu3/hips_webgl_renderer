@@ -79,9 +79,6 @@ impl Eq for TileGPU {}
 impl PartialOrd for TileGPU {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         // Order by UNIQ notation
-        //let u1: i32 = 1 << (2*(self.depth + 1)) + self.idx;
-        //let u2: i32 = 1 << (2*(other.depth + 1)) + other.idx;
-
         self.uniq.partial_cmp(&other.uniq)
     }
 }
@@ -131,16 +128,17 @@ pub struct BufferTiles {
     idx_texture_unit: u32,
 
     texture: Option<web_sys::WebGlTexture>,
+    texture_name: &'static str,
 
     num_load_tiles: u8,
+    num_tiles_to_load: u8,
 }
 
 use crate::utils;
-use std::sync::atomic;
 use crate::shader::Shader;
 use std::convert::TryInto;
 impl BufferTiles {
-    pub fn new(gl: &WebGl2Context, size: usize) -> BufferTiles {
+    pub fn new(gl: &WebGl2Context, size: usize, texture_name: &'static str) -> BufferTiles {
         let buffer = BinaryHeap::with_capacity(size);
         let requested_tiles = HashSet::with_capacity(size);
 
@@ -148,6 +146,7 @@ impl BufferTiles {
 
         let gl = gl.clone();
         let num_load_tiles = 0;
+        let num_tiles_to_load = size as u8;
         BufferTiles {
             gl,
 
@@ -156,9 +155,12 @@ impl BufferTiles {
             requested_tiles,
             size,
             idx_texture_unit,
+
             texture,
+            texture_name,
 
             num_load_tiles,
+            num_tiles_to_load,
         }
     }
 
@@ -189,22 +191,29 @@ impl BufferTiles {
         };
 
         // Push it to the GPU buffer
+        self.num_load_tiles += 1;
         self.push_tile(tile);
 
         texture_idx
     }
 
-    pub fn prepare_for_loading(&mut self) {
+    pub fn prepare_for_loading(&mut self, num_tiles_to_load: u8) {
         self.num_load_tiles = 0;
+        self.num_tiles_to_load = num_tiles_to_load;
     }
 
     fn push_tile(&mut self, tile: Tile) {
         self.buffer.push(tile);
-        self.num_load_tiles += 1;
 
-        if self.num_load_tiles == (self.size as u8) {
+        // if all the requested tiles are all in the buffer
+        // i.e. if there is no more tiles to load
+        if self.num_tiles_to_load == 0 {
+            return;
+        }
+
+        if self.num_load_tiles == self.num_tiles_to_load {
             // Do not render next frame
-            RENDER_NEXT_FRAME.lock().unwrap().set_for_duration_seconds(1000_f32);
+            RENDER_NEXT_FRAME.lock().unwrap().set_for_duration_seconds(500_f32);
         }
     }
 
@@ -249,6 +258,7 @@ impl BufferTiles {
                 self.buffer = buffer;
 
                 // Push it to the GPU buffer
+                self.num_tiles_to_load -= 1;
                 self.push_tile(tile);
             }
 
@@ -277,7 +287,7 @@ impl BufferTiles {
         .expect("Texture 3d");
     }
 
-    pub fn tiles(&self) -> Vec<TileGPU> {
+    fn tiles(&self) -> Vec<TileGPU> {
         let mut tiles: Vec<TileGPU> = self.buffer
             .clone()
             .into_iter()
@@ -291,13 +301,38 @@ impl BufferTiles {
         tiles
     }
 
-    pub fn send_sampler_uniform(&self, shader: &Shader, name: &'static str) {
-        let location_sampler_3d = shader.get_uniform_location(name);
+    fn send_sampler_uniform(&self, shader: &Shader) {
+        let location_sampler_3d = shader.get_uniform_location(self.texture_name);
         self.gl.active_texture(self.idx_texture_unit);
         self.gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, self.texture.as_ref());
 
         let idx_sampler: i32 = (self.idx_texture_unit - WebGl2RenderingContext::TEXTURE0).try_into().unwrap();
         self.gl.uniform1i(location_sampler_3d, idx_sampler);
+    }
+
+    pub fn send_to_shader(&self, shader: &Shader) {
+        self.send_sampler_uniform(shader);
+        let tiles = self.tiles();
+
+        for (i, tile) in tiles.iter().enumerate() {
+            let mut name = String::from(self.texture_name);
+            name += "_tiles";
+            name += "[";
+            name += &i.to_string();
+            name += "].";
+
+            let location_hpx_idx = shader.get_uniform_location(&(name.clone() + "uniq"));
+            self.gl.uniform1i(location_hpx_idx, tile.uniq);
+
+            let location_buf_idx = shader.get_uniform_location(&(name.clone() + "texture_idx"));
+            self.gl.uniform1i(location_buf_idx, tile.texture_idx);
+
+            let location_time_received = shader.get_uniform_location(&(name.clone() + "time_received"));
+            self.gl.uniform1f(location_time_received, tile.time_received);
+
+            let location_time_request = shader.get_uniform_location(&(name + "time_request"));
+            self.gl.uniform1f(location_time_request, tile.time_request);
+        }
     }
 }
 

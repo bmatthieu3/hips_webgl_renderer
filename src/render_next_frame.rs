@@ -6,6 +6,7 @@ pub struct RenderNextFrame {
     next_time: f32,
 }
 
+use crate::viewport::{ViewPort, LastZoomAction};
 impl RenderNextFrame {
     pub fn new() -> RenderNextFrame {
         let next_time = 0_f32;
@@ -30,10 +31,20 @@ impl RenderNextFrame {
         self.render = val;
     }
 
-    pub fn update(&mut self) {
-        let current_time = utils::get_current_time();
-        if current_time >= self.next_time {
-            self.set(false);
+    pub fn update(&mut self, viewport: &ViewPort) {
+        // Priority to mouse/wheel events
+        let is_action = viewport.is_user_action();
+
+        if !is_action {
+            // If no action by the user we check whether there is
+            // more tiles to load.
+            let current_time = utils::get_current_time();
+            if current_time >= self.next_time {
+                // If not, we stop rendering the next frame
+                self.set(false);
+            }
+        } else {
+            self.set(true);
         }
     }
 }
