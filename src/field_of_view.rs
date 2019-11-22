@@ -139,4 +139,8 @@ impl FieldOfView {
             (0, (0..12).collect::<Vec<_>>())
         }
     }
+
+    pub fn value(&self) -> &Option<Rad<f32>> {
+        &self.value
+    }
 }

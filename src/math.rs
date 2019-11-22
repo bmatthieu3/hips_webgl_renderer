@@ -36,6 +36,32 @@ pub fn ang_per_pixel_to_depth(x: f32) -> u8 {
     depth as u8
 }
 
+use crate::window_size_f32;
+pub fn fov_to_depth(fov: Rad<f32>) -> u8 {
+    let (width_screen, _) = window_size_f32();
+    let pixel_ang = fov.0 / width_screen;
+
+    let depth_pixel = (((4_f32 * std::f32::consts::PI) / (12_f32 * pixel_ang * pixel_ang)).log2() / 2_f32).floor() as i32;
+
+    let mut depth = depth_pixel - 9;
+    if depth < 0 {
+        depth = 0;
+    }
+    depth as u8
+}
+
+use web_sys::console;
+pub fn depth_to_fov(depth: u8) -> Rad<f32> {
+    let depth_pixel = depth + 9;
+
+    let pixel_ang = Rad((4_f32 * std::f32::consts::PI / (12_f32 * 4_f32.powf(depth_pixel as f32))).sqrt());
+
+    let (width_screen, _) = window_size_f32();
+    let fov = pixel_ang * width_screen;
+    //print_to_console!("{:?} fov", fov);
+    fov
+}
+
 use cgmath::Vector2;
 pub fn is_inside_ellipse(screen_pos: &Vector2<f32>, a: f32, b: f32) -> bool {
     let a2 = a * a;

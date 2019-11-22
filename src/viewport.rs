@@ -1,3 +1,4 @@
+
 use std::rc::Rc;
 use std::cell::RefCell;
 
@@ -12,11 +13,13 @@ pub enum LastZoomAction {
 }
 
 use crate::field_of_view::FieldOfView;
+use cgmath::Rad;
 pub struct ViewPort {
     gl: WebGl2Context,
     canvas: Rc<web_sys::HtmlCanvasElement>,
 
     fov: FieldOfView,
+    fov_max: Rad<f32>,
 
     current_zoom: f32,
     final_zoom: f32,
@@ -40,6 +43,7 @@ use crate::{set_window_size, window_size_f32, window_size_u32};
 use wasm_bindgen::JsCast;
 
 use cgmath::Vector2;
+use cgmath::Deg;
 
 /// Set the scissor knowing the size in pixel of the
 /// HiPS sphere
@@ -55,6 +59,10 @@ fn set_gl_scissor(gl: &WebGl2Context, size: Vector2<f32>) {
 
 use crate::projection::ProjectionType;
 use web_sys::console;
+use crate::math;
+use std::sync::atomic::Ordering;
+use crate::MAX_DEPTH;
+use crate::print_to_console;
 impl ViewPort {
     pub fn new(gl: &WebGl2Context, hips_sphere: Rc<RefCell<Renderable<HiPSSphere>>>) -> ViewPort {
         let current_zoom = 1_f32;
@@ -73,6 +81,7 @@ impl ViewPort {
         let is_zooming = false;
 
         let fov = FieldOfView::new();
+        let fov_max = math::depth_to_fov(MAX_DEPTH.load(Ordering::Relaxed));
 
         let gl = gl.clone();
         let mut viewport = ViewPort {
@@ -80,6 +89,7 @@ impl ViewPort {
             canvas,
 
             fov,
+            fov_max,
 
             current_zoom,
             final_zoom,
@@ -109,27 +119,30 @@ impl ViewPort {
         set_gl_scissor(&self.gl, size_px);
     }
 
-    pub fn zoom(&mut self, dt: f32) {
+    pub fn zoom(&mut self) {
+        if let Some(fov) = self.fov.value() {
+            if self.fov_max > *fov {
+                return;
+            }
+        }
         self.is_zooming = true;
         self.is_action = true;
 
         self.last_zoom_action = LastZoomAction::Zoom;
 
-        self.final_zoom *= 1.2_f32 * dt;
-        if self.final_zoom > 1000_f32 {
-            self.final_zoom = 1000_f32;
-        }
-
+        self.final_zoom *= 1.4_f32;
+        //self.final_zoom = 1000_f32;
+    
         //self.update_scissor();
     }
 
-    pub fn unzoom(&mut self, dt: f32) {
+    pub fn unzoom(&mut self) {
         self.is_zooming = true;
         self.is_action = true;
 
         self.last_zoom_action = LastZoomAction::Unzoom;
 
-        self.final_zoom /= 1.2_f32 * dt;
+        self.final_zoom /= 1.4_f32;
         if self.final_zoom < 0.5_f32 {
             self.final_zoom = 0.5_f32;
         }
@@ -148,7 +161,7 @@ impl ViewPort {
         }
     }
 
-    pub fn update(&mut self, projection: &ProjectionType) {
+    pub fn update(&mut self, projection: &ProjectionType, dt: f32) {
         // If there is an action whether it is a zoom or a displacement
         // then we update the fov
         if self.is_action {
@@ -167,11 +180,25 @@ impl ViewPort {
             return;
         }
         // Here we are currently zooming
+        if let Some(fov) = self.fov.value() {
+            // zooming
+            if self.fov_max > *fov && self.final_zoom > self.current_zoom {
+                self.final_zoom = self.current_zoom;
+                return;
+            }
+        }
 
         // We update the zoom factor
-        self.current_zoom += (self.final_zoom - self.current_zoom) * 0.1_f32;
+        self.current_zoom += (self.final_zoom - self.current_zoom) * 0.005_f32 * dt;
+        //self.current_zoom = self.final_zoom;
         // And update the scissor
         self.update_scissor();
+    }
+
+    pub fn set_max_field_of_view(&mut self, max_fov: Rad<f32>) {
+        self.fov_max = max_fov;
+        let deg: Deg<f32> = self.fov_max.into();
+        print_to_console!("fov max {:?}", deg.0);
     }
 
     pub fn field_of_view(&self) -> &FieldOfView {

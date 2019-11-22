@@ -1,4 +1,3 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use crate::utils;
 
 pub struct RenderNextFrame {
@@ -6,7 +5,7 @@ pub struct RenderNextFrame {
     next_time: f32,
 }
 
-use crate::viewport::{ViewPort, LastZoomAction};
+use crate::viewport::ViewPort;
 impl RenderNextFrame {
     pub fn new() -> RenderNextFrame {
         let next_time = 0_f32;

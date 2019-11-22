@@ -2,6 +2,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
     precision mediump float;
     precision lowp sampler3D;
     precision lowp sampler2D;
+    precision highp int;
 
     in vec3 out_vert_pos;
 

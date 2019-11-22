@@ -1,11 +1,20 @@
 #[macro_use]
 extern crate lazy_static;
-
 extern crate itertools_num;
+
+use web_sys::console;
+#[macro_export]
+macro_rules! print_to_console {
+    ( $text:expr, $( $x:expr ),* ) => {
+        {
+            console::log_1(&format!($text, $($x)*).into());
+        }
+    };
+}
 
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use web_sys::{WebGl2RenderingContext, console};
+use web_sys::WebGl2RenderingContext;
 
 use cgmath;
 use cgmath::{InnerSpace, Vector3, Vector4, Rad};
@@ -32,14 +41,6 @@ use crate::renderable::grid::ProjetedGrid;
 
 use std::sync::Mutex;
 use std::sync::Arc;
-
-macro_rules! print_to_console {
-    ( $text:expr, $( $x:expr ),* ) => {
-        {
-            console::log_1(&format!($text, $($x)*).into());
-        }
-    };
-}
 
 use std::rc::Rc;
 use std::cell::{RefCell, Cell};
@@ -460,10 +461,11 @@ impl App {
             let closure = Closure::wrap(Box::new(move |event: web_sys::WheelEvent| {
                 let delta_y = event.delta_y() as f32;
 
+                let dt = *DELTA_TIME.lock().unwrap();
                 if delta_y < 0_f32 {
-                    viewport.borrow_mut().zoom(1_f32);
+                    viewport.borrow_mut().zoom();
                 } else {
-                    viewport.borrow_mut().unzoom(1_f32);
+                    viewport.borrow_mut().unzoom();
                 }
 
                 if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
@@ -498,7 +500,8 @@ impl App {
     fn update(&self, dt: f32) {
         // Update the camera. When the camera has reached its final position
         // then we stop rendering the next frames!
-        self.viewport.borrow_mut().update(&self.projection.get());
+        self.viewport.borrow_mut().update(&self.projection.get(), dt);
+        *DELTA_TIME.lock().unwrap() = dt;
 
         // Updating
         if RENDER_NEXT_FRAME.lock().unwrap().get() {
@@ -613,6 +616,11 @@ impl App {
             )
         );
 
+        // Tell the viewport the maximum zoom level has changed
+        // based on the new value of MAX_DEPTH
+        let fov_max = math::depth_to_fov(MAX_DEPTH.load(Ordering::Relaxed));
+        self.viewport.borrow_mut().set_max_field_of_view(fov_max);
+
         RENDER_NEXT_FRAME.lock().unwrap().set(true);
     }
 }
@@ -659,6 +667,7 @@ lazy_static! {
 
     static ref HIPS_NAME: Arc<Mutex<String>> = Arc::new(Mutex::new(String::from("http://alasky.u-strasbg.fr/DSS/DSSColor")));
     static ref MAX_DEPTH: Arc<AtomicU8> = Arc::new(AtomicU8::new(9));
+    static ref DELTA_TIME: Arc<Mutex<f32>> = Arc::new(Mutex::new(0_f32));
 }
 
 fn set_window_size(new_width: u32, new_height: u32) {
