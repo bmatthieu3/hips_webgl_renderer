@@ -167,9 +167,11 @@ impl ViewPort {
         if self.is_action {
             console::log_1(&format!("update FOV").into());
             self.fov.update(self.current_zoom, projection);
+
+            self.stop_displacement();
         }
 
-        // Stop zooming the final zoom factor has been reached
+        // Stop zooming when the final zoom factor has been reached
         if (self.current_zoom - self.final_zoom).abs() < 1e-3 {
             self.current_zoom = self.final_zoom;
             self.is_zooming = false;

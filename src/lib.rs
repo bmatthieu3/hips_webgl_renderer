@@ -498,10 +498,13 @@ impl App {
     } 
 
     fn update(&self, dt: f32) {
+        *DELTA_TIME.lock().unwrap() = dt;
+
+        RENDER_NEXT_FRAME.lock().unwrap().update(&self.viewport.borrow());
+
         // Update the camera. When the camera has reached its final position
         // then we stop rendering the next frames!
         self.viewport.borrow_mut().update(&self.projection.get(), dt);
-        *DELTA_TIME.lock().unwrap() = dt;
 
         // Updating
         if RENDER_NEXT_FRAME.lock().unwrap().get() {
@@ -556,7 +559,6 @@ impl App {
                 self.grid.borrow().mesh().draw_labels();
             }
         }
-        RENDER_NEXT_FRAME.lock().unwrap().update(&self.viewport.borrow());
     }
 
     fn set_projection(&mut self, projection: ProjectionType) {
