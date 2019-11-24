@@ -26,7 +26,7 @@ use cgmath::Matrix4;
 pub trait Mesh {
     fn create_buffers(&self, gl: &WebGl2Context) -> VertexArrayObject;
 
-    fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: Option<&ViewPort>);
+    fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: &ViewPort);
     fn get_vertices<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>);
 
     fn send_uniforms(&self, gl: &WebGl2Context, shader: &Shader);
@@ -112,8 +112,8 @@ where T: Mesh + DisableDrawing {
         self.recompute_model_matrix();
     }
 
-    pub fn get_model_mat(&self) -> cgmath::Matrix4<f32> {
-        return self.model_mat.clone(); 
+    pub fn get_model_mat(&self) -> &cgmath::Matrix4<f32> {
+        return &self.model_mat; 
     }
 
     pub fn get_inverted_model_mat(&self) -> &cgmath::Matrix4<f32> {
@@ -137,9 +137,11 @@ where T: Mesh + DisableDrawing {
         self.mesh.update(
             projection,
             &self.model_mat,
-            Some(viewport)
+            viewport
         );
+    }
 
+    pub fn update_vertex_array(&mut self) {
         // Get the new buffer data
         let (vertices, idx_vertices) = self.mesh.get_vertices();
         // Update the VAO with the new data

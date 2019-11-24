@@ -112,7 +112,8 @@ impl ProjetedGrid {
         step_lon: cgmath::Rad<f32>,
         lat_bound: Option<Vector2<Rad<f32>>>,
         lon_bound: Option<Vector2<Rad<f32>>>,
-        projection: &ProjectionType) -> ProjetedGrid {
+        projection: &ProjectionType,
+        viewport: &ViewPort) -> ProjetedGrid {
         let (lat_min, lat_max) = if let Some(lat_bound) = lat_bound {
             (lat_bound.x.0, lat_bound.y.0)
         } else {
@@ -249,7 +250,7 @@ impl ProjetedGrid {
             color,
         };
 
-        grid.update(projection, &cgmath::Matrix4::identity(), None);
+        grid.update(projection, &cgmath::Matrix4::identity(), viewport);
 
         grid
     }
@@ -354,7 +355,7 @@ impl Mesh for ProjetedGrid {
         (BufferData(&self.pos_screen_space), BufferData(&self.idx_vertices))
     }
 
-    fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: Option<&ViewPort>) {
+    fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: &ViewPort) {
         let (mut width_screen, _) = window_size_f32();
         width_screen *= DEGRADE_CANVAS_RATIO;
 
@@ -400,7 +401,6 @@ impl Mesh for ProjetedGrid {
             idx_start += num_points_step;
         }
 
-        //console::log_1(&format!("idx {:?} idx_start {:?}", self.idx_vertices, idx_start).into());
         while idx_start < (self.lat.len() * self.num_points_lon + self.lon.len() * self.num_points_lat) {
             let num_points_step = self.num_points_lat;
 

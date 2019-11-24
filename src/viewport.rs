@@ -30,8 +30,8 @@ pub struct ViewPort {
 
     is_action: bool,
 
-    // Immutable counted reference to the HiPS sphere
-    hips_sphere: Rc<RefCell<Renderable<HiPSSphere>>>,
+    // Store the size in pixels of the hips sphere
+    default_size_scissor: Vector2<f32>,
 }
 
 use crate::shader::Shader;
@@ -64,7 +64,7 @@ use std::sync::atomic::Ordering;
 use crate::MAX_DEPTH;
 use crate::print_to_console;
 impl ViewPort {
-    pub fn new(gl: &WebGl2Context, hips_sphere: Rc<RefCell<Renderable<HiPSSphere>>>) -> ViewPort {
+    pub fn new(gl: &WebGl2Context, size_pixels: &Vector2<f32>) -> ViewPort {
         let current_zoom = 1_f32;
         let final_zoom = current_zoom;
 
@@ -73,7 +73,6 @@ impl ViewPort {
                 .dyn_into::<web_sys::HtmlCanvasElement>()
                 .unwrap()
         );
-        set_gl_scissor(gl, *hips_sphere.borrow().mesh().get_default_pixel_size());
 
         let last_zoom_action = LastZoomAction::Unzoom;
         let is_moving = false;
@@ -82,6 +81,8 @@ impl ViewPort {
 
         let fov = FieldOfView::new();
         let fov_max = math::depth_to_fov(MAX_DEPTH.load(Ordering::Relaxed));
+
+        let default_size_scissor = *size_pixels;
 
         let gl = gl.clone();
         let mut viewport = ViewPort {
@@ -100,7 +101,7 @@ impl ViewPort {
 
             is_action,
 
-            hips_sphere,
+            default_size_scissor,
         };
 
         viewport.resize();
@@ -108,15 +109,9 @@ impl ViewPort {
     }
 
     pub fn update_scissor(&self) {
-        // Set the scissor here
-        let mut size_px = self.hips_sphere
-            .borrow()
-            .mesh()
-            .get_default_pixel_size()
-            .clone();
         // Take into account the zoom factor
-        size_px *= self.current_zoom;
-        set_gl_scissor(&self.gl, size_px);
+        let current_size_scissor = self.default_size_scissor * self.current_zoom;
+        set_gl_scissor(&self.gl, current_size_scissor);
     }
 
     pub fn zoom(&mut self) {
@@ -131,9 +126,6 @@ impl ViewPort {
         self.last_zoom_action = LastZoomAction::Zoom;
 
         self.final_zoom *= 1.4_f32;
-        //self.final_zoom = 1000_f32;
-    
-        //self.update_scissor();
     }
 
     pub fn unzoom(&mut self) {

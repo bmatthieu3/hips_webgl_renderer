@@ -49,7 +49,7 @@ window.addEventListener('load', function () {
                 });
 
             // Add the UI event listeners
-            let canvas = document.getElementById("canvas");
+
             let select_projection = document.getElementById("proj-select");
             let equatorial_grid = document.getElementById("enable-grid");
             let hips_selector = document.getElementById("hips-selector");
@@ -109,74 +109,10 @@ window.addEventListener('load', function () {
                 webClient.change_hips(hips_url, max_depth);
             });
             
-            let ongoingTouches = new Array();
-
-            function ongoingTouchIndexById(id) {
-                for(let idx = 0; idx < ongoingTouches.length; idx++) {
-                    let touch = ongoingTouches[idx];
-                    if (touch.identifier == id) {
-                        return idx;
-                    }
-                }
-          
-                return -1;
-            }
             // Touchpad event
-            canvas.addEventListener("touchstart", (evt) => {
-                evt.preventDefault();
-                var touches = evt.changedTouches;
-   
-                for (var i = 0; i < touches.length; i++) {
-                    ongoingTouches.push(touches[i]);
-                }
-                let touche = ongoingTouches[0];
-                if (ongoingTouches.length == 1) {
-                    webClient.initialize_move(touche.pageX, touche.pageY);
-                } else {
-                    // If more touches are present, we stop the current move
-                    webClient.stop_move(touche.pageX, touche.pageY);
-                    console.log('stop moving');
-                }
-            }, false);
-
-            let handleCancel = (evt) => {
-                evt.preventDefault();
-                if (ongoingTouches.length == 1) {
-                    // move event
-                    let touche = ongoingTouches[0];
-                    // Stop moving
-                    webClient.stop_move(touche.pageX, touche.pageY);
-                    console.log('stop moving');
-                } else {
-                    // zoom event
-                }
-
-                ongoingTouches = [];
-            };
-            canvas.addEventListener("touchend", handleCancel, false);
-            canvas.addEventListener("touchcancel", handleCancel, false);
-            canvas.addEventListener("touchleave", handleCancel, false);
-            canvas.addEventListener("touchmove", (evt) => {
-                evt.preventDefault();
-                var touches = evt.changedTouches;
-   
-                // Update the touches
-                for (var i = 0; i < touches.length; i++) {
-                    let idx = ongoingTouchIndexById(touches[i].identifier);
-                    ongoingTouches.splice(idx, 1, touches[i]);
-                }
-
-                if (ongoingTouches.length == 1) {
-                    // Move event
-                    let touche = ongoingTouches[0];
-                    webClient.moves(touche.pageX, touche.pageY);
-
-                    console.log("move!!");
-                } else {
-                    console.log("zoom!!");
-                    // zoom event
-                }
-            }, false);
+            touchpad_events(webClient);
+            // Mouse events
+            mouse_events(webClient);
 
             // Render
             time = Date.now();
@@ -184,3 +120,89 @@ window.addEventListener('load', function () {
         })
         .catch(console.error);
   })
+
+// Mouse EVENT
+function mouse_events(webClient) {
+    let canvas = document.getElementById("canvas");
+
+    canvas.addEventListener("mousedown", (evt) => {
+        webClient.initialize_move(evt.clientX, evt.clientY);
+    });
+    canvas.addEventListener("mouseup", (evt) => {
+        webClient.stop_move();
+    });
+    canvas.addEventListener("mousemove", (evt) => {
+        webClient.moves(evt.clientX, evt.clientY);
+    });
+}
+
+// Touchpad EVENT
+function touchpad_events(webClient) {
+    let canvas = document.getElementById("canvas");
+    let ongoingTouches = new Array();
+
+    function ongoingTouchIndexById(id) {
+        for(let idx = 0; idx < ongoingTouches.length; idx++) {
+            let touch = ongoingTouches[idx];
+            if (touch.identifier == id) {
+                return idx;
+            }
+        }
+
+        return -1;
+    }
+    canvas.addEventListener("touchstart", (evt) => {
+        evt.preventDefault();
+        var touches = evt.changedTouches;
+
+        for (var i = 0; i < touches.length; i++) {
+            ongoingTouches.push(touches[i]);
+        }
+        let touche = ongoingTouches[0];
+        if (ongoingTouches.length == 1) {
+            webClient.initialize_move(touche.pageX, touche.pageY);
+        } else {
+            // If more touches are present, we stop the current move
+            webClient.stop_move();
+            console.log('stop moving');
+        }
+    }, false);
+
+    let handleCancel = (evt) => {
+        evt.preventDefault();
+        if (ongoingTouches.length == 1) {
+            // move event
+            // Stop moving
+            webClient.stop_move();
+            console.log('stop moving');
+        } else {
+            // zoom event
+        }
+
+        ongoingTouches = [];
+    };
+    canvas.addEventListener("touchend", handleCancel, false);
+    canvas.addEventListener("touchcancel", handleCancel, false);
+    canvas.addEventListener("touchleave", handleCancel, false);
+    canvas.addEventListener("touchmove", (evt) => {
+        evt.preventDefault();
+        var touches = evt.changedTouches;
+
+        // Update the touches
+        for (var i = 0; i < touches.length; i++) {
+            let idx = ongoingTouchIndexById(touches[i].identifier);
+            ongoingTouches.splice(idx, 1, touches[i]);
+        }
+
+        if (ongoingTouches.length == 1) {
+            // Move event
+            let touche = ongoingTouches[0];
+            webClient.moves(touche.pageX, touche.pageY);
+
+            console.log("move!!");
+        } else {
+            console.log("zoom!!");
+            // zoom event
+        }
+    }, false);
+}

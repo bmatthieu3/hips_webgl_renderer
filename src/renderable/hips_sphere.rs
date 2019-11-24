@@ -91,23 +91,6 @@ impl<'a> HiPSSphere {
         &self.size_in_pixels
     }
 
-    pub fn update(&mut self, field_of_view: &FieldOfView, model: &cgmath::Matrix4<f32>) {
-        let (depth, hpx_idx) = field_of_view.get_healpix_cells(model);
-
-        let reset_time_received = if self.current_depth != depth {
-            true
-        } else {
-            false
-        };
-        self.current_depth = depth;
-
-        // TODO: wrap that into a method load_healpix_tiles of BufferTiles
-        self.buffer_tiles.borrow_mut().prepare_for_loading(hpx_idx.len() as u8);
-        for idx in hpx_idx {
-            load_healpix_tile(&self.gl, self.buffer_tiles.clone(), idx, depth, reset_time_received);
-        }
-    }
-
     fn create_vertices_array(gl: &WebGl2Context, projection: &ProjectionType) -> (Vec<f32>, Vector2<f32>) {
         let (vertex_screen_space_positions, size_px) = projection.build_screen_map();
 
@@ -231,8 +214,22 @@ impl Mesh for HiPSSphere {
         unreachable!();
     }
 
-    fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: Option<&ViewPort>) {
-        unreachable!();
+    fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: &ViewPort) {
+        let field_of_view = viewport.field_of_view();
+        let (depth, hpx_idx) = field_of_view.get_healpix_cells(local_to_world_mat);
+
+        let reset_time_received = if self.current_depth != depth {
+            true
+        } else {
+            false
+        };
+        self.current_depth = depth;
+
+        // TODO: wrap that into a method load_healpix_tiles of BufferTiles
+        self.buffer_tiles.borrow_mut().prepare_for_loading(hpx_idx.len() as u8);
+        for idx in hpx_idx {
+            load_healpix_tile(&self.gl, self.buffer_tiles.clone(), idx, depth, reset_time_received);
+        }
     }
 }
 

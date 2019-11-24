@@ -61,7 +61,7 @@ struct App {
     shaders: HashMap<&'static str, Rc<Shader>>,
 
     // The sphere renderable
-    hips_sphere: Rc<RefCell<Renderable<HiPSSphere>>>,
+    hips_sphere: Renderable<HiPSSphere>,
     // The grid renderable
     grid: Rc<RefCell<Renderable<ProjetedGrid>>>,
 
@@ -274,31 +274,31 @@ impl App {
         let projection = Rc::new(Cell::new(ProjectionType::Aitoff(Aitoff {})));
         // HiPS Sphere definition
         let hips_sphere_mesh = HiPSSphere::new(&gl, &projection.get());
+        let size_pixels = *hips_sphere_mesh.get_default_pixel_size();
+        let hips_sphere = Renderable::<HiPSSphere>::new(
+            &gl,
+            shaders["hips_sphere"].clone(),
+            hips_sphere_mesh,
+        );
+
+        // Viewport definition
+        let viewport = Rc::new(RefCell::new(ViewPort::new(&gl, &size_pixels)));
 
         // Grid definition
         let lon_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-30_f32).into(), cgmath::Deg(30_f32).into());
         let lat_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-90_f32).into(), cgmath::Deg(90_f32).into());
         //let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(10_f32).into(), cgmath::Deg(10_f32).into(), Some(lat_bound), Some(lon_bound), &projection.get(), &viewport.borrow());
-        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, &projection.get());
-
-        // Renderable definition
-        let hips_sphere = Rc::new(RefCell::new(Renderable::<HiPSSphere>::new(
-            &gl,
-            shaders["hips_sphere"].clone(),
-            hips_sphere_mesh,
-        )));
+        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, &projection.get(), &viewport.borrow());
         let grid = Rc::new(RefCell::new(Renderable::<ProjetedGrid>::new(
             &gl,
             shaders["grid"].clone(),
             projeted_grid_mesh,
         )));
 
-        // Viewport
-        let viewport = Rc::new(RefCell::new(ViewPort::new(&gl, hips_sphere.clone())));
-
         //let render_next_frame = Rc::new(Cell::new(true));
+        
         // Mouse down pression event
-        let pressed = Rc::new(Cell::new(false));
+        /*let pressed = Rc::new(Cell::new(false));
 
         let mouse_clic_x = Rc::new(Cell::new(0_f32));
         let mouse_clic_y = Rc::new(Cell::new(0_f32));
@@ -344,11 +344,10 @@ impl App {
             canvas.add_event_listener_with_callback("mousedown", closure.as_ref().unchecked_ref())?;
             closure.forget();
         }
-
+        */
         // Resize event
         let onresize = {
             let viewport = viewport.clone();
-            let hips_sphere = hips_sphere.clone();
             //let render_next_frame = render_next_frame.clone();
 
             Closure::wrap(Box::new(move || {
@@ -367,6 +366,7 @@ impl App {
         onresize.forget();
 
         // Mouse up pression event
+        /*
         {
             let pressed = pressed.clone();
             let viewport = viewport.clone();
@@ -379,8 +379,10 @@ impl App {
             canvas.add_event_listener_with_callback("mouseup", closure.as_ref().unchecked_ref())?;
             closure.forget();
         }
+        */
 
         // Mouse move event
+        /*
         {
             let pressed = pressed.clone();
 
@@ -454,6 +456,7 @@ impl App {
             canvas.add_event_listener_with_callback("mousemove", closure.as_ref().unchecked_ref())?;
             closure.forget();
         }
+        */
         // Mouse wheel event
         {
             let grid = grid.clone();
@@ -502,7 +505,7 @@ impl App {
         Ok(app)
     } 
 
-    fn update(&self, dt: f32) {
+    fn update(&mut self, dt: f32) {
         *DELTA_TIME.lock().unwrap() = dt;
 
         RENDER_NEXT_FRAME.lock().unwrap().update(&self.viewport.borrow());
@@ -514,19 +517,16 @@ impl App {
         // Updating
         if RENDER_NEXT_FRAME.lock().unwrap().get() {
             // update the fov
-            let model_mat = self.hips_sphere.as_ref().borrow().get_model_mat();
-
-            self.hips_sphere.borrow_mut()
-                .mesh_mut()
+            self.hips_sphere
                 .update(
-                    self.viewport.borrow().field_of_view(),
-                    &model_mat
+                    &self.projection.get(),
+                    &self.viewport.borrow(),
                 );
 
             // The grid label positions
             if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
                 self.grid.borrow_mut().mesh_mut().update_label_positions(
-                    self.hips_sphere.borrow().get_inverted_model_mat(),
+                    self.hips_sphere.get_inverted_model_mat(),
                     &self.projection.get(),
                     Some(&self.viewport.borrow()),
                 );
@@ -559,7 +559,7 @@ impl App {
             let ref viewport = self.viewport.as_ref().borrow();
 
             // Draw the HiPS sphere
-            self.hips_sphere.as_ref().borrow().draw(WebGl2RenderingContext::TRIANGLES, viewport);
+            self.hips_sphere.draw(WebGl2RenderingContext::TRIANGLES, viewport);
 
             // Draw the grid
             if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
@@ -576,17 +576,15 @@ impl App {
         let hips_sphere_mesh = HiPSSphere::new(&self.gl, &projection);
 
         // New HiPS sphere
-        self.hips_sphere.replace(
-            Renderable::<HiPSSphere>::new(
-                &self.gl,
-                self.shaders["hips_sphere"].clone(),
-                hips_sphere_mesh,
-            )
+        self.hips_sphere = Renderable::<HiPSSphere>::new(
+            &self.gl,
+            self.shaders["hips_sphere"].clone(),
+            hips_sphere_mesh,
         );
 
         // New grid
         let lat_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-90_f32).into(), cgmath::Deg(90_f32).into());
-        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, &projection);
+        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, &projection, &self.viewport.borrow());
         self.grid.replace(
             Renderable::<ProjetedGrid>::new(
                 &self.gl,
@@ -609,17 +607,15 @@ impl App {
         let hips_sphere_mesh = HiPSSphere::new(&self.gl, projection);
 
         // New HiPS sphere
-        self.hips_sphere.replace(
-            Renderable::<HiPSSphere>::new(
-                &self.gl,
-                self.shaders["hips_sphere"].clone(),
-                hips_sphere_mesh,
-            )
+        self.hips_sphere = Renderable::<HiPSSphere>::new(
+            &self.gl,
+            self.shaders["hips_sphere"].clone(),
+            hips_sphere_mesh,
         );
 
         // New grid
         let lat_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-90_f32).into(), cgmath::Deg(90_f32).into());
-        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, projection);
+        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, &projection, &self.viewport.borrow());
         self.grid.replace(
             Renderable::<ProjetedGrid>::new(
                 &self.gl,
@@ -647,7 +643,7 @@ impl App {
             move_event.update(
                 &screen_pos,
                 
-                &mut self.hips_sphere.borrow_mut(),
+                &mut self.hips_sphere,
                 &mut self.grid.borrow_mut(),
                 
                 &self.projection.get(),
@@ -657,10 +653,13 @@ impl App {
         }
     }
 
-    fn stop_move(&mut self, screen_pos: Vector2<f32>) {
-        self.moves(screen_pos);
+    fn stop_move(&mut self) {
+        self.viewport.borrow_mut().stop_displacement();
+
         self.move_event = None;
     }
+
+    // ZOOM EVENT
 }
 
 static DEGRADE_CANVAS_RATIO: f32 = 1.0_f32;
@@ -796,7 +795,7 @@ impl WebClient {
 
     /// Update our WebGL Water application. `index.html` will call this function in order
     /// to begin rendering.
-    pub fn update(&self, dt: f32) -> Result<(), JsValue> {
+    pub fn update(&mut self, dt: f32) -> Result<(), JsValue> {
         self.app.update(dt);
 
         Ok(())
@@ -867,9 +866,8 @@ impl WebClient {
         Ok(())
     }
     /// Stop move
-    pub fn stop_move(&mut self, screen_pos_x: f32, screen_pos_y: f32) -> Result<(), JsValue> {
-        let screen_pos = Vector2::new(screen_pos_x, screen_pos_y);
-        self.app.stop_move(screen_pos);
+    pub fn stop_move(&mut self) -> Result<(), JsValue> {
+        self.app.stop_move();
         Ok(())
     }
     /// Keep moving

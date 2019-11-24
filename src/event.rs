@@ -70,6 +70,7 @@ impl Move {
 
                 if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
                     grid.update(projection, viewport);
+                    grid.update_vertex_array();
                 }
 
                 self.start_world_pos = world_pos;
