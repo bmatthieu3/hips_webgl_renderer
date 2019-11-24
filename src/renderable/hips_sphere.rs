@@ -93,6 +93,7 @@ impl<'a> HiPSSphere {
 
     pub fn update(&mut self, field_of_view: &FieldOfView, model: &cgmath::Matrix4<f32>) {
         let (depth, hpx_idx) = field_of_view.get_healpix_cells(model);
+
         let reset_time_received = if self.current_depth != depth {
             true
         } else {
@@ -115,9 +116,7 @@ impl<'a> HiPSSphere {
             .map(|pos_screen_space| {
                 // Perform the inverse projection that converts
                 // screen position to the 3D space position
-                let pos_world_space = projection.screen_to_world_space(
-                    pos_screen_space.x, pos_screen_space.y,
-                ).unwrap();
+                let pos_world_space = projection.screen_to_world_space(&pos_screen_space).unwrap();
 
                 vec![pos_screen_space.x, pos_screen_space.y, pos_world_space.x, pos_world_space.y, pos_world_space.z]
             })

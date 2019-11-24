@@ -29,6 +29,7 @@ mod utils;
 mod projeted_grid;
 mod render_next_frame;
 mod field_of_view;
+mod event;
 
 use shader::Shader;
 use renderable::Renderable;
@@ -50,6 +51,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 use crate::render_next_frame::RENDER_NEXT_FRAME;
 
+use crate::event::Move;
 struct App {
     gl: WebGl2Context,
 
@@ -62,8 +64,12 @@ struct App {
     hips_sphere: Rc<RefCell<Renderable<HiPSSphere>>>,
     // The grid renderable
     grid: Rc<RefCell<Renderable<ProjetedGrid>>>,
+
+    // Move event
+    move_event: Option<Move>,
 }
 
+use cgmath::Vector2;
 impl App {
     fn new(gl: &WebGl2Context) -> Result<App, JsValue> {
         // Used in resize callback closure => Rc needed
@@ -304,6 +310,7 @@ impl App {
         let roll = Rc::new(Cell::new(false));
 
         let time_last_move = Rc::new(Cell::new(utils::get_current_time() as f32));
+
         {
             let pressed = pressed.clone();
 
@@ -323,8 +330,9 @@ impl App {
                 mouse_clic_x.set(event_x);
                 mouse_clic_y.set(event_y);
 
-                let (x_screen_homogeous_space, y_screen_homogeous_space) = projection::screen_pixels_to_homogenous(event_x, event_y, &viewport.borrow());
-                let result = projection.get().screen_to_world_space(x_screen_homogeous_space, y_screen_homogeous_space);
+                let screen_pos = Vector2::new(event_x, event_y);
+                let homogeneous_pos = projection::screen_pixels_to_homogenous(&screen_pos, &viewport.borrow());
+                let result = projection.get().screen_to_world_space(&homogeneous_pos);
                 if let Some(pos) = result {
                     let pos = pos.normalize();
 
@@ -398,21 +406,17 @@ impl App {
                 if pressed.get() {
                     let event_x = event.offset_x() as f32;
                     let event_y = event.offset_y() as f32;
-                    let model_mat = &hips_sphere.as_ref().borrow().get_model_mat();
 
-                    let (x_screen_homogeous_space, y_screen_homogeous_space) = projection::screen_pixels_to_homogenous(event_x, event_y, &viewport.borrow());
-                    let result = projection.get().screen_to_world_space(x_screen_homogeous_space, y_screen_homogeous_space);
+                    let screen_pos = Vector2::new(event_x, event_y);
+                    let homogeneous_pos = projection::screen_pixels_to_homogenous(&screen_pos, &viewport.borrow());
+                    let result = projection.get().screen_to_world_space(&homogeneous_pos);
                     if let Some(pos) = result {
                         if event_x != mouse_clic_x.get() || event_y != mouse_clic_y.get() {
-                            //RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
-
-                            let start_pos_rotated = model_mat * start_pos.get();
+                            let start_pos_rotated = hips_sphere.as_ref().borrow().get_model_mat() * start_pos.get();
                             let start_pos_rotated = cgmath::Vector3::<f32>::new(start_pos_rotated.x, start_pos_rotated.y, start_pos_rotated.z);
                             
-                            let pos_rotated = model_mat * pos;
+                            let pos_rotated = hips_sphere.as_ref().borrow().get_model_mat() * pos;
                             let pos_rotated = cgmath::Vector3::<f32>::new(pos_rotated.x, pos_rotated.y, pos_rotated.z);
-
-                            //console::log_1(&format!("REAL pos clic {:?}", start_pos_rotated).into());
 
                             let mut axis = start_pos_rotated.cross(pos_rotated);
                             let dist = math::angular_distance_xyz(start_pos_rotated, pos_rotated);
@@ -455,7 +459,6 @@ impl App {
             let grid = grid.clone();
 
             let viewport = viewport.clone();
-
             let projection = projection.clone();
 
             let closure = Closure::wrap(Box::new(move |event: web_sys::WheelEvent| {
@@ -479,7 +482,7 @@ impl App {
             canvas.add_event_listener_with_callback("wheel", closure.as_ref().unchecked_ref())?;
             closure.forget();
         }
-
+        let move_event = None;
         let gl = gl.clone();
         let app = App {
             gl,
@@ -492,6 +495,8 @@ impl App {
             hips_sphere,
             // The grid renderable
             grid,
+
+            move_event,
         };
 
         Ok(app)
@@ -509,10 +514,14 @@ impl App {
         // Updating
         if RENDER_NEXT_FRAME.lock().unwrap().get() {
             // update the fov
-            let model_mat = &self.hips_sphere.as_ref().borrow().get_model_mat();
+            let model_mat = self.hips_sphere.as_ref().borrow().get_model_mat();
+
             self.hips_sphere.borrow_mut()
                 .mesh_mut()
-                .update(self.viewport.borrow().field_of_view(), model_mat);
+                .update(
+                    self.viewport.borrow().field_of_view(),
+                    &model_mat
+                );
 
             // The grid label positions
             if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
@@ -548,6 +557,7 @@ impl App {
 
             // Draw renderables here
             let ref viewport = self.viewport.as_ref().borrow();
+
             // Draw the HiPS sphere
             self.hips_sphere.as_ref().borrow().draw(WebGl2RenderingContext::TRIANGLES, viewport);
 
@@ -624,6 +634,32 @@ impl App {
         self.viewport.borrow_mut().set_max_field_of_view(fov_max);
 
         RENDER_NEXT_FRAME.lock().unwrap().set(true);
+    }
+
+    /// MOVE EVENT
+    fn initialize_move(&mut self, screen_pos: Vector2<f32>) {
+        let ref projection = self.projection.get();
+        self.move_event = Move::new(screen_pos, projection, &self.viewport.borrow());
+    }
+
+    fn moves(&mut self, screen_pos: Vector2<f32>) {
+        if let Some(ref mut move_event) = self.move_event {
+            move_event.update(
+                &screen_pos,
+                
+                &mut self.hips_sphere.borrow_mut(),
+                &mut self.grid.borrow_mut(),
+                
+                &self.projection.get(),
+                
+                &mut self.viewport.borrow_mut()
+            );
+        }
+    }
+
+    fn stop_move(&mut self, screen_pos: Vector2<f32>) {
+        self.moves(screen_pos);
+        self.move_event = None;
     }
 }
 
@@ -817,9 +853,29 @@ impl WebClient {
         Ok(())
     }
 
+    /// Change HiPS
     pub fn change_hips(&mut self, hips_url: String, hips_depth: i32) -> Result<(), JsValue> {
         self.app.reload_hips_sphere(hips_url, hips_depth as u8);
 
+        Ok(())
+    }
+
+    /// Start move
+    pub fn initialize_move(&mut self, screen_pos_x: f32, screen_pos_y: f32) -> Result<(), JsValue> {
+        let screen_pos = Vector2::new(screen_pos_x, screen_pos_y);
+        self.app.initialize_move(screen_pos);
+        Ok(())
+    }
+    /// Stop move
+    pub fn stop_move(&mut self, screen_pos_x: f32, screen_pos_y: f32) -> Result<(), JsValue> {
+        let screen_pos = Vector2::new(screen_pos_x, screen_pos_y);
+        self.app.stop_move(screen_pos);
+        Ok(())
+    }
+    /// Keep moving
+    pub fn moves(&mut self, screen_pos_x: f32, screen_pos_y: f32) -> Result<(), JsValue> {
+        let screen_pos = Vector2::new(screen_pos_x, screen_pos_y);
+        self.app.moves(screen_pos);
         Ok(())
     }
 }

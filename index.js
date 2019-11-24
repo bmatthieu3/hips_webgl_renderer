@@ -49,6 +49,7 @@ window.addEventListener('load', function () {
                 });
 
             // Add the UI event listeners
+            let canvas = document.getElementById("canvas");
             let select_projection = document.getElementById("proj-select");
             let equatorial_grid = document.getElementById("enable-grid");
             let hips_selector = document.getElementById("hips-selector");
@@ -107,6 +108,75 @@ window.addEventListener('load', function () {
                 let max_depth = hipsesMap[hips_id].max_depth;
                 webClient.change_hips(hips_url, max_depth);
             });
+            
+            let ongoingTouches = new Array();
+
+            function ongoingTouchIndexById(id) {
+                for(let idx = 0; idx < ongoingTouches.length; idx++) {
+                    let touch = ongoingTouches[idx];
+                    if (touch.identifier == id) {
+                        return idx;
+                    }
+                }
+          
+                return -1;
+            }
+            // Touchpad event
+            canvas.addEventListener("touchstart", (evt) => {
+                evt.preventDefault();
+                var touches = evt.changedTouches;
+   
+                for (var i = 0; i < touches.length; i++) {
+                    ongoingTouches.push(touches[i]);
+                }
+                let touche = ongoingTouches[0];
+                if (ongoingTouches.length == 1) {
+                    webClient.initialize_move(touche.pageX, touche.pageY);
+                } else {
+                    // If more touches are present, we stop the current move
+                    webClient.stop_move(touche.pageX, touche.pageY);
+                    console.log('stop moving');
+                }
+            }, false);
+
+            let handleCancel = (evt) => {
+                evt.preventDefault();
+                if (ongoingTouches.length == 1) {
+                    // move event
+                    let touche = ongoingTouches[0];
+                    // Stop moving
+                    webClient.stop_move(touche.pageX, touche.pageY);
+                    console.log('stop moving');
+                } else {
+                    // zoom event
+                }
+
+                ongoingTouches = [];
+            };
+            canvas.addEventListener("touchend", handleCancel, false);
+            canvas.addEventListener("touchcancel", handleCancel, false);
+            canvas.addEventListener("touchleave", handleCancel, false);
+            canvas.addEventListener("touchmove", (evt) => {
+                evt.preventDefault();
+                var touches = evt.changedTouches;
+   
+                // Update the touches
+                for (var i = 0; i < touches.length; i++) {
+                    let idx = ongoingTouchIndexById(touches[i].identifier);
+                    ongoingTouches.splice(idx, 1, touches[i]);
+                }
+
+                if (ongoingTouches.length == 1) {
+                    // Move event
+                    let touche = ongoingTouches[0];
+                    webClient.moves(touche.pageX, touche.pageY);
+
+                    console.log("move!!");
+                } else {
+                    console.log("zoom!!");
+                    // zoom event
+                }
+            }, false);
 
             // Render
             time = Date.now();

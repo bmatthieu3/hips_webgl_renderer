@@ -68,7 +68,7 @@ impl FieldOfView {
         self.vertices_world_space = self.vertices_screen_space.iter()
             .filter_map(|vertex_screen_space| {
                 let vertex_homogeneous_space = vertex_screen_space / zoom;
-                let vertex_world_space = projection.screen_to_world_space(vertex_homogeneous_space.x, vertex_homogeneous_space.y);
+                let vertex_world_space = projection.screen_to_world_space(&vertex_homogeneous_space);
                 vertex_world_space
             })
             .collect::<Vec<_>>();

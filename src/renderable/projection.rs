@@ -3,24 +3,19 @@ use crate::viewport::ViewPort;
 use crate::window_size_f32;
 use crate::DEGRADE_CANVAS_RATIO;
 
-pub fn screen_pixels_to_homogenous(x: f32, y: f32, viewport: &ViewPort) -> (f32, f32) {
+pub fn screen_pixels_to_homogenous(screen_pos: &Vector2<f32>, viewport: &ViewPort) -> Vector2<f32> {
     // Screen space in pixels to homogeneous screen space (values between [-1, 1])
     let (mut width, mut height) = window_size_f32();
     width = width * DEGRADE_CANVAS_RATIO;
     height = height * DEGRADE_CANVAS_RATIO;
-    //let (start_width, start_height) = viewport.get_starting_window_size();
     // Change of origin
-    let xo = x - width/2_f32;
-    let yo = y - height/2_f32;
+    let origin = screen_pos - Vector2::new(width, height)/2_f32;
 
     // Scale to fit in [-1, 1]
-    let xh = 2_f32*(xo/width);
-    let yh = -2_f32*(yo/height);
+    let homogeneous_pos = Vector2::new(2_f32 * (origin.x/width), -2_f32 * (origin.y/height));
 
-    //console::log_1(&format!("Homogenous {:?} {:?}", xh, yh).into());
-
-    let zoom_f = viewport.get_zoom_factor();
-    (xh / zoom_f, yh / zoom_f)
+    let zoom_factor = viewport.get_zoom_factor();
+    homogeneous_pos / zoom_factor
 }
 
 pub trait Projection {
@@ -36,7 +31,7 @@ pub trait Projection {
     /// 
     /// * `x` - X mouse position in homogenous screen space (between [-1, 1])
     /// * `y` - Y mouse position in homogenous screen space (between [-1, 1])
-    fn screen_to_world_space(x: f32, y: f32) -> Option<cgmath::Vector4<f32>>;
+    fn screen_to_world_space(pos: &Vector2<f32>) -> Option<cgmath::Vector4<f32>>;
     /// World to screen space transformation
     /// 
     /// # Arguments
@@ -78,13 +73,13 @@ impl ProjectionType {
     /// 
     /// * `x` - X mouse position in homogenous screen space (between [-1, 1])
     /// * `y` - Y mouse position in homogenous screen space (between [-1, 1])
-    pub fn screen_to_world_space(&self, x: f32, y: f32) -> Option<cgmath::Vector4<f32>> {
+    pub fn screen_to_world_space(&self, pos: &Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
         match self {
             ProjectionType::Aitoff(_) => {
-                Aitoff::screen_to_world_space(x, y)
+                Aitoff::screen_to_world_space(pos)
             },
             ProjectionType::Orthographic(_) => {
-                Orthographic::screen_to_world_space(x, y)
+                Orthographic::screen_to_world_space(pos)
             },
         }
     }
@@ -157,11 +152,11 @@ impl Projection for Aitoff {
     /// 
     /// * `x` - in normalized device coordinates between [-1; 1]
     /// * `y` - in normalized device coordinates between [-1; 1]
-    fn screen_to_world_space(x: f32, y: f32) -> Option<cgmath::Vector4<f32>> {
+    fn screen_to_world_space(pos: &Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
         let (width, height) = window_size_f32();
         let aspect = width / height;
 
-        let (x, y) = (x, y/aspect);
+        let (x, y) = (pos.x, pos.y/aspect);
 
         let a = 1_f32;
         let b = 0.5_f32;
@@ -272,11 +267,11 @@ impl Projection for Orthographic {
     /// 
     /// * `x` - in normalized device coordinates between [-1; 1]
     /// * `y` - in normalized device coordinates between [-1; 1]
-    fn screen_to_world_space(x: f32, y: f32) -> Option<cgmath::Vector4<f32>> {
+    fn screen_to_world_space(pos: &Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
         let (width, height) = window_size_f32();
         let aspect = width / height;
 
-        let (x, y) = (x * aspect, y);
+        let (x, y) = (pos.x * aspect, pos.y);
 
         let xw_2 = 1_f32 - x*x - y*y;
 
