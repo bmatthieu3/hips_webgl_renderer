@@ -61,7 +61,7 @@ impl Ord for Tile {
 
 #[derive(Debug)]
 pub struct TileGPU {
-    pub uniq: i32,
+    pub uniq: u32,
 
     pub texture_idx: i32,
 
@@ -90,9 +90,11 @@ impl Ord for TileGPU {
 
 impl From<Tile> for TileGPU {
     fn from(tile: Tile) -> Self {
-        let idx = tile.idx as i32;
-        let depth = tile.depth as i32;
-        let uniq = (1 << (2*(depth + 1))) + idx;
+        let idx = tile.idx;
+        let depth = tile.depth;
+        let uniq = (1 << (2*((depth as u64) + 1))) + idx;
+        let uniq = uniq as u32;
+        //console::log_1(&format!("UNIQ: {:?}", uniq).into());
 
         let texture_idx = tile.texture_idx as i32;
 
@@ -322,7 +324,7 @@ impl BufferTiles {
             name += "].";
 
             let location_hpx_idx = shader.get_uniform_location(&(name.clone() + "uniq"));
-            self.gl.uniform1i(location_hpx_idx, tile.uniq);
+            self.gl.uniform1ui(location_hpx_idx, tile.uniq);
 
             let location_buf_idx = shader.get_uniform_location(&(name.clone() + "texture_idx"));
             self.gl.uniform1i(location_buf_idx, tile.texture_idx);

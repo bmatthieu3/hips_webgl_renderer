@@ -71,7 +71,7 @@ impl Shader {
         ).unwrap();
 
         let program = link_program(gl, &vert_shader, &frag_shader).unwrap();
-        
+
         let uniform_locations = name_uniforms.iter()
             .map(|name| {
                 let location_uniform = gl.get_uniform_location(&program, name);

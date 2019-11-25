@@ -1,5 +1,5 @@
 pub static CONTENT: &'static str = r#"#version 300 es
-    precision mediump float;
+    precision highp float;
     precision lowp sampler3D;
     precision lowp sampler2D;
     precision highp int;
@@ -8,14 +8,15 @@ pub static CONTENT: &'static str = r#"#version 300 es
 
     out vec4 out_frag_color;
 
-    const float PI = 3.1415f;
-    const float TRANSITION_Z = 2.0f / 3.0f;
-    const float TRANSITION_Z_INV = 3.0f / 2.0f;
+    const float PI = 3.141592653589793f;
+    const float FOUR_OVER_PI = 1.27323954474f;
+    const float TRANSITION_Z = 0.66666666666f;
+    const float TRANSITION_Z_INV = 1.5f;
 
-    int quarter(vec2 p) {
-        bool x_neg = (p.x < 0.0f);
-        bool y_neg = (p.y < 0.0f);
-        int q = (int(x_neg) + int(y_neg)) | (int(y_neg) << 1);
+    uint quarter(vec2 p) {
+        uint x_neg = uint(p.x < 0.0f);
+        uint y_neg = uint(p.y < 0.0f);
+        uint q = (x_neg + y_neg) | (y_neg << 1U);
         return q;
     }
 
@@ -28,7 +29,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
         // by avoiding subtraction by 1 or 3 or 5 or 7
         float lon = atan(abs(p.y), abs(p.x));
         //debug_assert!(0.0 <= lon && lon <= PI / 2.0);
-        float x02 = lon * 4.0f / PI;
+        float x02 = lon * FOUR_OVER_PI;
         //debug_assert!(0.0 <= x02 && x02 <= 2.0);
         if (x_neg != y_neg) { // Could be replaced by a sign copy from (x_neg ^ y_neg) << 32
             return 1.0f - x02;
@@ -58,20 +59,20 @@ pub static CONTENT: &'static str = r#"#version 300 es
     }
 
     // Z-Order curve projection.
-    int ij2z(int i, int j) {
-        int i1 = i | (j << 16);
+    uint ij2z(uint i, uint j) {
+        uint i1 = i | (j << 16U);
 
-        int j1 = (i1 ^ (i1 >> 8)) & 0x0000FF00;
-        int i2 = i1 ^ j1 ^ (j1 << 8);
+        uint j1 = (i1 ^ (i1 >> 8U)) & 0x0000FF00U;
+        uint i2 = i1 ^ j1 ^ (j1 << 8U);
 
-        int j2 = (i2 ^ (i2 >> 4)) & 0x00F000F0;
-        int i3 = i2 ^ j2 ^ (j2 << 4);
+        uint j2 = (i2 ^ (i2 >> 4U)) & 0x00F000F0U;
+        uint i3 = i2 ^ j2 ^ (j2 << 4U);
 
-        int j3 = (i3 ^ (i3 >> 2)) & 0x0C0C0C0C;
-        int i4 = i3 ^ j3 ^ (j3 << 2);
+        uint j3 = (i3 ^ (i3 >> 2U)) & 0x0C0C0C0CU;
+        uint i4 = i3 ^ j3 ^ (j3 << 2U);
 
-        int j4 = (i4 ^ (i4 >> 1)) & 0x22222222;
-        int i5 = i4 ^ j4 ^ (j4 << 1);
+        uint j4 = (i4 ^ (i4 >> 1U)) & 0x22222222U;
+        uint i5 = i4 ^ j4 ^ (j4 << 1U);
 
         return i5;
     }
@@ -105,13 +106,13 @@ pub static CONTENT: &'static str = r#"#version 300 es
         //   we can go as deep as depth 24 (or maybe 25)
         //return vec3(0.f, 0.f, 0.f);
         
-        int nside = 1 << depth;
+        uint nside = 1U << uint(depth);
         float half_nside = float(nside) * 0.5f;
 
         float x_pm1 = xpm1(p.xy);
-        int q = quarter(p.xy);
+        uint q = quarter(p.xy);
 
-        int d0h = 0;
+        uint d0h = 0U;
         vec2 p_proj = vec2(0.f);
         if (p.z > TRANSITION_Z) {
             // North polar cap, Collignon projection.
@@ -124,7 +125,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
             // - set the origin to (PI/4, -PI/2)
             float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_neg(p));
             p_proj = vec2(x_pm1 * sqrt_3_one_min_z, sqrt_3_one_min_z);
-            d0h = q + 8;
+            d0h = q + 8U;
         } else {
             // Equatorial region, Cylindrical equal area projection
             // - set the origin to (PI/4, 0)               if q = 2
@@ -136,42 +137,42 @@ pub static CONTENT: &'static str = r#"#version 300 es
             // |\2/|
             // .3X1.
             // |/0\|
-            int q01 = int(x_pm1 > y_pm1);  // 0/1
+            uint q01 = uint(x_pm1 > y_pm1);  // 0/1
             //debug_assert!(q01 == 0 || q01 == 1);
-            int q12 = int(x_pm1 >= -y_pm1); // 0\1
+            uint q12 = uint(x_pm1 >= -y_pm1); // 0\1
             //debug_assert!(q12 == 0 || q12 == 1);
-            int q03 = 1 - q12; // 1\0
+            uint q03 = 1U - q12; // 1\0
             //let q13 = q01 ^ q12; debug_assert!(q13 == 0 || q13 == 1);
-            int q1 = q01 & q12; // = 1 if q1, 0 else
+            uint q1 = q01 & q12; // = 1 if q1, 0 else
             //debug_assert!( q1 == 0 ||  q1 == 1);
             // x: xcea - 0 if q3 | xcea - 2 if q1 | xcea - 1 if q0 or q2
             //let x_proj = x_pm1 - ((q01 + q12) as i8 - 1) as f32;
             // y: y - 0 if q2 | y - 1 if q1 or q3 | y - 2 if q0 
             //let y_proj = y_pm1 + (q01 + q03) as f32;
             p_proj = vec2(
-                x_pm1 - float(q01 + q12 - 1),
+                x_pm1 - float(int(q01 + q12) - 1),
                 y_pm1 + float(q01 + q03)
             );
             // d0h: +8 if q0 | +4 if q3 | +5 if q1
-            d0h = ((q01 + q03) << 2) + ((q + q1) & 3);
+            d0h = ((q01 + q03) << 2U) + ((q + q1) & 3U);
         }
 
         // Coords inside the base cell
         float x = (half_nside * (p_proj.x + p_proj.y));
         float y = (half_nside * (p_proj.y - p_proj.x));
-        int i = int(x);
-        int j = int(y);
+        uint i = uint(x);
+        uint j = uint(y);
         // Deal with numerical inaccuracies, rare so branch miss-prediction negligible
         if (i == nside) {
-            i = i - 1;
+            i = i - 1U;
         }
         // Deal with numerical inaccuracies, rare so branch miss-prediction negligible
         if (j == nside) {
-            j = j - 1;
+            j = j - 1U;
         }
 
         return vec3(
-            float((d0h << (depth << 1)) | ij2z(i, j)),
+            float((d0h << (uint(depth) << 1U)) | ij2z(i, j)),
             x - float(i),
             y - float(j)
         );
@@ -181,7 +182,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
     uniform int last_zoom_action;
 
     struct Tile {
-        int uniq; // Healpix cell
+        uint uniq; // Healpix cell
         int texture_idx; // Index in the texture buffer
         float time_received; // Absolute time that the load has been done in ms
         float time_request;
@@ -209,8 +210,8 @@ pub static CONTENT: &'static str = r#"#version 300 es
 
     TileColor get_tile_color(vec3 pos, float size, int depth) {
         vec3 res = hash_with_dxdy(depth, pos.zxy);
-        int idx = int(res.x);
-        int uniq = (1 << (2*(depth + 1))) + idx;
+        uint idx = uint(res.x);
+        uint uniq = (1U << (2U*(uint(depth) + 1U))) + idx;
 
         vec2 uv = res.zy;
 
@@ -219,7 +220,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
 
         int i = (b + a) / 2;
 
-        int h = int(log2(size)) + 1;
+        int h = int(log2(size)) + 2;
         // Binary search among the tile idx
         for(int step = 0; step < h; step++) {
             if (uniq == textures_tiles[i].uniq) {
@@ -240,14 +241,14 @@ pub static CONTENT: &'static str = r#"#version 300 es
         }
 
         // code unreachable
-        Tile empty = Tile(-1, -1, current_time, 0.f);
+        Tile empty = Tile(0U, -1, current_time, 0.f);
         return TileColor(empty, vec3(0.f), false);
     }
 
     TileColor get_depth_0_tile(vec3 pos) {
         vec3 res = hash_with_dxdy(0, pos.zxy);
-        int idx = int(res.x);
-        int uniq = 4 + idx;
+        uint idx = uint(res.x);
+        uint uniq = 4U + idx;
 
         /*vec2 radec = vec2(atan(pos.x, pos.z), asin(pos.y));
         radec = radec * vec2(-1.f/(2.f*PI), 1.f/PI) + 0.5f;
@@ -283,7 +284,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
         }
 
         // code unreachable
-        Tile empty = Tile(-1, -1, current_time, 0.f);
+        Tile empty = Tile(0U, -1, current_time, 0.f);
         return TileColor(empty, vec3(0.f), false);
     }
 

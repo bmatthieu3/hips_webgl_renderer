@@ -25,6 +25,7 @@ use crate::window_size_f32;
 
 use std::sync::atomic::Ordering;
 
+use web_sys::console;
 impl FieldOfView {
     pub fn new() -> FieldOfView {
         let num_vertices_width = 5;
@@ -128,6 +129,7 @@ impl FieldOfView {
                 } else {
                     let moc = healpix::nested::polygon_coverage(depth, &lon_lat_world_space, true);
                     let idx = moc.flat_iter().collect::<Vec<_>>();
+                    //console::log_1(&format!("IDX: {:?}", idx).into());
 
                     idx
                 };

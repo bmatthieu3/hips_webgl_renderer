@@ -55,10 +55,10 @@ use crate::event::Move;
 struct App {
     gl: WebGl2Context,
 
+    shaders: HashMap<&'static str, Shader>,
+
     viewport: Rc<RefCell<ViewPort>>,
     projection: Rc<Cell<ProjectionType>>,
-
-    shaders: HashMap<&'static str, Rc<Shader>>,
 
     // The sphere renderable
     hips_sphere: Renderable<HiPSSphere>,
@@ -78,14 +78,8 @@ impl App {
                 .dyn_into::<web_sys::HtmlCanvasElement>().unwrap()
         );
 
-        gl.enable(WebGl2RenderingContext::BLEND);
-        gl.blend_func(WebGl2RenderingContext::SRC_ALPHA, WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA);
-        gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
-
-        gl.clear_color(0.08, 0.08, 0.08, 1.0);
-
         // Shader definition
-        let shader_2d_proj = Rc::new(Shader::new(&gl,
+        let shader_2d_proj = Shader::new(&gl,
             shaders::proj_vert::CONTENT,
             shaders::proj_frag::CONTENT,
             // uniform list
@@ -250,8 +244,9 @@ impl App {
                 "textures_tiles[23].time_received",
                 "textures_tiles[23].time_request",
             ].as_ref()
-        ));
-        let shader_grid = Rc::new(Shader::new(&gl,
+        );
+        console::log_1(&format!("lskdf").into());
+        let shader_grid = Shader::new(&gl,
             shaders::grid_projeted_vert::CONTENT,
             shaders::grid_frag::CONTENT,
             [
@@ -265,10 +260,16 @@ impl App {
                 // Grid-specific uniforms
                 "location_color",
             ].as_ref()
-        ));
+        );
         let mut shaders = HashMap::new();
         shaders.insert("hips_sphere", shader_2d_proj);
         shaders.insert("grid", shader_grid);
+
+        gl.enable(WebGl2RenderingContext::BLEND);
+        gl.blend_func(WebGl2RenderingContext::SRC_ALPHA, WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA);
+        gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
+
+        gl.clear_color(0.08, 0.08, 0.08, 1.0);
 
         // Projection definition
         let projection = Rc::new(Cell::new(ProjectionType::Aitoff(Aitoff {})));
@@ -277,7 +278,7 @@ impl App {
         let size_pixels = *hips_sphere_mesh.get_default_pixel_size();
         let hips_sphere = Renderable::<HiPSSphere>::new(
             &gl,
-            shaders["hips_sphere"].clone(),
+            &shaders["hips_sphere"],
             hips_sphere_mesh,
         );
 
@@ -291,7 +292,7 @@ impl App {
         let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, &projection.get(), &viewport.borrow());
         let grid = Rc::new(RefCell::new(Renderable::<ProjetedGrid>::new(
             &gl,
-            shaders["grid"].clone(),
+            &shaders["grid"],
             projeted_grid_mesh,
         )));
 
@@ -490,10 +491,11 @@ impl App {
         let app = App {
             gl,
 
+            shaders,
+
             viewport,
             projection,
 
-            shaders,
             // The sphere renderable
             hips_sphere,
             // The grid renderable
@@ -557,14 +559,23 @@ impl App {
 
             // Draw renderables here
             let ref viewport = self.viewport.as_ref().borrow();
+            let ref shaders = self.shaders;
 
             // Draw the HiPS sphere
-            self.hips_sphere.draw(WebGl2RenderingContext::TRIANGLES, viewport);
+            self.hips_sphere.draw(
+                &shaders["hips_sphere"],
+                WebGl2RenderingContext::TRIANGLES,
+                viewport
+            );
 
             // Draw the grid
             if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
                 // The grid lines
-                self.grid.as_ref().borrow().draw(WebGl2RenderingContext::LINES, viewport);
+                self.grid.as_ref().borrow().draw(
+                    &shaders["grid"],
+                    WebGl2RenderingContext::LINES,
+                    viewport
+                );
                 // The labels
                 self.grid.borrow().mesh().draw_labels();
             }
@@ -573,12 +584,13 @@ impl App {
 
     fn set_projection(&mut self, projection: ProjectionType) {
         self.projection.set(projection);
-        let hips_sphere_mesh = HiPSSphere::new(&self.gl, &projection);
+        let ref shaders = self.shaders;
 
         // New HiPS sphere
+        let hips_sphere_mesh = HiPSSphere::new(&self.gl, &projection);
         self.hips_sphere = Renderable::<HiPSSphere>::new(
             &self.gl,
-            self.shaders["hips_sphere"].clone(),
+            &shaders["hips_sphere"],
             hips_sphere_mesh,
         );
 
@@ -588,7 +600,7 @@ impl App {
         self.grid.replace(
             Renderable::<ProjetedGrid>::new(
                 &self.gl,
-                self.shaders["grid"].clone(),
+                &shaders["grid"],
                 projeted_grid_mesh,
             )
         );
@@ -605,11 +617,12 @@ impl App {
 
         let ref projection = self.projection.get();
         let hips_sphere_mesh = HiPSSphere::new(&self.gl, projection);
+        let ref shaders = self.shaders;
 
         // New HiPS sphere
         self.hips_sphere = Renderable::<HiPSSphere>::new(
             &self.gl,
-            self.shaders["hips_sphere"].clone(),
+            &shaders["hips_sphere"],
             hips_sphere_mesh,
         );
 
@@ -619,7 +632,7 @@ impl App {
         self.grid.replace(
             Renderable::<ProjetedGrid>::new(
                 &self.gl,
-                self.shaders["grid"].clone(),
+                &shaders["grid"],
                 projeted_grid_mesh,
             )
         );
@@ -786,6 +799,7 @@ impl WebClient {
     #[wasm_bindgen(constructor)]
     pub fn new() -> WebClient {
         let gl = WebGl2Context::new();
+
         let app = App::new(&gl).unwrap();
 
         WebClient {
