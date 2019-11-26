@@ -16,16 +16,22 @@ use crate::MAX_DEPTH;
 use std::sync::atomic::Ordering;
 
 use crate::texture::BufferTiles;
-use crate::texture::load_healpix_tile;
+use crate::texture::load_tiles;
 
 use crate::texture::Texture2D;
 use crate::texture::create_texture_2d;
+
+use std::sync::Arc;
+use std::sync::atomic::AtomicU8;
+lazy_static! {
+    pub static ref DEPTH: Arc<AtomicU8> = Arc::new(AtomicU8::new(0));
+}
 
 #[derive(Clone)]
 pub struct HiPSSphere {
     buffer_tiles: Rc<RefCell<BufferTiles>>,
     buffer_depth_zero_tiles: Rc<RefCell<BufferTiles>>,
-    pub current_depth: u8,
+    //pub current_depth: u8,
 
     vertices: Vec<f32>,
     idx_vertices: Vec<u16>,
@@ -48,15 +54,11 @@ use crate::field_of_view::FieldOfView;
 impl<'a> HiPSSphere {
     pub fn new(gl: &WebGl2Context, projection: &ProjectionType) -> HiPSSphere {
         let buffer_tiles = Rc::new(RefCell::new(BufferTiles::new(gl, 20, "textures")));
-        buffer_tiles.borrow_mut().prepare_for_loading(12);
-        for idx in (0 as u64)..(12 as u64) {
-            load_healpix_tile(&gl, buffer_tiles.clone(), idx, 0, false);
-        }
+        let base_tiles = (0..12).collect::<Vec<u64>>();
+        load_tiles(&gl, buffer_tiles.clone(), &base_tiles, 0, false);
+
         let buffer_depth_zero_tiles = Rc::new(RefCell::new(BufferTiles::new(gl, 12, "textures_0")));
-        buffer_depth_zero_tiles.borrow_mut().prepare_for_loading(12);
-        for idx in (0 as u64)..(12 as u64) {
-            load_healpix_tile(&gl, buffer_depth_zero_tiles.clone(), idx, 0, false);
-        }
+        load_tiles(&gl, buffer_depth_zero_tiles.clone(), &base_tiles, 0, false);
 
         let (vertices, size_in_pixels) = HiPSSphere::create_vertices_array(gl, projection);
         let idx_vertices = HiPSSphere::create_index_array();
@@ -69,12 +71,9 @@ impl<'a> HiPSSphere {
         ];*/
 
         let gl = gl.clone();
-        let current_depth = 0;
         HiPSSphere {
             buffer_tiles,
             buffer_depth_zero_tiles,
-
-            current_depth,
 
             vertices,
             idx_vertices,
@@ -203,7 +202,7 @@ impl Mesh for HiPSSphere {
 
         // Send current depth
         let location_current_depth = shader.get_uniform_location("current_depth");
-        gl.uniform1i(location_current_depth, self.current_depth as i32);
+        gl.uniform1i(location_current_depth, DEPTH.load(Ordering::Relaxed) as i32);
         // Send max depth of the current HiPS
         let location_max_depth = shader.get_uniform_location("max_depth");
         gl.uniform1i(location_max_depth, MAX_DEPTH.load(Ordering::Relaxed) as i32);
@@ -217,18 +216,19 @@ impl Mesh for HiPSSphere {
         let field_of_view = viewport.field_of_view();
         let (depth, hpx_idx) = field_of_view.get_healpix_cells(local_to_world_mat);
 
-        let reset_time_received = if self.current_depth != depth {
+        let current_depth = DEPTH.load(Ordering::Relaxed);
+        let reset_time_received = if current_depth != depth {
             true
         } else {
             false
         };
-        self.current_depth = depth;
+        
+        //console::log_1(&format!("{:?}", self.buffer_tiles.borrow().requested_tiles).into());
+        DEPTH.store(depth, Ordering::Relaxed);
 
         // TODO: wrap that into a method load_healpix_tiles of BufferTiles
-        self.buffer_tiles.borrow_mut().prepare_for_loading(hpx_idx.len() as u8);
-        for idx in hpx_idx {
-            load_healpix_tile(&self.gl, self.buffer_tiles.clone(), idx, depth, reset_time_received);
-        }
+        load_tiles(&self.gl, self.buffer_tiles.clone(), &hpx_idx, depth, reset_time_received);
+        //console::log_1(&format!("{:?}", self.buffer_tiles.borrow().requested_tiles).into());
     }
 }
 

@@ -112,6 +112,7 @@ impl From<Tile> for TileGPU {
 }
 
 #[derive(Clone)]
+#[derive(Debug)]
 pub struct TileRequest {
     idx: u64,
     depth: u8,
@@ -139,9 +140,16 @@ impl PartialEq for TileRequest {
 }
 impl Eq for TileRequest {}
 // Requested for storing tiles in a BinaryHeap
+use crate::renderable::hips_sphere::DEPTH;
+use std::sync::atomic;
 impl PartialOrd for TileRequest {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.time_request.partial_cmp(&other.time_request)
+        let depth = DEPTH.load(atomic::Ordering::Relaxed) as i8;
+
+        let delta_depth = (depth - (self.depth as i8)).abs();
+        let delta_depth_other = (depth - (other.depth as i8)).abs();
+
+        delta_depth.partial_cmp(&delta_depth_other)
     }
 }
 impl Ord for TileRequest {
@@ -150,19 +158,13 @@ impl Ord for TileRequest {
     }
 }
 
-/*use std::sync::Arc;
-use std::sync::atomic::AtomicU8;
-lazy_static! {
-    static ref num_load_tiles: Arc<AtomicU8> = Arc::new(AtomicU8::new(0));
-}*/
-
 #[derive(Clone)]
 pub struct BufferTiles {
     gl: WebGl2Context,
 
     buffer: BinaryHeap<Tile>,
     loaded_tiles: HashSet<(u8, u64)>,
-    requested_tiles: VecDeque<TileRequest>,
+    pub requested_tiles: BinaryHeap<TileRequest>,
 
     size: usize,
     idx_texture_unit: u32,
@@ -177,12 +179,11 @@ pub struct BufferTiles {
 use crate::utils;
 use crate::shader::Shader;
 use std::convert::TryInto;
-use std::collections::VecDeque;
 impl BufferTiles {
     pub fn new(gl: &WebGl2Context, size: usize, texture_name: &'static str) -> BufferTiles {
         let buffer = BinaryHeap::with_capacity(size);
         let loaded_tiles = HashSet::with_capacity(size);
-        let requested_tiles = VecDeque::with_capacity(size);
+        let requested_tiles = BinaryHeap::with_capacity(size);
 
         let (texture, idx_texture_unit) = create_sampler_3d(gl, size as u32);
 
@@ -214,9 +215,10 @@ impl BufferTiles {
             // Remove the oldest tile from the buffer and from the
             // hashset
             let oldest_requested_tile = self.buffer.pop().unwrap();
-
-            let tile = (oldest_requested_tile.depth, oldest_requested_tile.idx);
-            self.loaded_tiles.remove(&tile);
+            self.remove_from_loaded_tiles(
+                oldest_requested_tile.depth,
+                oldest_requested_tile.idx
+            );
 
             oldest_requested_tile.texture_idx
         } else {
@@ -244,6 +246,12 @@ impl BufferTiles {
     pub fn prepare_for_loading(&mut self, num_tiles_to_load: u8) {
         self.num_load_tiles = 0;
         self.num_tiles_to_load = num_tiles_to_load;
+
+        /*self.requested_tiles = self.requested_tiles
+            .iter()
+            .cloned()
+            .collect::<BinaryHeap<_>>();
+        */
     }
 
     fn push_tile(&mut self, tile: Tile) {
@@ -272,7 +280,7 @@ impl BufferTiles {
     }
 
     pub fn add_to_requested_tiles(&mut self, tile_request: TileRequest) {
-        self.requested_tiles.push_back(tile_request);
+        self.requested_tiles.push(tile_request);
     }
 
     pub fn remove_from_requested_tiles(&mut self, tile_request: TileRequest) {
@@ -282,7 +290,43 @@ impl BufferTiles {
                 *tile != tile_request
             })
             .cloned()
-            .collect::<VecDeque<_>>();
+            .collect::<BinaryHeap<_>>();
+    }
+
+    pub fn cancel_obsolete_tile_requests(&mut self, depth: u8) {
+        if !self.requested_tiles.is_empty() {
+            let mut peek = self.requested_tiles.peek().unwrap();
+
+            while (peek.depth as i8 - (depth as i8)).abs() > 1 {
+                peek.image.borrow_mut().set_src("");
+
+                self.requested_tiles.pop();
+
+                if self.requested_tiles.is_empty() {
+                    break;
+                }
+                peek = self.requested_tiles.peek().unwrap();
+            }
+
+            //console::log_1(&format!("BINARYHEAP: {:?} {:?}", depth, self.requested_tiles.clone().into_sorted_vec()).into());
+            //console::log_1(&format!("AAAAAA: {:?} {:?}", depth, front).into());
+
+            /*let upper_depth_limit = std::cmp::min(depth + 1, 29);
+            let lower_depth_limit = std::cmp::max(depth - 1, 0);
+
+            while front.depth < lower_depth_limit && front.depth > upper_depth_limit {
+                console::log_1(&format!("BBBB: {:?} {:?}", depth, front).into());
+                // Cancel the async call
+                front.image.borrow_mut().set_src("");
+
+                self.requested_tiles.pop_front();
+
+                if self.requested_tiles.is_empty() {
+                    break;
+                }
+                front = self.requested_tiles.front().unwrap();
+            }*/
+        }
     }
 
     pub fn replace_tile(&mut self, depth: u8, idx: u64, time_request: f32, tile_request: &TileRequest, reset_time_received: bool) -> bool {
@@ -328,7 +372,11 @@ impl BufferTiles {
         
         // The tile has been requested so we do launch a new
         // async request to alasky
-        if self.requested_tiles.contains(tile_request) {
+        let is_requested = self.requested_tiles
+            .iter()
+            .find(|&tile| *tile == *tile_request);
+
+        if let Some(_) = is_requested {
             return true;
         }
 
@@ -405,18 +453,35 @@ impl BufferTiles {
 }
 
 use crate::HIPS_NAME;
-pub fn load_healpix_tile(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>, idx: u64, depth: u8, reset_time_received: bool) {
+pub fn load_tiles(
+    gl: &WebGl2Context,
+    buffer_tiles: Rc<RefCell<BufferTiles>>,
+    tiles_idx: &Vec<u64>,
+    depth: u8,
+    reset_time_received: bool
+) {
+    buffer_tiles.borrow_mut().prepare_for_loading(tiles_idx.len() as u8);
+    for &idx in tiles_idx {
+        load_healpix_tile(&gl, buffer_tiles.clone(), idx, depth, reset_time_received);
+    }
+}
+fn load_healpix_tile(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>, idx: u64, depth: u8, reset_time_received: bool) {
     let time_request = utils::get_current_time();
     
     let image = Rc::new(RefCell::new(HtmlImageElement::new().unwrap()));
     let tile_request = TileRequest::new(idx, depth, time_request, image.clone());
-    // Check whether is already into the 24 tiles GPU buffer
+    // Check whether the tile is already in the buffer or requested
     if buffer.borrow_mut().replace_tile(depth, idx, time_request, &tile_request, reset_time_received) {
         return;
     }
 
     // Here we know we have to launch a new async request
     buffer.borrow_mut().add_to_requested_tiles(tile_request);
+
+    // Before doing that, we can loop over the requested tiles that have
+    // not been yet received and cancel oldest async tile requests of depth
+    // > current_depth + 1 and < current_depth - 1
+    buffer.borrow_mut().cancel_obsolete_tile_requests(depth);
 
     let url = {
         let dir_idx = (idx / 10000) * 10000;
