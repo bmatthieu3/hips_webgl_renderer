@@ -208,11 +208,6 @@ pub static CONTENT: &'static str = r#"#version 300 es
         bool found;
     };
 
-    // ang2pix textures
-    //uniform sampler2D ang2pix_0_texture;
-    //uniform sampler2D ang2pix_1_texture;
-    //uniform sampler2D ang2pix_2_texture;
-
     TileColor get_tile_color(vec3 pos, float size, int depth) {
         HashDxDy result = hash_with_dxdy(depth, pos.zxy);
         uint idx = result.idx;
@@ -254,12 +249,6 @@ pub static CONTENT: &'static str = r#"#version 300 es
         HashDxDy result = hash_with_dxdy(0, pos.zxy);
         uint idx = result.idx;
         uint uniq = 4U + idx;
-
-        /*vec2 radec = vec2(atan(pos.x, pos.z), asin(pos.y));
-        radec = radec * vec2(-1.f/(2.f*PI), 1.f/PI) + 0.5f;
-        vec3 res = texture(ang2pix_0_texture, radec).rgb;
-        int idx = int(res.r * 255.f);
-        int uniq = 4 + idx;*/
 
         vec2 uv = vec2(result.dy, result.dx);
 

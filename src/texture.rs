@@ -111,20 +111,59 @@ impl From<Tile> for TileGPU {
     }
 }
 
+#[derive(Clone)]
+pub struct TileRequest {
+    idx: u64,
+    depth: u8,
+    
+    time_request: f32,
+
+    image: Rc<RefCell<HtmlImageElement>>,
+}
+
+impl TileRequest {
+    fn new(idx: u64, depth: u8, time_request: f32, image: Rc<RefCell<HtmlImageElement>>) -> TileRequest {
+        TileRequest {
+            idx,
+            depth,
+            time_request,
+            image
+        }
+    }
+}
+
+impl PartialEq for TileRequest {
+    fn eq(&self, other: &Self) -> bool {
+        self.idx == other.idx && self.depth == other.depth
+    }
+}
+impl Eq for TileRequest {}
+// Requested for storing tiles in a BinaryHeap
+impl PartialOrd for TileRequest {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.time_request.partial_cmp(&other.time_request)
+    }
+}
+impl Ord for TileRequest {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_cmp(&other).unwrap()
+    }
+}
+
 /*use std::sync::Arc;
 use std::sync::atomic::AtomicU8;
 lazy_static! {
     static ref num_load_tiles: Arc<AtomicU8> = Arc::new(AtomicU8::new(0));
 }*/
 
-use web_sys::Storage;
-
 #[derive(Clone)]
 pub struct BufferTiles {
     gl: WebGl2Context,
 
     buffer: BinaryHeap<Tile>,
-    requested_tiles: HashSet<(u8, u64)>,
+    loaded_tiles: HashSet<(u8, u64)>,
+    requested_tiles: VecDeque<TileRequest>,
+
     size: usize,
     idx_texture_unit: u32,
 
@@ -138,10 +177,12 @@ pub struct BufferTiles {
 use crate::utils;
 use crate::shader::Shader;
 use std::convert::TryInto;
+use std::collections::VecDeque;
 impl BufferTiles {
     pub fn new(gl: &WebGl2Context, size: usize, texture_name: &'static str) -> BufferTiles {
         let buffer = BinaryHeap::with_capacity(size);
-        let requested_tiles = HashSet::with_capacity(size);
+        let loaded_tiles = HashSet::with_capacity(size);
+        let requested_tiles = VecDeque::with_capacity(size);
 
         let (texture, idx_texture_unit) = create_sampler_3d(gl, size as u32);
 
@@ -152,9 +193,11 @@ impl BufferTiles {
             gl,
 
             buffer,
-
+            loaded_tiles,
             requested_tiles,
+
             size,
+
             idx_texture_unit,
 
             texture,
@@ -173,7 +216,7 @@ impl BufferTiles {
             let oldest_requested_tile = self.buffer.pop().unwrap();
 
             let tile = (oldest_requested_tile.depth, oldest_requested_tile.idx);
-            self.requested_tiles.remove(&tile);
+            self.loaded_tiles.remove(&tile);
 
             oldest_requested_tile.texture_idx
         } else {
@@ -218,19 +261,34 @@ impl BufferTiles {
         }
     }
 
-    pub fn add_to_requested_tile(&mut self, depth: u8, idx: u64) {
+    pub fn add_to_loaded_tiles(&mut self, depth: u8, idx: u64) {
         let tile = (depth, idx);
-        self.requested_tiles.insert(tile);
+        self.loaded_tiles.insert(tile);
     }
 
-    pub fn remove_from_requested_tile(&mut self, depth: u8, idx: u64) {
+    pub fn remove_from_loaded_tiles(&mut self, depth: u8, idx: u64) {
         let tile = (depth, idx);
-        self.requested_tiles.remove(&tile);
+        self.loaded_tiles.remove(&tile);
     }
 
-    pub fn replace_tile(&mut self, depth: u8, idx: u64, time_request: f32, reset_time_received: bool) -> bool {
-        let tile_request = (depth, idx);
-        if self.requested_tiles.contains(&tile_request) {
+    pub fn add_to_requested_tiles(&mut self, tile_request: TileRequest) {
+        self.requested_tiles.push_back(tile_request);
+    }
+
+    pub fn remove_from_requested_tiles(&mut self, tile_request: TileRequest) {
+        self.requested_tiles = self.requested_tiles
+            .iter()
+            .filter(|&tile| {
+                *tile != tile_request
+            })
+            .cloned()
+            .collect::<VecDeque<_>>();
+    }
+
+    pub fn replace_tile(&mut self, depth: u8, idx: u64, time_request: f32, tile_request: &TileRequest, reset_time_received: bool) -> bool {
+        let tile_loaded = (depth, idx);
+        // Check whether the buffer already contains the requested tile
+        if self.loaded_tiles.contains(&tile_loaded) {
             // Change its priority in the buffer (if it is present!).
             let tile = self.buffer
                 .clone()
@@ -261,12 +319,21 @@ impl BufferTiles {
                 // Push it to the GPU buffer
                 self.num_tiles_to_load -= 1;
                 self.push_tile(tile);
+            } else {
+                unreachable!();
             }
 
-            true
-        } else {
-            false
+            return true;
         }
+        
+        // The tile has been requested so we do launch a new
+        // async request to alasky
+        if self.requested_tiles.contains(tile_request) {
+            return true;
+        }
+
+        // A new async must be launched
+        false
     }
 
     fn replace_texture_sampler_3d(&self, idx: i32, image: &HtmlImageElement) {
@@ -341,16 +408,15 @@ use crate::HIPS_NAME;
 pub fn load_healpix_tile(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>, idx: u64, depth: u8, reset_time_received: bool) {
     let time_request = utils::get_current_time();
     
+    let image = Rc::new(RefCell::new(HtmlImageElement::new().unwrap()));
+    let tile_request = TileRequest::new(idx, depth, time_request, image.clone());
     // Check whether is already into the 24 tiles GPU buffer
-    if buffer.borrow_mut().replace_tile(depth, idx, time_request, reset_time_received) {
+    if buffer.borrow_mut().replace_tile(depth, idx, time_request, &tile_request, reset_time_received) {
         return;
     }
 
-    //let uniq = idx + (1 << (2*(depth + 1)));
-    //if STORAGE.lock().unwrap().get_tile_image(uniq)
-
-    // Add it to the loaded cells hashset
-    buffer.borrow_mut().add_to_requested_tile(depth, idx);
+    // Here we know we have to launch a new async request
+    buffer.borrow_mut().add_to_requested_tiles(tile_request);
 
     let url = {
         let dir_idx = (idx / 10000) * 10000;
@@ -364,20 +430,28 @@ pub fn load_healpix_tile(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>, i
     };
     let onerror = {
         let buffer = buffer.clone();
+        let image = image.clone();
 
         Closure::wrap(Box::new(move || {
             console::log_1(&format!("ERROR tile").into());
-            buffer.borrow_mut().remove_from_requested_tile(depth, idx);
+            //buffer.borrow_mut().remove_from_loaded_tiles(depth, idx);
+            // Remove from the currently requested tiles
+            let tile_request = TileRequest::new(idx, depth, time_request, image.clone());
+            buffer.borrow_mut().remove_from_requested_tiles(tile_request);
         }) as Box<dyn Fn()>)
     };
-
-    let image = Rc::new(RefCell::new(HtmlImageElement::new().unwrap()));
 
     let onload = {
         let image = image.clone();
 
         Closure::wrap(Box::new(move || {
             console::log_1(&format!("load new tile").into());
+            // Remove from the currently requested tiles
+            let tile_request = TileRequest::new(idx, depth, time_request, image.clone());
+            buffer.borrow_mut().remove_from_requested_tiles(tile_request);
+
+            // Add it to the loaded cells hashset
+            buffer.borrow_mut().add_to_loaded_tiles(depth, idx);
             // Add the received tile to the buffer
             let idx_texture = buffer.borrow_mut().add(depth, idx, time_request);
             buffer.borrow().replace_texture_sampler_3d(idx_texture as i32, &image.borrow());
