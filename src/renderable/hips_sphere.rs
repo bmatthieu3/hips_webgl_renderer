@@ -10,7 +10,6 @@ use std::cell::RefCell;
 use crate::renderable::Mesh;
 use crate::shader::Shader;
 
-pub const MAX_NUMBER_TEXTURE: usize = 48;
 const NUM_VERTICES_PER_STEP: usize = 50;
 const NUM_STEPS: usize = 20;
 use crate::MAX_DEPTH;
@@ -34,7 +33,7 @@ pub struct HiPSSphere {
     size_in_pixels: cgmath::Vector2<f32>,
 
     // ang2pix textures
-    ang2pix_textures: [Texture2D; 1],
+    //ang2pix_textures: [Texture2D; 1],
 
     gl: WebGl2Context,
 }
@@ -48,7 +47,7 @@ use crate::field_of_view::FieldOfView;
 
 impl<'a> HiPSSphere {
     pub fn new(gl: &WebGl2Context, projection: &ProjectionType) -> HiPSSphere {
-        let buffer_tiles = Rc::new(RefCell::new(BufferTiles::new(gl, 24, "textures")));
+        let buffer_tiles = Rc::new(RefCell::new(BufferTiles::new(gl, 20, "textures")));
         buffer_tiles.borrow_mut().prepare_for_loading(12);
         for idx in (0 as u64)..(12 as u64) {
             load_healpix_tile(&gl, buffer_tiles.clone(), idx, 0, false);
@@ -63,11 +62,11 @@ impl<'a> HiPSSphere {
         let idx_vertices = HiPSSphere::create_index_array();
 
         // Load the ang2pix values
-        let ang2pix_textures = [
-            create_texture_2d(gl, "./textures/ang2pix_depth0.png"),
+        /*let ang2pix_textures = [
+            //create_texture_2d(gl, "./textures/ang2pix_depth0.png"),
             //create_texture_2d(gl, "./textures/ang2pix_depth1.jpg"),
             //create_texture_2d(gl, "./textures/ang2pix_depth2.jpg"),
-        ];
+        ];*/
 
         let gl = gl.clone();
         let current_depth = 0;
@@ -81,7 +80,7 @@ impl<'a> HiPSSphere {
             idx_vertices,
 
             size_in_pixels,
-            ang2pix_textures,
+            //ang2pix_textures,
 
             gl,
         }
@@ -200,7 +199,7 @@ impl Mesh for HiPSSphere {
         self.buffer_tiles.borrow().send_to_shader(shader);
 
         // ANG2PIX TEXTURES
-        self.ang2pix_textures[0].send_to_shader(gl, shader, "ang2pix_0_texture");
+        //self.ang2pix_textures[0].send_to_shader(gl, shader, "ang2pix_0_texture");
 
         // Send current depth
         let location_current_depth = shader.get_uniform_location("current_depth");

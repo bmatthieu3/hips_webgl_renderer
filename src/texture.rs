@@ -94,7 +94,6 @@ impl From<Tile> for TileGPU {
         let depth = tile.depth;
         let uniq = (1 << (2*((depth as u64) + 1))) + idx;
         let uniq = uniq as u32;
-        //console::log_1(&format!("UNIQ: {:?}", uniq).into());
 
         let texture_idx = tile.texture_idx as i32;
 

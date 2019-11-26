@@ -110,7 +110,6 @@ pub static CONTENT: &'static str = r#"#version 300 es
         // A f32 mantissa contains 23 bits.
         // - it basically means that when storing (x, y) coordinates,
         //   we can go as deep as depth 24 (or maybe 25)
-        //return vec3(0.f, 0.f, 0.f);
         
         uint nside = 1U << uint(depth);
         float half_nside = float(nside) * 0.5f;
@@ -197,7 +196,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
     uniform int current_depth;
     
     uniform sampler3D textures;
-    uniform Tile textures_tiles[24];
+    uniform Tile textures_tiles[20];
 
     uniform sampler3D textures_0;
     uniform Tile textures_0_tiles[12];
@@ -210,9 +209,9 @@ pub static CONTENT: &'static str = r#"#version 300 es
     };
 
     // ang2pix textures
-    uniform sampler2D ang2pix_0_texture;
-    uniform sampler2D ang2pix_1_texture;
-    uniform sampler2D ang2pix_2_texture;
+    //uniform sampler2D ang2pix_0_texture;
+    //uniform sampler2D ang2pix_1_texture;
+    //uniform sampler2D ang2pix_2_texture;
 
     TileColor get_tile_color(vec3 pos, float size, int depth) {
         HashDxDy result = hash_with_dxdy(depth, pos.zxy);
@@ -300,7 +299,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
     void main() {
         vec3 frag_pos = normalize(out_vert_pos);
         // Get the HEALPix cell idx and the uv in the texture
-        TileColor current_tile = get_tile_color(frag_pos, 24.f, current_depth);
+        TileColor current_tile = get_tile_color(frag_pos, 20.f, current_depth);
 
         float alpha = clamp((current_time - current_tile.tile.time_received) / duration, 0.f, 1.f);
 
@@ -320,7 +319,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
             depth = min(29, current_depth + 1);
         }
 
-        TileColor tile = get_tile_color(frag_pos, 24.f, depth);
+        TileColor tile = get_tile_color(frag_pos, 20.f, depth);
         if (!tile.found) {
             tile = get_depth_0_tile(frag_pos);
         }
