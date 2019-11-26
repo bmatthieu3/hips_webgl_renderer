@@ -77,6 +77,12 @@ pub static CONTENT: &'static str = r#"#version 300 es
         return i5;
     }
 
+    struct HashDxDy {
+        uint idx;
+        float dx;
+        float dy;
+    };
+
     // Returns the cell number (hash value) associated with the given position on the unit sphere, 
     // together with the offset `(dx, dy)` on the Euclidean plane of the projected position with
     // respect to the origin of the cell (South vertex).
@@ -95,7 +101,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
     //   (hence `x^2 + y^2 + z^2 = 1`) !!
     // - Operations being made on simple precision float, the precision is lower than `~0.2 arcsec` only!!
     // - At depth 13, the precision on `(dx, dy)` is better than `(1/512, 1/512)`, i.e. 2e-3.
-    vec3 hash_with_dxdy(int depth, vec3 p) {
+    HashDxDy hash_with_dxdy(int depth, vec3 p) {
         //assert!(depth <= 14);
         //assert!(-1.0 <= x && x <= 1.0);
         //assert!(-1.0 <= y && y <= 1.0);
@@ -163,16 +169,16 @@ pub static CONTENT: &'static str = r#"#version 300 es
         uint i = uint(x);
         uint j = uint(y);
         // Deal with numerical inaccuracies, rare so branch miss-prediction negligible
-        if (i == nside) {
+        /*if (i == nside) {
             i = i - 1U;
         }
         // Deal with numerical inaccuracies, rare so branch miss-prediction negligible
         if (j == nside) {
             j = j - 1U;
-        }
+        }*/
 
-        return vec3(
-            float((d0h << (uint(depth) << 1U)) | ij2z(i, j)),
+        return HashDxDy(
+            (d0h << (uint(depth) << 1U)) | ij2z(i, j),
             x - float(i),
             y - float(j)
         );
@@ -209,18 +215,18 @@ pub static CONTENT: &'static str = r#"#version 300 es
     uniform sampler2D ang2pix_2_texture;
 
     TileColor get_tile_color(vec3 pos, float size, int depth) {
-        vec3 res = hash_with_dxdy(depth, pos.zxy);
-        uint idx = uint(res.x);
+        HashDxDy result = hash_with_dxdy(depth, pos.zxy);
+        uint idx = result.idx;
         uint uniq = (1U << (2U*(uint(depth) + 1U))) + idx;
 
-        vec2 uv = res.zy;
+        vec2 uv = vec2(result.dy, result.dx);
 
         int a = 0;
         int b = int(size) - 1;
 
         int i = (b + a) / 2;
 
-        int h = int(log2(size)) + 2;
+        int h = int(log2(size)) + 1;
         // Binary search among the tile idx
         for(int step = 0; step < h; step++) {
             if (uniq == textures_tiles[i].uniq) {
@@ -246,8 +252,8 @@ pub static CONTENT: &'static str = r#"#version 300 es
     }
 
     TileColor get_depth_0_tile(vec3 pos) {
-        vec3 res = hash_with_dxdy(0, pos.zxy);
-        uint idx = uint(res.x);
+        HashDxDy result = hash_with_dxdy(0, pos.zxy);
+        uint idx = result.idx;
         uint uniq = 4U + idx;
 
         /*vec2 radec = vec2(atan(pos.x, pos.z), asin(pos.y));
@@ -256,7 +262,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
         int idx = int(res.r * 255.f);
         int uniq = 4 + idx;*/
 
-        vec2 uv = res.zy;
+        vec2 uv = vec2(result.dy, result.dx);
 
         int a = 0;
         int b = 11;

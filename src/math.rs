@@ -13,7 +13,7 @@ pub fn angular_distance_lonlat(lon1: f32, lat1: f32, lon2: f32, lat2: f32) -> f3
 pub fn xyz_to_radec(v: cgmath::Vector3<f32>) -> (f32, f32) {
     (
         v.x.atan2(v.z),
-        v.y.asin(),
+        v.y.atan2((v.x*v.x + v.z*v.z).sqrt()),
     )
 }
 

@@ -107,6 +107,7 @@ impl FieldOfView {
             } else {
                 // The fov is not too big so we can get the HEALPix cells
                 // being in the fov
+                //console::log_1(&format!("LONLAT vertex, {:?}", self.vertices_world_space).into());
                 let lon_lat_world_space = self.vertices_world_space.iter()
                     .map(|vertex_world_space| {
                         // Take into account the rotation of the sphere
@@ -127,7 +128,10 @@ impl FieldOfView {
                 let idx = if depth == 0 {
                     (0..12).collect::<Vec<_>>()
                 } else {
+                    //console::log_1(&format!("LONLAT, {:?}", lon_lat_world_space).into());
                     let moc = healpix::nested::polygon_coverage(depth, &lon_lat_world_space, true);
+                    //console::log_1(&format!("AAAA").into());
+
                     let idx = moc.flat_iter().collect::<Vec<_>>();
                     //console::log_1(&format!("IDX: {:?}", idx).into());
 
