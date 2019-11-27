@@ -104,7 +104,7 @@ impl ViewPort {
             default_size_scissor,
         };
 
-        viewport.resize();
+        viewport.resize(&default_size_scissor);
         viewport
     }
 
@@ -114,7 +114,7 @@ impl ViewPort {
         set_gl_scissor(&self.gl, current_size_scissor);
     }
 
-    pub fn zoom(&mut self) {
+    pub fn zoom(&mut self, amount: f32) {
         if let Some(fov) = self.fov.value() {
             if self.fov_max > *fov {
                 return;
@@ -125,16 +125,16 @@ impl ViewPort {
 
         self.last_zoom_action = LastZoomAction::Zoom;
 
-        self.final_zoom *= 1.4_f32;
+        self.final_zoom *= (1_f32 + 0.01_f32 * amount);
     }
 
-    pub fn unzoom(&mut self) {
+    pub fn unzoom(&mut self, amount: f32) {
         self.is_zooming = true;
         self.is_action = true;
 
         self.last_zoom_action = LastZoomAction::Unzoom;
 
-        self.final_zoom /= 1.4_f32;
+        self.final_zoom /= (1_f32 + 0.01_f32 * amount);
         if self.final_zoom < 0.5_f32 {
             self.final_zoom = 0.5_f32;
         }
@@ -203,7 +203,7 @@ impl ViewPort {
         self.is_action
     }
 
-    pub fn resize(&mut self) {
+    pub fn resize(&mut self, new_size_scissor: &Vector2<f32>) {
         let (width, height) = window_size_u32();
 
         set_window_size(width, height);
@@ -212,6 +212,7 @@ impl ViewPort {
         self.canvas.set_height(height);
         self.gl.viewport(0, 0, width as i32, height as i32);
 
+        self.default_size_scissor = *new_size_scissor;
         self.update_scissor();
     }
 

@@ -339,7 +339,7 @@ impl App {
                 console::log_1(&format!("resize").into());
 
                 //RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
-                viewport.borrow_mut().resize();
+                //viewport.borrow_mut().resize();
 
                 //hips_sphere
             }) as Box<dyn FnMut()>)
@@ -454,9 +454,9 @@ impl App {
 
                 let dt = *DELTA_TIME.lock().unwrap();
                 if delta_y < 0_f32 {
-                    viewport.borrow_mut().zoom();
+                    viewport.borrow_mut().zoom(-delta_y);
                 } else {
-                    viewport.borrow_mut().unzoom();
+                    viewport.borrow_mut().unzoom(delta_y);
                 }
 
                 if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
@@ -572,6 +572,10 @@ impl App {
 
         // New HiPS sphere
         let hips_sphere_mesh = HiPSSphere::new(&self.gl, &projection);
+
+        // Update the scissor due to the projection change
+        self.viewport.borrow_mut().resize(hips_sphere_mesh.get_default_pixel_size());
+
         self.hips_sphere = Renderable::<HiPSSphere>::new(
             &self.gl,
             &shaders["hips_sphere"],
@@ -588,9 +592,6 @@ impl App {
                 projeted_grid_mesh,
             )
         );
-
-        self.viewport.borrow().update_scissor();
-
         RENDER_NEXT_FRAME.lock().unwrap().set(true);
     }
 

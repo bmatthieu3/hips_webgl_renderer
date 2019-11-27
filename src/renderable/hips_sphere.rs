@@ -55,10 +55,10 @@ impl<'a> HiPSSphere {
     pub fn new(gl: &WebGl2Context, projection: &ProjectionType) -> HiPSSphere {
         let buffer_tiles = Rc::new(RefCell::new(BufferTiles::new(gl, 20, "textures")));
         let base_tiles = (0..12).collect::<Vec<u64>>();
-        load_tiles(&gl, buffer_tiles.clone(), &base_tiles, 0, false);
+        load_tiles(buffer_tiles.clone(), &base_tiles, 0, false);
 
         let buffer_depth_zero_tiles = Rc::new(RefCell::new(BufferTiles::new(gl, 12, "textures_0")));
-        load_tiles(&gl, buffer_depth_zero_tiles.clone(), &base_tiles, 0, false);
+        load_tiles(buffer_depth_zero_tiles.clone(), &base_tiles, 0, false);
 
         let (vertices, size_in_pixels) = HiPSSphere::create_vertices_array(gl, projection);
         let idx_vertices = HiPSSphere::create_index_array();
@@ -227,7 +227,7 @@ impl Mesh for HiPSSphere {
         DEPTH.store(depth, Ordering::Relaxed);
 
         // TODO: wrap that into a method load_healpix_tiles of BufferTiles
-        load_tiles(&self.gl, self.buffer_tiles.clone(), &hpx_idx, depth, reset_time_received);
+        load_tiles(self.buffer_tiles.clone(), &hpx_idx, depth, reset_time_received);
         //console::log_1(&format!("{:?}", self.buffer_tiles.borrow().requested_tiles).into());
     }
 }

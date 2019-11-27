@@ -454,7 +454,6 @@ impl BufferTiles {
 
 use crate::HIPS_NAME;
 pub fn load_tiles(
-    gl: &WebGl2Context,
     buffer_tiles: Rc<RefCell<BufferTiles>>,
     tiles_idx: &Vec<u64>,
     depth: u8,
@@ -462,10 +461,10 @@ pub fn load_tiles(
 ) {
     buffer_tiles.borrow_mut().prepare_for_loading(tiles_idx.len() as u8);
     for &idx in tiles_idx {
-        load_healpix_tile(&gl, buffer_tiles.clone(), idx, depth, reset_time_received);
+        load_healpix_tile(buffer_tiles.clone(), idx, depth, reset_time_received);
     }
 }
-fn load_healpix_tile(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>, idx: u64, depth: u8, reset_time_received: bool) {
+fn load_healpix_tile(buffer: Rc<RefCell<BufferTiles>>, idx: u64, depth: u8, reset_time_received: bool) {
     let time_request = utils::get_current_time();
     
     let image = Rc::new(RefCell::new(HtmlImageElement::new().unwrap()));
