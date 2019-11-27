@@ -498,8 +498,8 @@ fn create_sampler_3d(gl: &WebGl2Context, size_buffer: u32) -> (Option<web_sys::W
     gl.active_texture(idx_texture_unit);
     gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, webgl_texture.as_ref());
 
-    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::LINEAR as i32);
-    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::LINEAR_MIPMAP_LINEAR as i32);
+    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::NEAREST as i32);
+    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::NEAREST as i32);
 
     // Prevents s-coordinate wrapping (repeating)
     gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
@@ -521,7 +521,7 @@ fn create_sampler_3d(gl: &WebGl2Context, size_buffer: u32) -> (Option<web_sys::W
         &ctx.borrow().canvas().unwrap(),
     )
     .expect("Texture 3d");
-    gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_3D);
+    //gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_3D);
 
     (webgl_texture, idx_texture_unit)
 }
