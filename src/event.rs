@@ -1,10 +1,15 @@
 use cgmath::Vector4;
+use cgmath::Vector3;
+
+use cgmath::Rad;
 
 use crate::renderable::Renderable;
 use crate::renderable::hips_sphere::HiPSSphere;
 use crate::renderable::grid::ProjetedGrid;
 pub struct Move {
     start_world_pos: Vector4<f32>,
+    axis: Vector3<f32>,
+    x: Rad<f32>, // amount of displacement
 }
 
 use cgmath::Vector2;
@@ -33,7 +38,14 @@ impl Move {
     ) -> Option<Move> {
         let start_world_pos = screen_to_world_space(&start_screen_pos, projection, viewport);
         let result = if let Some(start_world_pos) = start_world_pos {
-            Some(Move {start_world_pos})
+            let axis = Vector3::new(0_f32, 0_f32, 0_f32);
+            let x = Rad(0_f32);
+            let event = Move {
+                start_world_pos,
+                axis,
+                x
+            };
+            Some(event)
         } else {
             None
         };
@@ -59,10 +71,10 @@ impl Move {
                 let model_pos = cgmath::Vector3::<f32>::new(model_pos.x, model_pos.y, model_pos.z);
 
                 let mut axis = start_model_pos.cross(model_pos);
-                let d = math::angular_distance_xyz(start_model_pos, model_pos);
+                self.x = math::angular_distance_xyz(start_model_pos, model_pos);
 
-                axis = axis.normalize();
-                hips_sphere.apply_rotation(-axis, d);
+                self.axis = axis.normalize();
+                hips_sphere.apply_rotation(-self.axis, self.x);
                 // Move the grid the opposite way of the hips sphere
                 let inv_model_mat = hips_sphere.get_inverted_model_mat();
                 grid.set_model_mat(inv_model_mat);
@@ -71,6 +83,14 @@ impl Move {
                 viewport.displacement();
             }
         }
+    }
+
+    pub fn get_axis(&self) -> &Vector3<f32> {
+        &self.axis
+    }
+
+    pub fn get_last_displacement_amount(&self) -> f32 {
+        self.x.0
     }
 }
 

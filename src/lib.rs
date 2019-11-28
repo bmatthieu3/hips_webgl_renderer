@@ -30,6 +30,7 @@ mod projeted_grid;
 mod render_next_frame;
 mod field_of_view;
 mod event;
+mod mouse_inertia;
 
 use shader::Shader;
 use renderable::Renderable;
@@ -54,6 +55,8 @@ use crate::render_next_frame::RENDER_FRAME;
 use crate::render_next_frame::UPDATE_FRAME;
 
 use crate::event::Move;
+
+use crate::mouse_inertia::MouseInertia;
 struct App {
     gl: WebGl2Context,
 
@@ -69,6 +72,10 @@ struct App {
 
     // Move event
     move_event: Option<Move>,
+
+    // Options
+    // Mouse Inertia
+    inertia: Option<MouseInertia>,
 }
 
 use cgmath::Vector2;
@@ -467,6 +474,7 @@ impl App {
             closure.forget();
         }*/
         let move_event = None;
+        let inertia = None;
         let gl = gl.clone();
         let app = App {
             gl,
@@ -482,6 +490,8 @@ impl App {
             grid,
 
             move_event,
+
+            inertia,
         };
 
         Ok(app)
@@ -489,6 +499,19 @@ impl App {
 
     fn update(&mut self, dt: f32) {
         *DELTA_TIME.lock().unwrap() = dt;
+
+        // Look for inertia
+        if let Some(ref mut inertia) = &mut self.inertia {
+            if inertia.update(
+                &mut self.hips_sphere,
+                &mut self.grid.borrow_mut(),
+                &mut self.viewport.borrow_mut(),
+                dt
+            ) {
+                self.inertia = None;
+            }
+        }
+
         // Update the camera. When the camera has reached its final position
         // then we stop rendering the next frames!
         self.viewport.borrow_mut().update(&self.projection.get(), dt);
@@ -498,14 +521,14 @@ impl App {
 
         // Updating
         if UPDATE_FRAME.lock().unwrap().get() {
-            // update the fov
+            // Update the fov
             self.hips_sphere
                 .update(
                     &self.projection.get(),
                     &self.viewport.borrow(),
                 );
 
-            // The grid label positions
+            // The grid buffers and labels
             if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
                 self.grid.borrow_mut().update(
                     &self.projection.get(),
@@ -655,7 +678,17 @@ impl App {
 
     fn stop_move(&mut self) {
         console::log_1(&format!("stop moving").into());
-        self.viewport.borrow_mut().stop_displacement();
+        // uncomment this if the inertia is not enabled
+        //self.viewport.borrow_mut().stop_displacement();
+        let axis = self.move_event
+            .as_ref()
+            .unwrap()
+            .get_axis();
+        let last_displacement_amount = self.move_event
+            .as_ref()
+            .unwrap()
+            .get_last_displacement_amount();
+        self.inertia = MouseInertia::new(last_displacement_amount, *axis);
 
         self.move_event = None;
     }
