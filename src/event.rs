@@ -25,7 +25,6 @@ fn screen_to_world_space(screen_pos: &Vector2<f32>, projection: &ProjectionType,
 }
 
 use crate::math;
-use crate::ENABLED_WIDGETS;
 impl Move {
     pub fn new(
         start_screen_pos: Vector2<f32>,
@@ -67,11 +66,6 @@ impl Move {
                 // Move the grid the opposite way of the hips sphere
                 let inv_model_mat = hips_sphere.get_inverted_model_mat();
                 grid.set_model_mat(inv_model_mat);
-
-                if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
-                    grid.update(projection, viewport);
-                    grid.update_vertex_array();
-                }
 
                 self.start_world_pos = world_pos;
                 viewport.displacement();

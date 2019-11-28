@@ -50,7 +50,8 @@ use std::cell::{RefCell, Cell};
 use std::collections::HashMap;
 
 use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
-use crate::render_next_frame::RENDER_NEXT_FRAME;
+use crate::render_next_frame::RENDER_FRAME;
+use crate::render_next_frame::UPDATE_FRAME;
 
 use crate::event::Move;
 struct App {
@@ -488,15 +489,15 @@ impl App {
 
     fn update(&mut self, dt: f32) {
         *DELTA_TIME.lock().unwrap() = dt;
-
-        RENDER_NEXT_FRAME.lock().unwrap().update(&self.viewport.borrow());
-
         // Update the camera. When the camera has reached its final position
         // then we stop rendering the next frames!
         self.viewport.borrow_mut().update(&self.projection.get(), dt);
 
+        RENDER_FRAME.lock().unwrap().update(&self.viewport.borrow());
+        UPDATE_FRAME.lock().unwrap().update(&self.viewport.borrow());
+
         // Updating
-        if RENDER_NEXT_FRAME.lock().unwrap().get() {
+        if UPDATE_FRAME.lock().unwrap().get() {
             // update the fov
             self.hips_sphere
                 .update(
@@ -506,6 +507,12 @@ impl App {
 
             // The grid label positions
             if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
+                self.grid.borrow_mut().update(
+                    &self.projection.get(),
+                    &self.viewport.borrow()
+                );
+                self.grid.borrow_mut().update_vertex_array();
+                
                 self.grid.borrow_mut().mesh_mut().update_label_positions(
                     self.hips_sphere.get_inverted_model_mat(),
                     &self.projection.get(),
@@ -516,8 +523,8 @@ impl App {
     }
 
     fn render(&self) {
-        if RENDER_NEXT_FRAME.lock().unwrap().get() {
-            //RENDER_NEXT_FRAME.store(false, Ordering::Relaxed);
+        if RENDER_FRAME.lock().unwrap().get() {
+            //RENDER_FRAME.store(false, Ordering::Relaxed);
             /*if !pressed.get() && roll.get() {
                 let next_dist = compute_speed(time_last_move.get(), last_dist.get() * 0.5_f32);
                 if next_dist > 1e-4 {
@@ -587,7 +594,7 @@ impl App {
                 projeted_grid_mesh,
             )
         );
-        RENDER_NEXT_FRAME.lock().unwrap().set(true);
+        RENDER_FRAME.lock().unwrap().set(true);
     }
 
     fn reload_hips_sphere(&mut self, hips_url: String, hips_depth: u8) {
@@ -622,7 +629,7 @@ impl App {
         let fov_max = math::depth_to_fov(MAX_DEPTH.load(Ordering::Relaxed));
         self.viewport.borrow_mut().set_max_field_of_view(fov_max);
 
-        RENDER_NEXT_FRAME.lock().unwrap().set(true);
+        RENDER_FRAME.lock().unwrap().set(true);
     }
 
     /// MOVE EVENT
@@ -647,6 +654,7 @@ impl App {
     }
 
     fn stop_move(&mut self) {
+        console::log_1(&format!("stop moving").into());
         self.viewport.borrow_mut().stop_displacement();
 
         self.move_event = None;
@@ -660,13 +668,13 @@ impl App {
             self.viewport.borrow_mut().unzoom(delta_y);
         }
 
-        if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
+        /*if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
             self.grid.borrow_mut()
                 .update(
                     &self.projection.get(),
                     &self.viewport.borrow()
                 );
-        }
+        }*/
     }
 }
 
@@ -847,7 +855,7 @@ impl WebClient {
                     &self.app.viewport.borrow()
                 );
         }
-        RENDER_NEXT_FRAME.lock().unwrap().set(true);
+        RENDER_FRAME.lock().unwrap().set(true);
 
         Ok(())
     }
@@ -858,7 +866,7 @@ impl WebClient {
             *grid = false;
             self.app.grid.borrow_mut().mesh_mut().clear_canvas();
         }
-        RENDER_NEXT_FRAME.lock().unwrap().set(true);
+        RENDER_FRAME.lock().unwrap().set(true);
 
         Ok(())
     }

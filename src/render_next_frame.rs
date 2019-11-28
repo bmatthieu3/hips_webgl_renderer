@@ -48,6 +48,39 @@ impl RenderNextFrame {
     }
 }
 
+pub struct UpdateCurrentFrame {
+    update: bool,
+}
+impl UpdateCurrentFrame {
+    pub fn new() -> UpdateCurrentFrame {
+        let update = true;
+
+        UpdateCurrentFrame {
+            update,
+        }
+    }
+
+    pub fn get(&self) -> bool {
+        self.update
+    }
+
+    pub fn set(&mut self, new_value: bool) {
+        self.update = new_value;
+    }
+
+    pub fn update(&mut self, viewport: &ViewPort) {
+        // Priority to mouse/wheel events
+        let is_action = viewport.is_user_action();
+
+        if !is_action {
+            // No action by the user -> no updates
+            self.set(false);
+        } else {
+            self.set(true);
+        }
+    }
+}
+
 use std::sync::Mutex;
 use std::sync::Arc;
 lazy_static! {
@@ -55,5 +88,6 @@ lazy_static! {
     // A Rc cannot be instanciated as global because it cannot be shared between
     // threads (Rc does not impl the Sync trait)
     // Arc can be shared between threads => it is used here.
-    pub static ref RENDER_NEXT_FRAME: Arc<Mutex<RenderNextFrame>> = Arc::new(Mutex::new(RenderNextFrame::new()));
+    pub static ref RENDER_FRAME: Arc<Mutex<RenderNextFrame>> = Arc::new(Mutex::new(RenderNextFrame::new()));
+    pub static ref UPDATE_FRAME: Arc<Mutex<UpdateCurrentFrame>> = Arc::new(Mutex::new(UpdateCurrentFrame::new()));
 }

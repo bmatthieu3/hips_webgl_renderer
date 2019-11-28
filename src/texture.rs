@@ -14,7 +14,7 @@ const WIDTH_TEXTURE: i32 = 512;
 
 use crate::WebGl2Context;
 use web_sys::console;
-use crate::RENDER_NEXT_FRAME;
+use crate::RENDER_FRAME;
 
 static mut NUM_TEXTURE_UNIT: u32 = WebGl2RenderingContext::TEXTURE0;
 
@@ -265,7 +265,7 @@ impl BufferTiles {
 
         if self.num_load_tiles == self.num_tiles_to_load {
             // Do not render next frame
-            RENDER_NEXT_FRAME.lock().unwrap().set_for_duration_seconds(500_f32);
+            RENDER_FRAME.lock().unwrap().set_for_duration_seconds(500_f32);
         }
     }
 
@@ -507,7 +507,7 @@ fn load_healpix_tile(buffer: Rc<RefCell<BufferTiles>>, idx: u64, depth: u8, rese
 
             // Tell the app to render the next frame
             // because a a new has been received
-            //RENDER_NEXT_FRAME.store(true, atomic::Ordering::Relaxed);
+            //RENDER_FRAME.store(true, atomic::Ordering::Relaxed);
         }) as Box<dyn Fn()>)
     };
 

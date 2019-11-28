@@ -115,11 +115,11 @@ impl ViewPort {
     }
 
     pub fn zoom(&mut self, amount: f32) {
-        if let Some(fov) = self.fov.value() {
+        /*if let Some(fov) = self.fov.value() {
             if self.fov_max > *fov {
                 return;
             }
-        }
+        }*/
         self.is_zooming = true;
         self.is_action = true;
 
@@ -135,8 +135,8 @@ impl ViewPort {
         self.last_zoom_action = LastZoomAction::Unzoom;
 
         self.final_zoom /= (1_f32 + 0.01_f32 * amount);
-        if self.final_zoom < 0.5_f32 {
-            self.final_zoom = 0.5_f32;
+        if self.final_zoom < 0.75_f32 {
+            self.final_zoom = 0.75_f32;
         }
     }
 
@@ -153,40 +153,45 @@ impl ViewPort {
         }
     }
 
+    pub fn stop_zooming(&mut self) {
+        self.final_zoom = self.current_zoom;
+
+        self.is_zooming = false;
+        if !self.is_moving {
+            self.is_action = false;
+        }
+    }
+
     pub fn update(&mut self, projection: &ProjectionType, dt: f32) {
         // If there is an action whether it is a zoom or a displacement
         // then we update the fov
         if self.is_action {
             console::log_1(&format!("update FOV").into());
             self.fov.update(self.current_zoom, projection);
-
-            self.stop_displacement();
         }
 
-        // Stop zooming when the final zoom factor has been reached
-        if (self.current_zoom - self.final_zoom).abs() < 1e-3 {
-            self.current_zoom = self.final_zoom;
-            self.is_zooming = false;
-            if !self.is_moving {
-                self.is_action = false;
+        if self.is_zooming {
+            // Check if the max fov for this HiPS has been reached
+            // if so we stop zooming!
+            if let Some(fov) = self.fov.value() {
+                // Zooming
+                if self.fov_max > *fov && self.current_zoom < self.final_zoom {
+                    self.stop_zooming();
+                    return;
+                }
             }
 
-            return;
-        }
-        // Here we are currently zooming
-        if let Some(fov) = self.fov.value() {
-            // zooming
-            if self.fov_max > *fov && self.final_zoom > self.current_zoom {
-                self.final_zoom = self.current_zoom;
+            // Here we are currently zooming
+            if (self.current_zoom - self.final_zoom).abs() < 5e-2 {
+                self.stop_zooming();
                 return;
             }
-        }
 
-        // We update the zoom factor
-        self.current_zoom += (self.final_zoom - self.current_zoom) * 0.005_f32 * dt;
-        //self.current_zoom = self.final_zoom;
-        // And update the scissor
-        self.update_scissor();
+            // We update the zoom factor
+            self.current_zoom += (self.final_zoom - self.current_zoom) * 0.005_f32 * dt;
+
+            self.update_scissor();
+        }
     }
 
     pub fn set_max_field_of_view(&mut self, max_fov: Rad<f32>) {
