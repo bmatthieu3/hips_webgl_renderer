@@ -248,10 +248,10 @@ impl BufferTiles {
         self.num_tiles_to_load = num_tiles_to_load;
 
         /*self.requested_tiles = self.requested_tiles
-            .iter()
-            .cloned()
-            .collect::<BinaryHeap<_>>();
-        */
+            .clone()
+            .into_vec()
+            .into_iter()
+            .collect::<BinaryHeap<_>>();*/
     }
 
     fn push_tile(&mut self, tile: Tile) {
@@ -307,25 +307,6 @@ impl BufferTiles {
                 }
                 peek = self.requested_tiles.peek().unwrap();
             }
-
-            //console::log_1(&format!("BINARYHEAP: {:?} {:?}", depth, self.requested_tiles.clone().into_sorted_vec()).into());
-            //console::log_1(&format!("AAAAAA: {:?} {:?}", depth, front).into());
-
-            /*let upper_depth_limit = std::cmp::min(depth + 1, 29);
-            let lower_depth_limit = std::cmp::max(depth - 1, 0);
-
-            while front.depth < lower_depth_limit && front.depth > upper_depth_limit {
-                console::log_1(&format!("BBBB: {:?} {:?}", depth, front).into());
-                // Cancel the async call
-                front.image.borrow_mut().set_src("");
-
-                self.requested_tiles.pop_front();
-
-                if self.requested_tiles.is_empty() {
-                    break;
-                }
-                front = self.requested_tiles.front().unwrap();
-            }*/
         }
     }
 
@@ -450,6 +431,10 @@ impl BufferTiles {
             self.gl.uniform1f(location_time_request, tile.time_request);
         }
     }
+
+    pub fn len(&self) -> usize {
+        self.size
+    }
 }
 
 use crate::HIPS_NAME;
@@ -552,14 +537,14 @@ fn create_sampler_3d(gl: &WebGl2Context, size_buffer: u32) -> (Option<web_sys::W
                 .dyn_into::<CanvasRenderingContext2d>().unwrap()
         )
     );
-    let webgl_texture = gl.create_texture();
 
     let idx_texture_unit = unsafe { NUM_TEXTURE_UNIT };
+    let webgl_texture = gl.create_texture();
+    gl.active_texture(idx_texture_unit);
+
     unsafe {
         NUM_TEXTURE_UNIT += 1;
     }
-
-    gl.active_texture(idx_texture_unit);
     gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, webgl_texture.as_ref());
 
     gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::NEAREST as i32);
@@ -585,7 +570,7 @@ fn create_sampler_3d(gl: &WebGl2Context, size_buffer: u32) -> (Option<web_sys::W
         &ctx.borrow().canvas().unwrap(),
     )
     .expect("Texture 3d");
-    //gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_3D);
+    gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_3D);
 
     (webgl_texture, idx_texture_unit)
 }
@@ -621,9 +606,6 @@ pub fn create_texture_2d(gl: &WebGl2Context, src: &'static str) -> Texture2D {
     let webgl_texture = Rc::new(RefCell::new(gl.create_texture()));
     let idx_texture_unit = unsafe { NUM_TEXTURE_UNIT };
 
-    unsafe {
-        NUM_TEXTURE_UNIT += 1;
-    }
     let onerror = {
         Closure::wrap(Box::new(move || {
             console::log_1(&format!("Cannot load texture located at: {:?}", src).into());
@@ -637,6 +619,9 @@ pub fn create_texture_2d(gl: &WebGl2Context, src: &'static str) -> Texture2D {
 
         Closure::wrap(Box::new(move || {
             gl.active_texture(idx_texture_unit);
+            unsafe {
+                NUM_TEXTURE_UNIT += 1;
+            }
             gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, webgl_texture.borrow().as_ref());
 
             gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::NEAREST as i32);
@@ -655,7 +640,7 @@ pub fn create_texture_2d(gl: &WebGl2Context, src: &'static str) -> Texture2D {
                 WebGl2RenderingContext::UNSIGNED_BYTE,
                 &image.borrow()
             ).expect("Texture 2D");
-            gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_2D);
+            //gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_2D);
         }) as Box<dyn Fn()>)
     };
 

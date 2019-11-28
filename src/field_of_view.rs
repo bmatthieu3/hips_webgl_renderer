@@ -73,7 +73,7 @@ impl FieldOfView {
                 vertex_world_space
             })
             .collect::<Vec<_>>();
-        
+
         self.value = if self.vertices_world_space.len() == self.num_vertices {
             let idx_r = self.num_vertices_width + 1 + (((self.num_vertices_height as f32)/2_f32).ceil() as usize);
             let idx_l = 2 * self.num_vertices_width + 3 + self.num_vertices_height + (((self.num_vertices_height as f32)/2_f32).ceil() as usize);
@@ -98,42 +98,52 @@ impl FieldOfView {
 
     // Returns the HEALPix cells located in the
     // field of view
-    pub fn get_healpix_cells(&self, model: &Matrix4<f32>) -> (u8, Vec<u64>) {
+    pub fn get_healpix_cells(&self, model: &Matrix4<f32>, max_num_tiles: usize) -> (u8, Vec<u64>) {
         if let Some(fov) = self.value {
             // The fov does not cross the border of the projection
             if fov >= Deg(150_f32).into() {
                 // The fov is >= 150°
                 (0, (0..12).collect::<Vec<_>>())
             } else {
-                // The fov is not too big so we can get the HEALPix cells
-                // being in the fov
-                //console::log_1(&format!("LONLAT vertex, {:?}", self.vertices_world_space).into());
-                let lon_lat_world_space = self.vertices_world_space.iter()
-                    .map(|vertex_world_space| {
-                        // Take into account the rotation of the sphere
-                        let vertex_world_space = model * vertex_world_space;
-                        let vertex_world_space = cgmath::Vector3::<f32>::new(vertex_world_space.x, vertex_world_space.y, vertex_world_space.z);
-
-                        let (ra, dec) = math::xyz_to_radec(vertex_world_space);
-                        (ra as f64, dec as f64)
-                    })
-                    .collect::<Vec<_>>();
                 let (width, _) = window_size_f32();
-
                 let l = width;
                 // Compute the depth corresponding to the angular resolution of a pixel
                 // along the width of the screen
-                let depth = std::cmp::min(math::ang_per_pixel_to_depth(fov.0 / l), MAX_DEPTH.load(Ordering::Relaxed));
-
+                let mut depth = std::cmp::min(math::ang_per_pixel_to_depth(fov.0 / l), MAX_DEPTH.load(Ordering::Relaxed));
                 let idx = if depth == 0 {
                     (0..12).collect::<Vec<_>>()
                 } else {
-                    //console::log_1(&format!("LONLAT, {:?}", lon_lat_world_space).into());
-                    let moc = healpix::nested::polygon_coverage(depth, &lon_lat_world_space, true);
-                    //console::log_1(&format!("AAAA").into());
+                    // The fov is not too big so we can get the HEALPix cells
+                    // being in the fov
+                    console::log_1(&format!("VERTICES world space, {:?}", self.vertices_world_space).into());
+                    let lon_lat_world_space = self.vertices_world_space.iter()
+                        .map(|vertex_world_space| {
+                            // Take into account the rotation of the sphere
+                            let vertex_model_space = (*model) * vertex_world_space;
 
-                    let idx = moc.flat_iter().collect::<Vec<_>>();
-                    //console::log_1(&format!("IDX: {:?}", idx).into());
+                            let (ra, dec) = math::xyzw_to_radec(vertex_model_space);
+                            (ra as f64, dec as f64)
+                        })
+                        .collect::<Vec<_>>();
+
+                    console::log_1(&format!("LONLAT, {:?}", lon_lat_world_space).into());
+                    let mut idx = vec![];
+                    while depth > 0 {
+                        let moc = healpix::nested::polygon_coverage(depth, &lon_lat_world_space, true);
+                        let num_tiles = moc.entries.len();
+                        // Stop when the number of tiles for this depth
+                        // can be contained in the tile buffer
+                        if num_tiles <= max_num_tiles {
+                            idx = moc.flat_iter().collect::<Vec<_>>();
+                            break;
+                        }
+    
+                        depth -= 1;
+                    }
+
+                    if depth == 0 {
+                        idx = (0..12).collect::<Vec<_>>();
+                    }
 
                     idx
                 };

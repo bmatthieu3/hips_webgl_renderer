@@ -214,7 +214,9 @@ impl Mesh for HiPSSphere {
 
     fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: &ViewPort) {
         let field_of_view = viewport.field_of_view();
-        let (depth, hpx_idx) = field_of_view.get_healpix_cells(local_to_world_mat);
+
+        let buffer_size = self.buffer_tiles.borrow().len();
+        let (depth, hpx_idx) = field_of_view.get_healpix_cells(local_to_world_mat, buffer_size);
 
         let current_depth = DEPTH.load(Ordering::Relaxed);
         let reset_time_received = if current_depth != depth {

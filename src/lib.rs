@@ -35,7 +35,8 @@ use shader::Shader;
 use renderable::Renderable;
 use renderable::hips_sphere::HiPSSphere;
 use renderable::projection;
-use renderable::projection::{ProjectionType, Aitoff, Orthographic};
+use renderable::projection::ProjectionType;
+use renderable::projection::{Aitoff, Orthographic, MollWeide};
 use viewport::ViewPort;
 
 use crate::renderable::grid::ProjetedGrid;
@@ -72,12 +73,6 @@ struct App {
 use cgmath::Vector2;
 impl App {
     fn new(gl: &WebGl2Context) -> Result<App, JsValue> {
-        // Used in resize callback closure => Rc needed
-        let canvas = Rc::new(
-            gl.canvas().unwrap()
-                .dyn_into::<web_sys::HtmlCanvasElement>().unwrap()
-        );
-
         // Shader definition
         let shader_2d_proj = Shader::new(&gl,
             shaders::proj_vert::CONTENT,
@@ -443,7 +438,7 @@ impl App {
         }
         */
         // Mouse wheel event
-        {
+        /*{
             let grid = grid.clone();
 
             let viewport = viewport.clone();
@@ -469,7 +464,7 @@ impl App {
             }) as Box<dyn FnMut(_)>);
             canvas.add_event_listener_with_callback("wheel", closure.as_ref().unchecked_ref())?;
             closure.forget();
-        }
+        }*/
         let move_event = None;
         let gl = gl.clone();
         let app = App {
@@ -658,6 +653,21 @@ impl App {
     }
 
     // ZOOM EVENT
+    fn zoom(&mut self, delta_y: f32) {
+        if delta_y < 0_f32 {
+            self.viewport.borrow_mut().zoom(-delta_y);
+        } else {
+            self.viewport.borrow_mut().unzoom(delta_y);
+        }
+
+        if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
+            self.grid.borrow_mut()
+                .update(
+                    &self.projection.get(),
+                    &self.viewport.borrow()
+                );
+        }
+    }
 }
 
 static DEGRADE_CANVAS_RATIO: f32 = 1.0_f32;
@@ -810,13 +820,15 @@ impl WebClient {
 
     /// Change the current projection of the HiPS
     pub fn set_projection(&mut self, name: String) -> Result<(), JsValue> {
-        console::log_1(&format!("{:?}", name).into());
         match name.as_ref() {
             "aitoff" => {
                 self.app.set_projection(ProjectionType::Aitoff(Aitoff {}));
             },
             "orthographic" => {
                 self.app.set_projection(ProjectionType::Orthographic(Orthographic {}));
+            },
+            "mollweide" => {
+                self.app.set_projection(ProjectionType::MollWeide(MollWeide {}));
             },
             _ => {}
         }
@@ -873,6 +885,13 @@ impl WebClient {
     pub fn moves(&mut self, screen_pos_x: f32, screen_pos_y: f32) -> Result<(), JsValue> {
         let screen_pos = Vector2::new(screen_pos_x, screen_pos_y);
         self.app.moves(screen_pos);
+        Ok(())
+    }
+
+    // Wheel event
+    pub fn zoom(&mut self, delta_y: f32) -> Result<(), JsValue> {
+        self.app.zoom(delta_y);
+
         Ok(())
     }
 }

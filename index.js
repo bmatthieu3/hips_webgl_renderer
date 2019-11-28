@@ -113,6 +113,8 @@ window.addEventListener('load', function () {
             touchpad_events(webClient);
             // Mouse events
             mouse_events(webClient);
+            // Wheel events
+            wheel_events(webClient);
 
             // Render
             time = Date.now();
@@ -136,6 +138,28 @@ function mouse_events(webClient) {
     });
 }
 
+// Wheel EVENT
+function wheel_events(webClient) {
+    let canvas = document.getElementById("canvas");
+
+    // Test via a getter in the options object to see if the passive property is accessed
+    /*let supportsPassive = false;
+    try {
+        var opts = Object.defineProperty({}, 'passive', {
+            get: function() {
+                supportsPassive = true;
+            }
+        });
+        window.addEventListener("testPassive", null, opts);
+        window.removeEventListener("testPassive", null, opts);
+    } catch (e) {}
+
+    console.log("support passive: ", supportsPassive);*/
+    canvas.addEventListener("wheel", (evt) => {
+        webClient.zoom(evt.deltaY);
+    }, false);
+}
+
 // Touchpad EVENT
 function touchpad_events(webClient) {
     let canvas = document.getElementById("canvas");
@@ -151,6 +175,18 @@ function touchpad_events(webClient) {
 
         return -1;
     }
+
+    // Test via a getter in the options object to see if the passive property is accessed
+    /*var supportsPassive = false;
+    try {
+        var opts = Object.defineProperty({}, 'passive', {
+            get: function() {
+                supportsPassive = true;
+            }
+        });
+        window.addEventListener("testPassive", null, opts);
+        window.removeEventListener("testPassive", null, opts);
+    } catch (e) {}*/
     canvas.addEventListener("touchstart", (evt) => {
         evt.preventDefault();
         var touches = evt.changedTouches;

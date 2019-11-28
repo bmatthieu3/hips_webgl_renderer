@@ -44,11 +44,14 @@ pub trait Projection {
 #[derive(Clone, Copy)]
 pub struct Aitoff;
 #[derive(Clone, Copy)]
+pub struct MollWeide;
+#[derive(Clone, Copy)]
 pub struct Orthographic;
 
 #[derive(Clone, Copy)]
 pub enum ProjectionType {
     Aitoff(Aitoff),
+    MollWeide(MollWeide),
     Orthographic(Orthographic),
 }
 
@@ -60,6 +63,9 @@ impl ProjectionType {
             },
             ProjectionType::Orthographic(_) => {
                 Orthographic::build_screen_map()
+            },
+            ProjectionType::MollWeide(_) => {
+                MollWeide::build_screen_map()
             },
         }
     }
@@ -81,6 +87,9 @@ impl ProjectionType {
             ProjectionType::Orthographic(_) => {
                 Orthographic::screen_to_world_space(pos)
             },
+            ProjectionType::MollWeide(_) => {
+                MollWeide::screen_to_world_space(pos)
+            },
         }
     }
 
@@ -97,6 +106,9 @@ impl ProjectionType {
             },
             ProjectionType::Orthographic(_) => {
                 Orthographic::world_to_screen_space(pos_world_space)
+            },
+            ProjectionType::MollWeide(_) => {
+                MollWeide::world_to_screen_space(pos_world_space)
             },
         }
     }
@@ -201,9 +213,8 @@ impl Projection for Aitoff {
         // X in [-1, 1]
         // Y in [-1/2; 1/2] and scaled by the screen width/height ratio
         //return vec3(X / PI, aspect * Y / PI, 0.f);
-
-        let delta = pos_world_space.y.asin();
-        let theta = pos_world_space.x.atan2(pos_world_space.z);
+        let xyz = Vector3::new(pos_world_space.x, pos_world_space.y, pos_world_space.z);
+        let (theta, delta) = math::xyz_to_radec(xyz);
 
         let theta_by_two = theta / 2_f32;
 
@@ -214,10 +225,130 @@ impl Projection for Aitoff {
             alpha / alpha.sin()
         };
 
+        // The minus is an astronomical convention.
+        // longitudes are increasing from right to left
         let x = -2_f32 * inv_sinc_alpha * delta.cos() * theta_by_two.sin();
         let y = inv_sinc_alpha * delta.sin();
 
         Some(cgmath::Vector2::new(x / std::f32::consts::PI, y / std::f32::consts::PI))
+    }
+}
+
+use cgmath::Vector3;
+use crate::math;
+use web_sys::console;
+impl Projection for MollWeide {
+    fn build_screen_map() -> (Vec<cgmath::Vector2<f32>>, cgmath::Vector2<f32>) {
+        let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
+
+        let (width, height) = window_size_f32();
+
+        let center_screen_space = Vector2::<f32>::new(0_f32, 0_f32);
+        vertices_screen.push(center_screen_space);
+
+        for j in 0..NUM_STEPS {
+            let radius = (std::f32::consts::PI * ((j + 1) as f32) / (2_f32 * (NUM_STEPS as f32))).sin();
+            for i in 0..NUM_VERTICES_PER_STEP {
+                let angle = (i as f32) * 2_f32 * std::f32::consts::PI / (NUM_VERTICES_PER_STEP as f32);
+
+                let mut pos_screen_space = Vector2::<f32>::new(
+                    (width/2_f32 - 1_f32) * radius * angle.cos(),
+                    ((width/2_f32 - 1_f32) / 2_f32) * radius * angle.sin()
+                );
+
+                pos_screen_space += Vector2::<f32>::new(width / 2_f32, height / 2_f32);
+                vertices_screen.push(
+                    Vector2::<f32>::new(
+                        2_f32 * ((pos_screen_space.x / width) - 0.5_f32),
+                        -2_f32 * ((pos_screen_space.y / height) - 0.5_f32),
+                    )
+                );
+            }
+        }
+
+        let size_px = cgmath::Vector2::new(width - 2_f32, width/2_f32 - 1_f32);
+        (vertices_screen, size_px)
+    }
+
+    /// View to world space transformation
+    /// 
+    /// This returns a normalized vector along its first 3 dimensions.
+    /// Its fourth component is set to 1.
+    /// 
+    /// The Aitoff projection maps screen coordinates from [-pi; pi] x [-pi/2; pi/2]
+    /// 
+    /// # Arguments
+    /// 
+    /// * `x` - in normalized device coordinates between [-1; 1]
+    /// * `y` - in normalized device coordinates between [-1; 1]
+    fn screen_to_world_space(pos: &Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
+        let (width, height) = window_size_f32();
+        let aspect = width / height;
+
+        let (x, y) = (pos.x, pos.y/aspect);
+
+        let a = 1_f32;
+        let b = 0.5_f32;
+        if is_inside_ellipse(&cgmath::Vector2::new(x, y), a, b) {
+            let y2 = y * y;
+            let k = (1_f32 - 4_f32 * y2).sqrt();
+
+            let theta = std::f32::consts::PI * x / k;
+            let delta = ((2_f32 * (2_f32 * y).asin() + 4_f32 * y * k) / std::f32::consts::PI).asin();
+
+            // The minus is an astronomical convention.
+            // longitudes are increasing from right to left
+            let pos_world_space = cgmath::Vector4::new(
+                -theta.sin() * delta.cos(),
+                delta.sin(),
+                theta.cos() * delta.cos(),
+                1_f32
+            );
+
+            Some(pos_world_space)
+        } else {
+            None
+        }
+    }
+
+    /// World to screen space transformation
+    /// X is between [-1, 1]
+    /// Y is between [-0.5, 0.5]
+    /// 
+    /// # Arguments
+    /// 
+    /// * `pos_world_space` - Position in the world space. Must be a normalized vector
+    fn world_to_screen_space(pos_world_space: cgmath::Vector4<f32>) -> Option<cgmath::Vector2<f32>> {
+        // X in [-1, 1]
+        // Y in [-1/2; 1/2] and scaled by the screen width/height ratio
+        //return vec3(X / PI, aspect * Y / PI, 0.f);
+        let epsilon = 1e-3;
+        let max_iter = 10;
+
+        let xyz = Vector3::new(pos_world_space.x, pos_world_space.y, pos_world_space.z);
+        let (lon, lat) = math::xyz_to_radec(xyz);
+ 
+        let cst = std::f32::consts::PI * lat.sin();
+
+        let mut theta = lat;
+        let mut f = theta + theta.sin() - cst;
+
+        let mut k = 0;
+        while f.abs() > epsilon && k < max_iter {
+            theta -= f / (1_f32 + theta.cos());
+            f = theta + theta.sin() - cst;
+
+            k = k + 1;
+        }
+
+        theta /= 2_f32;
+
+        // The minus is an astronomical convention.
+        // longitudes are increasing from right to left
+        let x = -(lon / std::f32::consts::PI) * theta.cos();
+        let y = 0.5_f32 * theta.sin();
+
+        Some(cgmath::Vector2::new(x, y))
     }
 }
 
