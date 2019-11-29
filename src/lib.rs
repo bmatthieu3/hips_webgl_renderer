@@ -329,8 +329,6 @@ impl App {
     } 
 
     fn update(&mut self, dt: f32) {
-        *DELTA_TIME.lock().unwrap() = dt;
-
         // Look for inertia
         if let Some(ref mut inertia) = &mut self.inertia {
             if inertia.update(
@@ -353,7 +351,6 @@ impl App {
         } else {
             UPDATE_USER_INTERFACE.store(false, Ordering::Relaxed);
         }
-
 
         // Updating
         if UPDATE_FRAME.lock().unwrap().get() {
@@ -538,7 +535,6 @@ lazy_static! {
 
     static ref HIPS_NAME: Arc<Mutex<String>> = Arc::new(Mutex::new(String::from("http://alasky.u-strasbg.fr/DSS/DSSColor")));
     static ref MAX_DEPTH: Arc<AtomicU8> = Arc::new(AtomicU8::new(9));
-    static ref DELTA_TIME: Arc<Mutex<f32>> = Arc::new(Mutex::new(0_f32));
 }
 
 fn set_window_size(new_width: u32, new_height: u32) {

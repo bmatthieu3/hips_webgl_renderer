@@ -10,8 +10,8 @@ use std::cell::RefCell;
 use crate::renderable::Mesh;
 use crate::shader::Shader;
 
-const NUM_VERTICES_PER_STEP: usize = 50;
-const NUM_STEPS: usize = 20;
+pub const NUM_VERTICES_PER_STEP: usize = 50;
+pub const NUM_STEPS: usize = 20;
 use crate::MAX_DEPTH;
 use std::sync::atomic::Ordering;
 

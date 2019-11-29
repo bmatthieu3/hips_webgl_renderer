@@ -288,6 +288,9 @@ pub static CONTENT: &'static str = r#"#version 300 es
     void main() {
         vec3 frag_pos = normalize(out_vert_pos);
         // Get the HEALPix cell idx and the uv in the texture
+
+        //out_frag_color = vec4(1.0f);
+        //return;
         TileColor current_tile = get_tile_color(frag_pos, 20.f, current_depth);
 
         float alpha = clamp((current_time - current_tile.tile.time_received) / duration, 0.f, 1.f);

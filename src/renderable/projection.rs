@@ -116,8 +116,8 @@ impl ProjectionType {
 
 use cgmath::Vector2;
 
-const NUM_VERTICES_PER_STEP: usize = 50;
-const NUM_STEPS: usize = 20;
+use crate::renderable::hips_sphere::NUM_VERTICES_PER_STEP;
+use crate::renderable::hips_sphere::NUM_STEPS;
 
 use crate::math::is_inside_ellipse;
 impl Projection for Aitoff {
