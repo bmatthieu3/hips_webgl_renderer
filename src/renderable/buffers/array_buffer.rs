@@ -69,12 +69,12 @@ impl<'a> ArrayBuffer {
     }
 
     pub fn update(&self, data: BufferData<'a, f32>) {
-        //self.bind();
         let data: js_sys::Float32Array = data.try_into().unwrap();
 
         // offset expressed in bytes where data replacement will begin in the buffer
         let offset = (0 * std::mem::size_of::<f32>()) as i32; 
-
+        
+        self.bind();
         self.gl.buffer_sub_data_with_i32_and_array_buffer_view(
             WebGl2RenderingContext::ARRAY_BUFFER,
             offset,

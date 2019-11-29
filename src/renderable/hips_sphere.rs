@@ -18,9 +18,6 @@ use std::sync::atomic::Ordering;
 use crate::texture::BufferTiles;
 use crate::texture::load_tiles;
 
-use crate::texture::Texture2D;
-use crate::texture::create_texture_2d;
-
 use std::sync::Arc;
 use std::sync::atomic::AtomicU8;
 lazy_static! {
@@ -49,7 +46,6 @@ use crate::viewport::ViewPort;
 use cgmath::Vector2;
 
 use crate::WebGl2Context;
-use crate::field_of_view::FieldOfView;
 
 impl<'a> HiPSSphere {
     pub fn new(gl: &WebGl2Context, projection: &ProjectionType) -> HiPSSphere {
@@ -83,6 +79,18 @@ impl<'a> HiPSSphere {
 
             gl,
         }
+    }
+
+    /// Called when the HiPS has been changed
+    pub fn refresh_buffer_tiles(&mut self) {
+        console::log_1(&format!("refresh buffers").into());
+        let base_tiles = (0..12).collect::<Vec<u64>>();
+
+        self.buffer_tiles.replace(BufferTiles::new(&self.gl, 20, "textures"));
+        load_tiles(self.buffer_tiles.clone(), &base_tiles, 0, false);
+
+        self.buffer_depth_zero_tiles.replace(BufferTiles::new(&self.gl, 12, "textures_0"));
+        load_tiles(self.buffer_depth_zero_tiles.clone(), &base_tiles, 0, false);
     }
 
     pub fn get_default_pixel_size(&self) -> &Vector2<f32> {

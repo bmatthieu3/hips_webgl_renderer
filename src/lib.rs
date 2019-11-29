@@ -31,6 +31,7 @@ mod render_next_frame;
 mod field_of_view;
 mod event;
 mod mouse_inertia;
+mod color;
 
 use shader::Shader;
 use renderable::Renderable;
@@ -46,13 +47,15 @@ use std::sync::Mutex;
 use std::sync::Arc;
 
 use std::rc::Rc;
-use std::cell::{RefCell, Cell};
 
 use std::collections::HashMap;
 
-use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU8, AtomicBool};
+use std::sync::atomic::Ordering;
+
 use crate::render_next_frame::RENDER_FRAME;
 use crate::render_next_frame::UPDATE_FRAME;
+use crate::render_next_frame::UPDATE_USER_INTERFACE;
 
 use crate::event::Move;
 
@@ -62,13 +65,13 @@ struct App {
 
     shaders: HashMap<&'static str, Shader>,
 
-    viewport: Rc<RefCell<ViewPort>>,
-    projection: Rc<Cell<ProjectionType>>,
+    viewport: ViewPort,
+    projection: ProjectionType,
 
     // The sphere renderable
     hips_sphere: Renderable<HiPSSphere>,
     // The grid renderable
-    grid: Rc<RefCell<Renderable<ProjetedGrid>>>,
+    grid: Renderable<ProjetedGrid>,
 
     // Move event
     move_event: Option<Move>,
@@ -79,6 +82,7 @@ struct App {
 }
 
 use cgmath::Vector2;
+use crate::event::screen_to_world_space;
 impl App {
     fn new(gl: &WebGl2Context) -> Result<App, JsValue> {
         // Shader definition
@@ -232,7 +236,6 @@ impl App {
                 "textures_tiles[19].time_request",
             ].as_ref()
         );
-        console::log_1(&format!("lskdf").into());
         let shader_grid = Shader::new(&gl,
             shaders::grid_projeted_vert::CONTENT,
             shaders::grid_frag::CONTENT,
@@ -259,9 +262,9 @@ impl App {
         gl.clear_color(0.08, 0.08, 0.08, 1.0);
 
         // Projection definition
-        let projection = Rc::new(Cell::new(ProjectionType::Aitoff(Aitoff {})));
+        let projection = ProjectionType::Aitoff(Aitoff {});
         // HiPS Sphere definition
-        let hips_sphere_mesh = HiPSSphere::new(&gl, &projection.get());
+        let hips_sphere_mesh = HiPSSphere::new(&gl, &projection);
         let size_pixels = *hips_sphere_mesh.get_default_pixel_size();
         let hips_sphere = Renderable::<HiPSSphere>::new(
             &gl,
@@ -270,73 +273,22 @@ impl App {
         );
 
         // Viewport definition
-        let viewport = Rc::new(RefCell::new(ViewPort::new(&gl, &size_pixels)));
+        let viewport = ViewPort::new(&gl, &size_pixels);
 
         // Grid definition
         let lon_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-30_f32).into(), cgmath::Deg(30_f32).into());
         let lat_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-90_f32).into(), cgmath::Deg(90_f32).into());
         //let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(10_f32).into(), cgmath::Deg(10_f32).into(), Some(lat_bound), Some(lon_bound), &projection.get(), &viewport.borrow());
-        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, &projection.get(), &viewport.borrow());
-        let grid = Rc::new(RefCell::new(Renderable::<ProjetedGrid>::new(
+        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, &projection, &viewport);
+        let grid = Renderable::<ProjetedGrid>::new(
             &gl,
             &shaders["grid"],
             projeted_grid_mesh,
-        )));
+        );
 
-        //let render_next_frame = Rc::new(Cell::new(true));
-        
-        // Mouse down pression event
-        /*let pressed = Rc::new(Cell::new(false));
-
-        let mouse_clic_x = Rc::new(Cell::new(0_f32));
-        let mouse_clic_y = Rc::new(Cell::new(0_f32));
-
-        let start_pos = Rc::new(Cell::new(Vector4::<f32>::new(0_f32, 0_f32, 0_f32, 1_f32)));
-
-        let last_axis = Rc::new(Cell::new(Vector3::<f32>::new(0_f32, 0_f32, 0_f32)));
-        let last_dist = Rc::new(Cell::new(Rad(0_f32)));
-        let roll = Rc::new(Cell::new(false));
-
-        let time_last_move = Rc::new(Cell::new(utils::get_current_time() as f32));
-
-        {
-            let pressed = pressed.clone();
-
-            let mouse_clic_x = mouse_clic_x.clone();
-            let mouse_clic_y = mouse_clic_y.clone();
-
-            let start_pos = start_pos.clone();
-            let projection = projection.clone();
-
-            let viewport = viewport.clone();
-
-            let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
-                console::log_1(&format!("mouse down").into());
-                let event_x = event.offset_x() as f32;
-                let event_y = event.offset_y() as f32;
-
-                mouse_clic_x.set(event_x);
-                mouse_clic_y.set(event_y);
-
-                let screen_pos = Vector2::new(event_x, event_y);
-                let homogeneous_pos = projection::screen_pixels_to_homogenous(&screen_pos, &viewport.borrow());
-                let result = projection.get().screen_to_world_space(&homogeneous_pos);
-                if let Some(pos) = result {
-                    let pos = pos.normalize();
-
-                    start_pos.set(pos);
-
-                    pressed.set(true);
-                }
-            }) as Box<dyn FnMut(_)>);
-            canvas.add_event_listener_with_callback("mousedown", closure.as_ref().unchecked_ref())?;
-            closure.forget();
-        }
-        */
         // Resize event
         let onresize = {
-            let viewport = viewport.clone();
-            //let render_next_frame = render_next_frame.clone();
+            //let viewport = viewport.clone();
 
             Closure::wrap(Box::new(move || {
                 console::log_1(&format!("resize").into());
@@ -350,129 +302,8 @@ impl App {
         web_sys::window()
             .unwrap()
             .set_onresize(Some(onresize.as_ref().unchecked_ref()));
-        //canvas.add_event_listener_with_callback("mouseup", closure.as_ref().unchecked_ref())?;
         onresize.forget();
 
-        // Mouse up pression event
-        /*
-        {
-            let pressed = pressed.clone();
-            let viewport = viewport.clone();
-
-            let closure = Closure::wrap(Box::new(move |_: web_sys::MouseEvent| {
-                console::log_1(&format!("mouse up").into());
-                pressed.set(false);
-                viewport.borrow_mut().stop_displacement();
-            }) as Box<dyn FnMut(_)>);
-            canvas.add_event_listener_with_callback("mouseup", closure.as_ref().unchecked_ref())?;
-            closure.forget();
-        }
-        */
-
-        // Mouse move event
-        /*
-        {
-            let pressed = pressed.clone();
-
-            let start_pos = start_pos.clone();
-            let hips_sphere = hips_sphere.clone();
-
-            let grid = grid.clone();
-
-            let mouse_clic_x = mouse_clic_x.clone();
-            let mouse_clic_y = mouse_clic_y.clone();
-
-            let last_axis = last_axis.clone();
-            let last_dist = last_dist.clone();
-
-            let viewport = viewport.clone();
-            let projection = projection.clone();
-
-            let time_last_move = time_last_move.clone();
-            let roll = roll.clone();
-            //let render_next_frame = render_next_frame.clone();
-
-            let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
-                if pressed.get() {
-                    let event_x = event.offset_x() as f32;
-                    let event_y = event.offset_y() as f32;
-
-                    let screen_pos = Vector2::new(event_x, event_y);
-                    let homogeneous_pos = projection::screen_pixels_to_homogenous(&screen_pos, &viewport.borrow());
-                    let result = projection.get().screen_to_world_space(&homogeneous_pos);
-                    if let Some(pos) = result {
-                        if event_x != mouse_clic_x.get() || event_y != mouse_clic_y.get() {
-                            let start_pos_rotated = hips_sphere.as_ref().borrow().get_model_mat() * start_pos.get();
-                            let start_pos_rotated = cgmath::Vector3::<f32>::new(start_pos_rotated.x, start_pos_rotated.y, start_pos_rotated.z);
-                            
-                            let pos_rotated = hips_sphere.as_ref().borrow().get_model_mat() * pos;
-                            let pos_rotated = cgmath::Vector3::<f32>::new(pos_rotated.x, pos_rotated.y, pos_rotated.z);
-
-                            let mut axis = start_pos_rotated.cross(pos_rotated);
-                            let dist = math::angular_distance_xyz(start_pos_rotated, pos_rotated);
-
-                            axis = axis.normalize();
-                            hips_sphere.borrow_mut().apply_rotation(-axis, dist);
-                            // Move the grid the opposite way of the hips sphere
-                            grid.borrow_mut().set_model_mat(hips_sphere.borrow().get_inverted_model_mat());
-
-                            if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
-                                grid.borrow_mut()
-                                    .update(
-                                        &projection.get(),
-                                        &viewport.borrow()
-                                    );
-                            }
-
-                            time_last_move.set(utils::get_current_time() as f32);
-                            roll.set(true);
-
-                            mouse_clic_x.set(event_x);
-                            mouse_clic_y.set(event_y);
-
-                            start_pos.set(pos);
-
-                            last_axis.set(axis);
-                            last_dist.set(dist);
-
-                            viewport.borrow_mut().displacement();
-                        }
-                    }
-                }
-            }) as Box<dyn FnMut(_)>);
-
-            canvas.add_event_listener_with_callback("mousemove", closure.as_ref().unchecked_ref())?;
-            closure.forget();
-        }
-        */
-        // Mouse wheel event
-        /*{
-            let grid = grid.clone();
-
-            let viewport = viewport.clone();
-            let projection = projection.clone();
-
-            let closure = Closure::wrap(Box::new(move |event: web_sys::WheelEvent| {
-                let delta_y = event.delta_y() as f32;
-
-                let dt = *DELTA_TIME.lock().unwrap();
-                if delta_y < 0_f32 {
-                    viewport.borrow_mut().zoom(-delta_y);
-                } else {
-                    viewport.borrow_mut().unzoom(delta_y);
-                }
-
-                if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
-                    grid.borrow_mut()
-                        .update(
-                            &projection.get(),
-                            &viewport.borrow()
-                        );
-                }
-            }) as Box<dyn FnMut(_)>);
-            canvas.add_event_listener_with_callback("wheel", closure.as_ref().unchecked_ref())?;
-            closure.forget();
-        }*/
         let move_event = None;
         let inertia = None;
         let gl = gl.clone();
@@ -504,8 +335,8 @@ impl App {
         if let Some(ref mut inertia) = &mut self.inertia {
             if inertia.update(
                 &mut self.hips_sphere,
-                &mut self.grid.borrow_mut(),
-                &mut self.viewport.borrow_mut(),
+                &mut self.grid,
+                &mut self.viewport,
                 dt
             ) {
                 self.inertia = None;
@@ -514,32 +345,37 @@ impl App {
 
         // Update the camera. When the camera has reached its final position
         // then we stop rendering the next frames!
-        self.viewport.borrow_mut().update(&self.projection.get(), dt);
+        self.viewport.update(&self.projection, dt);
 
-        RENDER_FRAME.lock().unwrap().update(&self.viewport.borrow());
-        UPDATE_FRAME.lock().unwrap().update(&self.viewport.borrow());
+        if !UPDATE_USER_INTERFACE.load(Ordering::Relaxed) {
+            RENDER_FRAME.lock().unwrap().update(&self.viewport);
+            UPDATE_FRAME.lock().unwrap().update(&self.viewport);
+        } else {
+            UPDATE_USER_INTERFACE.store(false, Ordering::Relaxed);
+        }
+
 
         // Updating
         if UPDATE_FRAME.lock().unwrap().get() {
             // Update the fov
             self.hips_sphere
                 .update(
-                    &self.projection.get(),
-                    &self.viewport.borrow(),
+                    &self.projection,
+                    &self.viewport,
                 );
 
             // The grid buffers and labels
             if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
-                self.grid.borrow_mut().update(
-                    &self.projection.get(),
-                    &self.viewport.borrow()
+                self.grid.update(
+                    &self.projection,
+                    &self.viewport
                 );
-                self.grid.borrow_mut().update_vertex_array();
+                self.grid.update_vertex_array();
                 
-                self.grid.borrow_mut().mesh_mut().update_label_positions(
+                self.grid.mesh_mut().update_label_positions(
                     self.hips_sphere.get_inverted_model_mat(),
-                    &self.projection.get(),
-                    Some(&self.viewport.borrow()),
+                    &self.projection,
+                    Some(&self.viewport),
                 );
             }
         }
@@ -547,27 +383,11 @@ impl App {
 
     fn render(&self) {
         if RENDER_FRAME.lock().unwrap().get() {
-            //RENDER_FRAME.store(false, Ordering::Relaxed);
-            /*if !pressed.get() && roll.get() {
-                let next_dist = compute_speed(time_last_move.get(), last_dist.get() * 0.5_f32);
-                if next_dist > 1e-4 {
-                    sphere.borrow_mut().apply_rotation(-last_axis.get(), cgmath::Rad(next_dist));
-                    projeted_grid.borrow_mut().apply_rotation(-last_axis.get(), cgmath::Rad(next_dist));
-
-                    let model_mat = &sphere.as_ref().borrow().get_model_mat();
-                    hips_sphere_mesh.borrow_mut().update_field_of_view(gl.clone(), &projection.as_ref().borrow(), &viewport.borrow(), model_mat, false);
-                }
-            } else if pressed.get() {
-                if (utils::get_current_time() as f32) - time_last_move.get() > 50_f32 {
-                    roll.set(false);
-                }
-            }*/
-
             // Render the scene
             self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
 
             // Draw renderables here
-            let ref viewport = self.viewport.as_ref().borrow();
+            let ref viewport = self.viewport;
             let ref shaders = self.shaders;
 
             // Draw the HiPS sphere
@@ -580,85 +400,51 @@ impl App {
             // Draw the grid
             if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
                 // The grid lines
-                self.grid.as_ref().borrow().draw(
+                self.grid.draw(
                     &shaders["grid"],
                     WebGl2RenderingContext::LINES,
                     viewport
                 );
                 // The labels
-                self.grid.borrow().mesh().draw_labels();
+                self.grid.mesh().draw_labels();
             }
         }
     }
 
     fn set_projection(&mut self, projection: ProjectionType) {
-        self.projection.set(projection);
-        let ref shaders = self.shaders;
+        // Set the new projection
+        self.projection = projection;
 
         // New HiPS sphere
         let hips_sphere_mesh = HiPSSphere::new(&self.gl, &projection);
 
-        // Update the scissor due to the projection change
-        self.viewport.borrow_mut().resize(hips_sphere_mesh.get_default_pixel_size());
+        // Update the scissor for the new projection
+        self.viewport.resize(hips_sphere_mesh.get_default_pixel_size());
 
-        self.hips_sphere = Renderable::<HiPSSphere>::new(
-            &self.gl,
-            &shaders["hips_sphere"],
-            hips_sphere_mesh,
-        );
-
-        // New grid
-        let lat_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-90_f32).into(), cgmath::Deg(90_f32).into());
-        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, &projection, &self.viewport.borrow());
-        self.grid.replace(
-            Renderable::<ProjetedGrid>::new(
-                &self.gl,
-                &shaders["grid"],
-                projeted_grid_mesh,
-            )
-        );
-        RENDER_FRAME.lock().unwrap().set(true);
+        self.hips_sphere.update_mesh(&self.shaders["hips_sphere"], hips_sphere_mesh);
     }
 
     fn reload_hips_sphere(&mut self, hips_url: String, hips_depth: u8) {
         *HIPS_NAME.lock().unwrap() = hips_url;
         MAX_DEPTH.store(hips_depth, Ordering::Relaxed);
-        print_to_console!("MAX DEPTH NEW HIPS {:?}", hips_depth);
 
-        let ref projection = self.projection.get();
-        let hips_sphere_mesh = HiPSSphere::new(&self.gl, projection);
-        let ref shaders = self.shaders;
-
-        // New HiPS sphere
-        self.hips_sphere = Renderable::<HiPSSphere>::new(
-            &self.gl,
-            &shaders["hips_sphere"],
-            hips_sphere_mesh,
-        );
-
-        // New grid
-        let lat_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-90_f32).into(), cgmath::Deg(90_f32).into());
-        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, &projection, &self.viewport.borrow());
-        self.grid.replace(
-            Renderable::<ProjetedGrid>::new(
-                &self.gl,
-                &shaders["grid"],
-                projeted_grid_mesh,
-            )
-        );
+        // Re-initialize the color buffers
+        self.hips_sphere.mesh_mut().refresh_buffer_tiles();
 
         // Tell the viewport the maximum zoom level has changed
         // based on the new value of MAX_DEPTH
         let fov_max = math::depth_to_fov(MAX_DEPTH.load(Ordering::Relaxed));
-        self.viewport.borrow_mut().set_max_field_of_view(fov_max);
-
-        RENDER_FRAME.lock().unwrap().set(true);
+        self.viewport.set_max_field_of_view(fov_max);
     }
 
     /// MOVE EVENT
     fn initialize_move(&mut self, screen_pos: Vector2<f32>) {
-        let ref projection = self.projection.get();
-        self.move_event = Move::new(screen_pos, projection, &self.viewport.borrow());
+        // stop inertia if there is one
+        self.inertia = None;
+        self.viewport.stop_inertia();
+
+        let ref projection = self.projection;
+        self.move_event = Move::new(screen_pos, projection, &self.viewport);
     }
 
     fn moves(&mut self, screen_pos: Vector2<f32>) {
@@ -667,47 +453,44 @@ impl App {
                 &screen_pos,
                 
                 &mut self.hips_sphere,
-                &mut self.grid.borrow_mut(),
+                &mut self.grid,
                 
-                &self.projection.get(),
+                &self.projection,
                 
-                &mut self.viewport.borrow_mut()
+                &mut self.viewport
             );
         }
     }
 
-    fn stop_move(&mut self) {
-        console::log_1(&format!("stop moving").into());
-        // uncomment this if the inertia is not enabled
-        //self.viewport.borrow_mut().stop_displacement();
-        let axis = self.move_event
-            .as_ref()
-            .unwrap()
-            .get_axis();
-        let last_displacement_amount = self.move_event
-            .as_ref()
-            .unwrap()
-            .get_last_displacement_amount();
-        self.inertia = MouseInertia::new(last_displacement_amount, *axis);
+    fn stop_move(&mut self, screen_pos: Vector2<f32>) {
+        if let Some(ref mut move_event) = self.move_event {
+            console::log_1(&format!("stop moving").into());
+            self.viewport.stop_displacement();
 
-        self.move_event = None;
+            if ENABLE_INERTIA.load(Ordering::Relaxed) {
+                // Do not perform the inertia effect if the released
+                // position of the mouse is outside the projection
+                let ref projection = self.projection;
+                let mouse_pos_world = screen_to_world_space(&screen_pos, projection, &self.viewport);
+                if mouse_pos_world.is_some(){
+                    self.inertia = MouseInertia::new(
+                        move_event,
+                        &mut self.viewport
+                    );
+                }
+            }
+
+            self.move_event = None;
+        }
     }
 
     // ZOOM EVENT
     fn zoom(&mut self, delta_y: f32) {
         if delta_y < 0_f32 {
-            self.viewport.borrow_mut().zoom(-delta_y);
+            self.viewport.zoom(-delta_y);
         } else {
-            self.viewport.borrow_mut().unzoom(delta_y);
+            self.viewport.unzoom(delta_y);
         }
-
-        /*if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
-            self.grid.borrow_mut()
-                .update(
-                    &self.projection.get(),
-                    &self.viewport.borrow()
-                );
-        }*/
     }
 }
 
@@ -750,6 +533,8 @@ lazy_static! {
         m.insert("grid", true);
         Arc::new(Mutex::new(m))
     };
+
+    static ref ENABLE_INERTIA: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
 
     static ref HIPS_NAME: Arc<Mutex<String>> = Arc::new(Mutex::new(String::from("http://alasky.u-strasbg.fr/DSS/DSSColor")));
     static ref MAX_DEPTH: Arc<AtomicU8> = Arc::new(AtomicU8::new(9));
@@ -874,6 +659,14 @@ impl WebClient {
             _ => {}
         }
 
+        RENDER_FRAME.lock().unwrap().set(true);
+        UPDATE_FRAME.lock().unwrap().set(true);
+
+        // This is a UI update so we tell the rendering loop
+        // we do not want to update the update and render frame
+        // bools
+        UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
+
         Ok(())
     }
 
@@ -882,13 +675,14 @@ impl WebClient {
         //self.app.grid.borrow_mut().enable();
         if let Some(grid) = ENABLED_WIDGETS.lock().unwrap().get_mut("grid") {
             *grid = true;
-            self.app.grid.borrow_mut()
+            self.app.grid
                 .update(
-                    &self.app.projection.get(),
-                    &self.app.viewport.borrow()
+                    &self.app.projection,
+                    &self.app.viewport
                 );
         }
         RENDER_FRAME.lock().unwrap().set(true);
+        UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
 
         Ok(())
     }
@@ -897,9 +691,44 @@ impl WebClient {
     pub fn disable_equatorial_grid(&mut self) -> Result<(), JsValue> {
         if let Some(grid) = ENABLED_WIDGETS.lock().unwrap().get_mut("grid") {
             *grid = false;
-            self.app.grid.borrow_mut().mesh_mut().clear_canvas();
+            self.app.grid.mesh_mut().clear_canvas();
         }
         RENDER_FRAME.lock().unwrap().set(true);
+        UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
+
+        Ok(())
+    }
+
+    /// Enable mouse inertia
+    pub fn enable_inertia(&mut self) -> Result<(), JsValue> {
+        ENABLE_INERTIA.store(true, Ordering::Relaxed);
+
+        Ok(())
+    }
+    /// Disable mouse inertia
+    pub fn disable_inertia(&mut self) -> Result<(), JsValue> {
+        ENABLE_INERTIA.store(false, Ordering::Relaxed);
+
+        Ok(())
+    }
+
+    /// Change grid color
+    pub fn change_grid_color(&mut self, red: f32, green: f32, blue: f32) -> Result<(), JsValue> {
+        self.app.grid.mesh_mut().set_color_rgb(red, green, blue);
+        RENDER_FRAME.lock().unwrap().set(true);
+        UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
+
+        Ok(())
+    }
+
+    /// Change grid opacity
+    pub fn change_grid_opacity(&mut self, alpha: f32) -> Result<(), JsValue> {
+        self.app.grid
+            .mesh_mut()
+            .set_alpha(alpha);
+
+        RENDER_FRAME.lock().unwrap().set(true);
+        UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
 
         Ok(())
     }
@@ -907,6 +736,11 @@ impl WebClient {
     /// Change HiPS
     pub fn change_hips(&mut self, hips_url: String, hips_depth: i32) -> Result<(), JsValue> {
         self.app.reload_hips_sphere(hips_url, hips_depth as u8);
+
+        RENDER_FRAME.lock().unwrap().set(true);
+        UPDATE_FRAME.lock().unwrap().set(true);
+
+        UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
 
         Ok(())
     }
@@ -918,8 +752,9 @@ impl WebClient {
         Ok(())
     }
     /// Stop move
-    pub fn stop_move(&mut self) -> Result<(), JsValue> {
-        self.app.stop_move();
+    pub fn stop_move(&mut self, screen_pos_x: f32, screen_pos_y: f32) -> Result<(), JsValue> {
+        let screen_pos = Vector2::new(screen_pos_x, screen_pos_y);
+        self.app.stop_move(screen_pos);
         Ok(())
     }
     /// Keep moving

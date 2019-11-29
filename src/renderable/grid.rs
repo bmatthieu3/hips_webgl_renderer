@@ -4,12 +4,9 @@ use crate::renderable::buffers::buffer_data::BufferData;
 use std::convert::TryInto;
 
 
-const NUM_POINTS: usize = 50;
-const ISOLON_NUM_POINTS: usize = 50;
-const ISOLAT_NUM_POINTS: usize = 50;
+const NUM_POINTS: usize = 40;
 
 use crate::renderable::Mesh;
-use std::rc::Rc;
 use web_sys::WebGl2RenderingContext;
 
 use crate::ProjectionType;
@@ -18,11 +15,13 @@ use crate::renderable::buffers::vertex_array_object::VertexArrayObject;
 use crate::renderable::buffers::array_buffer::ArrayBuffer;
 use crate::renderable::buffers::element_array_buffer::ElementArrayBuffer;
 
+use crate::color::Color;
+
 use crate::Shader;
 
 use web_sys::console;
 
-use cgmath::{Rad, Deg, Vector2};
+use cgmath::{Rad, Vector2};
 
 fn build_world_space_vertices_lat(lat: f32, lon_start: f32, lon_end: f32, num_points: usize) -> Vec<cgmath::Vector4<f32>> {
     //let ang = math::angular_distance_lonlat(delta_lon.start, lat, delta_lon.end, lat);
@@ -98,7 +97,7 @@ pub struct ProjetedGrid {
     font_size: f64,
 
     text_canvas: web_sys::CanvasRenderingContext2d,
-    color: cgmath::Vector4<f32>,
+    color: Color,
 }
 
 use cgmath::{SquareMatrix, InnerSpace};
@@ -212,14 +211,8 @@ impl ProjetedGrid {
             .unwrap()
             .dyn_into::<web_sys::CanvasRenderingContext2d>().unwrap();
 
-        let color = cgmath::Vector4::new(0_f32, 1_f32, 0_f32, 0.2_f32);
-        let mut text_color = String::from("rgb(");
-        text_color += &((color.x * 255_f32) as u8).to_string();
-        text_color += &", ";
-        text_color += &((color.y * 255_f32) as u8).to_string();
-        text_color += &", ";
-        text_color += &((color.z * 255_f32) as u8).to_string();
-        text_color += &")";
+        let color = Color::new(0_f32, 1_f32, 0_f32, 0.2_f32);
+        let text_color: String = (&color).into();
 
         text_canvas.set_fill_style(&text_color.into());
         text_canvas.set_global_alpha(0.7_f64);
@@ -251,6 +244,7 @@ impl ProjetedGrid {
         };
 
         grid.update(projection, &cgmath::Matrix4::identity(), viewport);
+        grid.update_label_positions(&cgmath::Matrix4::identity(), &projection, Some(viewport));
 
         grid
     }
@@ -305,6 +299,20 @@ impl ProjetedGrid {
 
         self.text_canvas.clear_rect(0_f64, 0_f64, width_screen, height_screen); 
     }
+
+    pub fn set_color_rgb(&mut self, red: f32, green: f32, blue: f32) {
+        self.color.red = red;
+        self.color.green = green;
+        self.color.blue = blue;
+
+        // Change the text label color
+        let text_color: String = (&self.color).into();
+        self.text_canvas.set_fill_style(&text_color.into());
+    }
+
+    pub fn set_alpha(&mut self, alpha: f32) {
+        self.color.alpha = alpha;
+    }
 }
 
 use crate::WebGl2Context;
@@ -317,8 +325,6 @@ impl Mesh for ProjetedGrid {
         let ref vertices_data = self.pos_screen_space;
         let ref idx_data = self.idx_vertices;
         // ARRAY buffer creation
-        //console::log_1(&format!("vertices: {:?} {:?}", vertices_data.len(), vertices_data).into());
-
         let array_buffer = ArrayBuffer::new(
             gl,
             2 * std::mem::size_of::<f32>(),
@@ -348,7 +354,7 @@ impl Mesh for ProjetedGrid {
 
     fn send_uniforms(&self, gl: &WebGl2Context, shader: &Shader) {
         let location_color = shader.get_uniform_location("location_color");
-        gl.uniform4f(location_color, self.color.x, self.color.y, self.color.z, self.color.w);
+        gl.uniform4f(location_color, self.color.red, self.color.green, self.color.blue, self.color.alpha);
     }
 
     fn get_vertices<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>) {

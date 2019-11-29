@@ -83,6 +83,8 @@ impl UpdateCurrentFrame {
 
 use std::sync::Mutex;
 use std::sync::Arc;
+
+use std::sync::atomic::AtomicBool;
 lazy_static! {
     // Note: Render_next_frame is global for the moment
     // A Rc cannot be instanciated as global because it cannot be shared between
@@ -90,4 +92,5 @@ lazy_static! {
     // Arc can be shared between threads => it is used here.
     pub static ref RENDER_FRAME: Arc<Mutex<RenderNextFrame>> = Arc::new(Mutex::new(RenderNextFrame::new()));
     pub static ref UPDATE_FRAME: Arc<Mutex<UpdateCurrentFrame>> = Arc::new(Mutex::new(UpdateCurrentFrame::new()));
+    pub static ref UPDATE_USER_INTERFACE: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 }

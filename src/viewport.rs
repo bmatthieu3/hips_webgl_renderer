@@ -26,6 +26,7 @@ pub struct ViewPort {
 
     last_zoom_action: LastZoomAction,
     is_moving: bool,
+    is_inertia: bool,
     is_zooming: bool,
 
     is_action: bool,
@@ -78,6 +79,7 @@ impl ViewPort {
         let is_moving = false;
         let is_action = false;
         let is_zooming = false;
+        let is_inertia = false;
 
         let fov = FieldOfView::new();
         let fov_max = math::depth_to_fov(MAX_DEPTH.load(Ordering::Relaxed));
@@ -98,6 +100,7 @@ impl ViewPort {
             last_zoom_action,
             is_moving,
             is_zooming,
+            is_inertia,
 
             is_action,
 
@@ -148,7 +151,7 @@ impl ViewPort {
     pub fn stop_displacement(&mut self) {
         self.is_moving = false;
 
-        if !self.is_zooming {
+        if !self.is_zooming && !self.is_inertia {
             self.is_action = false;
         }
     }
@@ -157,7 +160,22 @@ impl ViewPort {
         self.final_zoom = self.current_zoom;
 
         self.is_zooming = false;
-        if !self.is_moving {
+        if !self.is_moving && !self.is_inertia {
+            self.is_action = false;
+        }
+    }
+
+    pub fn start_inertia(&mut self) {
+        self.is_inertia = true;
+        self.is_action = true;
+    }
+
+    pub fn stop_inertia(&mut self) {
+        console::log_1(&format!("stop inertia").into());
+
+        self.is_inertia = false;
+
+        if !self.is_moving && !self.is_zooming {
             self.is_action = false;
         }
     }
@@ -182,7 +200,7 @@ impl ViewPort {
             }
 
             // Here we are currently zooming
-            if (self.current_zoom - self.final_zoom).abs() < 5e-2 {
+            if (self.current_zoom - self.final_zoom).abs() < 1e-3 {
                 self.stop_zooming();
                 return;
             }

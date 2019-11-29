@@ -52,9 +52,12 @@ window.addEventListener('load', function () {
 
             let select_projection = document.getElementById("proj-select");
             let equatorial_grid = document.getElementById("enable-grid");
+            let inertia = document.getElementById("enable-inertia");
             let hips_selector = document.getElementById("hips-selector");
             let hips_selector_validate = document.getElementById("hips-selector-validate");
             let fps_counter = document.getElementById("fps-counter");
+            let grid_color_picker = document.getElementById("grid-color");
+            let grid_opacity = document.getElementById("grid-alpha");
 
             // Start our Rust application. You can find `WebClient` in `src/lib.rs`
             const webClient = new webgl.WebClient();
@@ -83,6 +86,13 @@ window.addEventListener('load', function () {
                     webClient.disable_equatorial_grid();
                 }
             };
+            let onchange_inertia = () => {
+                if (inertia.checked) {
+                    webClient.enable_inertia();
+                } else {
+                    webClient.disable_inertia();
+                }
+            };
 
             // Projection selector
             select_projection.addEventListener("change", () => {
@@ -92,12 +102,44 @@ window.addEventListener('load', function () {
                 console.log("change projection to: ", projection);
 
                 onchange_equatorial_grid();
-            });
+            }, false);
 
             // Enable equatorial grid checkbox
             equatorial_grid.addEventListener("change", () => {
                 onchange_equatorial_grid()
-            });
+            }, false);
+
+            // Enable equatorial grid checkbox
+            inertia.addEventListener("change", () => {
+                onchange_inertia()
+            }, false);
+
+            // Change grid color
+            let parse_hex_color = function(color) {
+                m = color.match(/^#([0-9a-f]{6})$/i)[1];
+                if(m) {
+                    return {
+                        'red': parseInt(m.substr(0,2),16) / 255.0,
+                        'green': parseInt(m.substr(2,2),16) / 255.0,
+                        'blue': parseInt(m.substr(4,2),16) / 255.0,
+                    }
+                }
+            }
+
+            grid_color_picker.addEventListener("input", (event) => {
+                let color_hex = event.target.value;
+                let color = parse_hex_color(color_hex);
+
+                webClient.change_grid_color(color['red'], color['green'], color['blue']);
+            }, false);
+
+            // Alpha grid
+            grid_opacity.addEventListener("input", (event) => {
+                let opacity = event.target.value;
+                console.log(opacity);
+
+                webClient.change_grid_opacity(opacity);
+            }, false);
 
             // Change HiPS
             hips_selector_validate.addEventListener("click", () => {
@@ -107,7 +149,7 @@ window.addEventListener('load', function () {
                 let hips_url = hipsesMap[hips_id].hips_service_url;
                 let max_depth = hipsesMap[hips_id].max_depth;
                 webClient.change_hips(hips_url, max_depth);
-            });
+            }, false);
             
             // Touchpad event
             touchpad_events(webClient);
@@ -131,7 +173,7 @@ function mouse_events(webClient) {
         webClient.initialize_move(evt.clientX, evt.clientY);
     });
     canvas.addEventListener("mouseup", (evt) => {
-        webClient.stop_move();
+        webClient.stop_move(evt.clientX, evt.clientY);
     });
     canvas.addEventListener("mousemove", (evt) => {
         webClient.moves(evt.clientX, evt.clientY);
@@ -199,7 +241,7 @@ function touchpad_events(webClient) {
             webClient.initialize_move(touche.pageX, touche.pageY);
         } else {
             // If more touches are present, we stop the current move
-            webClient.stop_move();
+            webClient.stop_move(touche.pageX, touche.pageY);
             console.log('stop moving');
         }
     }, false);
@@ -209,7 +251,8 @@ function touchpad_events(webClient) {
         if (ongoingTouches.length == 1) {
             // move event
             // Stop moving
-            webClient.stop_move();
+            let touche = ongoingTouches[0];
+            webClient.stop_move(touche.pageX, touche.pageY);
             console.log('stop moving');
         } else {
             // zoom event

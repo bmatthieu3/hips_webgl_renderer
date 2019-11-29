@@ -39,6 +39,7 @@
             left: 0px;
 			top: 0px;
             z-index: 10;
+            width: 15%;
 
             background-color: gray;
         }
@@ -47,33 +48,52 @@
             margin: 0;
         }
 
+        .container {
+            border: 1px solid black;
+            margin: 5px;
+        }
+
 		</style>
         <link rel="stylesheet" href="./css/auto-complete.css">
 	</head>
 	<body>
-        <!-- <script src="./js/auto-complete.js"></script> -->
 		<div class="webgl_view">
 			<canvas id="canvas"></canvas>
 			<canvas id="labels_grid"></canvas>
             <div class="ui">
                 <h1>WebGL2 Aladin-Lite</h1>
-                <label for="proj-select">Projection:</label>
-                <select name="projections" id="proj-select">
-                    <option value="orthographic">Orthographic</option>
-                    <option value="aitoff" selected>Aitoff</option>
-                    <option value="mollweide">MollWeide</option>
-                </select>
-                <br />
-                <label for="enable-grid">Equatorial grid:</label>
-                <input id="enable-grid" type="checkbox" checked />
+                <p>HiPS</p>
+                <div class="container">
+                    <label for="hips-selector">HiPS selector</label>
+                    <input id="hips-selector" autofocus type="text" name="q" placeholder="HiPS ..." style="width:100%;outline:0">
+                    <input id="hips-selector-validate" type="button" value="Change HiPS!">
+                    <br />
+                    <label for="proj-select">Projection:</label>
+                    <select name="projections" id="proj-select">
+                        <option value="orthographic">Orthographic</option>
+                        <option value="aitoff" selected>Aitoff</option>
+                        <option value="mollweide">MollWeide</option>
+                    </select>
+                </div>
+
+                <p>Grid:</p>
+                <div class="container">
+                    <label for="enable-grid">Equatorial grid:</label>
+                    <input id="enable-grid" type="checkbox" checked />
+                    <br />
+                    <label for="grid-color">Color:</label>
+                    <input type="color" name="Grid color picker" id="grid-color" value="#00ff00">
+                    <br />
+                    <label for="grid-alpha">Opacity:</label>
+                    <input id="grid-alpha" type="range" value="0.2" min="0" max="1.0" step="any"></input>
+                </div>
+
+                <label for="enable-inertia">Mouse inertia:</label>
+                <input id="enable-inertia" type="checkbox" checked />
                 <br />
                 <label for="fps-counter">Rendering time (fps):</label>
                 <p id="fps-counter"></p>
-                <label for="hips-selector">HiPS selector</label>
-                <input id="hips-selector" autofocus type="text" name="q" placeholder="HiPS ..." style="width:100%;outline:0">
-                <input id="hips-selector-validate" type="button" value="Change HiPS!">
             </div>
 		</div>
-        
 	</body>
 </html>

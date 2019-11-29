@@ -12,21 +12,27 @@ use crate::renderable::grid::ProjetedGrid;
 
 use crate::viewport::ViewPort;
 
-use std::cmp;
+use crate::event::Move;
+
 impl MouseInertia {
     pub fn new(
-        x0: f32,
-        axis: Vector3<f32>,
+        event: &Move,
+        viewport: &mut ViewPort,
     ) -> Option<MouseInertia> {
+        let x0 = event.get_last_displacement_amount();
         if x0 < 1e-3 {
             None
         } else {
+            // Tell the viewport we enter in the inertia
+            // mode
+            viewport.start_inertia();
+
             let v0 = 0.0003_f32;
-            let axis = axis;
+            let axis = event.get_axis();
             let inertia = MouseInertia {
                 x: x0,
                 v0: v0,
-                axis: axis,
+                axis: *axis,
             };
 
             Some(inertia)
@@ -41,14 +47,15 @@ impl MouseInertia {
         dt: f32,
     ) -> bool {
         if self.x < 1e-3 {
-            viewport.stop_displacement();
+            // Stop inertia
+            viewport.stop_inertia();
             return true;
         }
 
-        let mut alpha = 0.8_f32;
-        if alpha >= 1_f32 {
+        let alpha = 0.9_f32;
+        /*if alpha >= 1_f32 {
             alpha = 0.95_f32;
-        }
+        }*/
         let dx = self.x * alpha;
 
         hips_sphere.apply_rotation(-self.axis, cgmath::Rad(dx));

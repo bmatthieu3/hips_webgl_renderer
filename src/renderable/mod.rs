@@ -63,7 +63,6 @@ impl<T> Renderable<T>
 where T: Mesh + DisableDrawing {
     pub fn new(gl: &WebGl2Context, shader: &Shader, mesh: T) -> Renderable<T> {
         shader.bind(gl);
-
         let vertex_array_object = mesh.create_buffers(gl);
 
         let model_mat = cgmath::Matrix4::identity();
@@ -87,6 +86,13 @@ where T: Mesh + DisableDrawing {
             mesh,
             gl,
         }
+    }
+
+    pub fn update_mesh(&mut self, shader: &Shader, mesh: T) {
+        shader.bind(&self.gl);
+        self.vertex_array_object = mesh.create_buffers(&self.gl);
+
+        self.mesh = mesh;
     }
 
     fn recompute_model_matrix(&mut self) {

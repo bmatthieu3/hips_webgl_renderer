@@ -305,7 +305,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
             depth = max(0, current_depth - 1);
         } else {
             // unzoom
-            depth = min(29, current_depth + 1);
+            depth = min(max_depth, current_depth + 1);
         }
 
         TileColor tile = get_tile_color(frag_pos, 20.f, depth);

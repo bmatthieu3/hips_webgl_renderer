@@ -247,11 +247,11 @@ impl BufferTiles {
         self.num_load_tiles = 0;
         self.num_tiles_to_load = num_tiles_to_load;
 
-        /*self.requested_tiles = self.requested_tiles
+        self.requested_tiles = self.requested_tiles
             .clone()
             .into_vec()
             .into_iter()
-            .collect::<BinaryHeap<_>>();*/
+            .collect::<BinaryHeap<_>>();
     }
 
     fn push_tile(&mut self, tile: Tile) {
@@ -547,8 +547,8 @@ fn create_sampler_3d(gl: &WebGl2Context, size_buffer: u32) -> (Option<web_sys::W
     }
     gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, webgl_texture.as_ref());
 
-    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::NEAREST as i32);
-    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::NEAREST as i32);
+    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::LINEAR as i32);
+    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::LINEAR as i32);
 
     // Prevents s-coordinate wrapping (repeating)
     gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
