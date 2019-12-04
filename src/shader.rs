@@ -52,13 +52,13 @@ fn link_program(
 use std::collections::HashMap;
 pub struct Shader {
     program: WebGlProgram,
-    uniform_locations: HashMap<&'static str, Option<WebGlUniformLocation>>,
+    uniform_locations: HashMap<String, Option<WebGlUniformLocation>>,
 }
 
 use crate::WebGl2Context;
 use web_sys::console;
 impl Shader {
-    pub fn new(gl: &WebGl2Context, vert_src: &str, frag_src: &str, name_uniforms: &[&'static str]) -> Shader {
+    pub fn new(gl: &WebGl2Context, vert_src: &str, frag_src: &str, name_uniforms: Vec<String>) -> Shader {
         let vert_shader = compile_shader(
             gl,
             WebGl2RenderingContext::VERTEX_SHADER,
@@ -72,11 +72,11 @@ impl Shader {
 
         let program = link_program(gl, &vert_shader, &frag_shader).unwrap();
 
-        let uniform_locations = name_uniforms.iter()
+        let uniform_locations = name_uniforms.into_iter()
             .map(|name| {
-                let location_uniform = gl.get_uniform_location(&program, name);
+                let location_uniform = gl.get_uniform_location(&program, &name);
                 //console::log_1(&format!("{:?}", *name).into());
-                (*name, location_uniform)
+                (name, location_uniform)
             })
             .collect::<HashMap<_, _>>();
 

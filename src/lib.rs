@@ -81,175 +81,72 @@ struct App {
     inertia: Option<MouseInertia>,
 }
 
+fn add_tile_buffer_uniforms(name: &'static str, size: usize, uniforms: &mut Vec<String>) {
+    let texture = String::from(name);
+    uniforms.push(texture.clone());
+
+    let base_texture = texture + "_tiles[";
+
+    for i in 0..size {
+        let mut tile = base_texture.clone() + &i.to_string();
+        tile += "].";
+
+        let uniq = tile.clone() + "uniq";
+        let texture_idx = tile.clone() + "texture_idx";
+        let time_received = tile.clone() + "time_received";
+        let time_request = tile + "time_request";
+
+        uniforms.push(uniq);
+        uniforms.push(texture_idx);
+        uniforms.push(time_received);
+        uniforms.push(time_request);
+    }
+}
+
 use cgmath::Vector2;
 use crate::event::screen_to_world_space;
 impl App {
     fn new(gl: &WebGl2Context) -> Result<App, JsValue> {
         // Shader definition
+        // uniforms definition
+        let mut uniforms_2d_proj = vec![
+            // General uniforms
+            String::from("current_time"),
+            String::from("model"),
+            // Viewport uniforms
+            String::from("zoom_factor"),
+            String::from("aspect"),
+            String::from("last_zoom_action"),
+            // HiPS Sphere-specific uniforms
+            String::from("current_depth"),
+            String::from("max_depth"),
+        ];
+
+        add_tile_buffer_uniforms("textures", 20, &mut uniforms_2d_proj);
+        add_tile_buffer_uniforms("textures_0", 12, &mut uniforms_2d_proj);
+
         let shader_2d_proj = Shader::new(&gl,
             shaders::proj_vert::CONTENT,
             shaders::proj_frag::CONTENT,
             // uniform list
-            [
-                // General uniforms
-                "current_time",
-                "model",
-                // Viewport uniforms
-                "zoom_factor",
-                "aspect",
-                "last_zoom_action",
-                // HiPS Sphere-specific uniforms
-                "current_depth",
-                "max_depth",
-                //"ang2pix_0_texture",
-                //"ang2pix_1_texture",
-                //"ang2pix_2_texture",
-                "textures_0",
-                "textures",
-                "textures_0_tiles[0].uniq",
-                "textures_0_tiles[0].texture_idx",
-                "textures_0_tiles[0].time_received",
-                "textures_0_tiles[0].time_request",
-                "textures_0_tiles[1].uniq",
-                "textures_0_tiles[1].texture_idx",
-                "textures_0_tiles[1].time_received",
-                "textures_0_tiles[1].time_request",
-                "textures_0_tiles[2].uniq",
-                "textures_0_tiles[2].texture_idx",
-                "textures_0_tiles[2].time_received",
-                "textures_0_tiles[2].time_request",
-                "textures_0_tiles[3].uniq",
-                "textures_0_tiles[3].texture_idx",
-                "textures_0_tiles[3].time_received",
-                "textures_0_tiles[3].time_request",
-                "textures_0_tiles[4].uniq",
-                "textures_0_tiles[4].texture_idx",
-                "textures_0_tiles[4].time_received",
-                "textures_0_tiles[4].time_request",
-                "textures_0_tiles[5].uniq",
-                "textures_0_tiles[5].texture_idx",
-                "textures_0_tiles[5].time_received",
-                "textures_0_tiles[5].time_request",
-                "textures_0_tiles[6].uniq",
-                "textures_0_tiles[6].texture_idx",
-                "textures_0_tiles[6].time_received",
-                "textures_0_tiles[6].time_request",
-                "textures_0_tiles[7].uniq",
-                "textures_0_tiles[7].texture_idx",
-                "textures_0_tiles[7].time_received",
-                "textures_0_tiles[7].time_request",
-                "textures_0_tiles[8].uniq",
-                "textures_0_tiles[8].texture_idx",
-                "textures_0_tiles[8].time_received",
-                "textures_0_tiles[8].time_request",
-                "textures_0_tiles[9].uniq",
-                "textures_0_tiles[9].texture_idx",
-                "textures_0_tiles[9].time_received",
-                "textures_0_tiles[9].time_request",
-                "textures_0_tiles[10].uniq",
-                "textures_0_tiles[10].texture_idx",
-                "textures_0_tiles[10].time_received",
-                "textures_0_tiles[10].time_request",
-                "textures_0_tiles[11].uniq",
-                "textures_0_tiles[11].texture_idx",
-                "textures_0_tiles[11].time_received",
-                "textures_0_tiles[11].time_request",
-                "textures_tiles[0].uniq",
-                "textures_tiles[0].texture_idx",
-                "textures_tiles[0].time_received",
-                "textures_tiles[0].time_request",
-                "textures_tiles[1].uniq",
-                "textures_tiles[1].texture_idx",
-                "textures_tiles[1].time_received",
-                "textures_tiles[1].time_request",
-                "textures_tiles[2].uniq",
-                "textures_tiles[2].texture_idx",
-                "textures_tiles[2].time_received",
-                "textures_tiles[2].time_request",
-                "textures_tiles[3].uniq",
-                "textures_tiles[3].texture_idx",
-                "textures_tiles[3].time_received",
-                "textures_tiles[3].time_request",
-                "textures_tiles[4].uniq",
-                "textures_tiles[4].texture_idx",
-                "textures_tiles[4].time_received",
-                "textures_tiles[4].time_request",
-                "textures_tiles[5].uniq",
-                "textures_tiles[5].texture_idx",
-                "textures_tiles[5].time_received",
-                "textures_tiles[5].time_request",
-                "textures_tiles[6].uniq",
-                "textures_tiles[6].texture_idx",
-                "textures_tiles[6].time_received",
-                "textures_tiles[6].time_request",
-                "textures_tiles[7].uniq",
-                "textures_tiles[7].texture_idx",
-                "textures_tiles[7].time_received",
-                "textures_tiles[7].time_request",
-                "textures_tiles[8].uniq",
-                "textures_tiles[8].texture_idx",
-                "textures_tiles[8].time_received",
-                "textures_tiles[8].time_request",
-                "textures_tiles[9].uniq",
-                "textures_tiles[9].texture_idx",
-                "textures_tiles[9].time_received",
-                "textures_tiles[9].time_request",
-                "textures_tiles[10].uniq",
-                "textures_tiles[10].texture_idx",
-                "textures_tiles[10].time_received",
-                "textures_tiles[10].time_request",
-                "textures_tiles[11].uniq",
-                "textures_tiles[11].texture_idx",
-                "textures_tiles[11].time_received",
-                "textures_tiles[11].time_request",
-                "textures_tiles[12].uniq",
-                "textures_tiles[12].texture_idx",
-                "textures_tiles[12].time_received",
-                "textures_tiles[12].time_request",
-                "textures_tiles[13].uniq",
-                "textures_tiles[13].texture_idx",
-                "textures_tiles[13].time_received",
-                "textures_tiles[13].time_request",
-                "textures_tiles[14].uniq",
-                "textures_tiles[14].texture_idx",
-                "textures_tiles[14].time_received",
-                "textures_tiles[14].time_request",
-                "textures_tiles[15].uniq",
-                "textures_tiles[15].texture_idx",
-                "textures_tiles[15].time_received",
-                "textures_tiles[15].time_request",
-                "textures_tiles[16].uniq",
-                "textures_tiles[16].texture_idx",
-                "textures_tiles[16].time_received",
-                "textures_tiles[16].time_request",
-                "textures_tiles[17].uniq",
-                "textures_tiles[17].texture_idx",
-                "textures_tiles[17].time_received",
-                "textures_tiles[17].time_request",
-                "textures_tiles[18].uniq",
-                "textures_tiles[18].texture_idx",
-                "textures_tiles[18].time_received",
-                "textures_tiles[18].time_request",
-                "textures_tiles[19].uniq",
-                "textures_tiles[19].texture_idx",
-                "textures_tiles[19].time_received",
-                "textures_tiles[19].time_request",
-            ].as_ref()
+            uniforms_2d_proj
         );
+
+        let uniforms_grid = vec![
+            // General uniforms
+            String::from("current_time"),
+            String::from("model"),
+            // Viewport uniforms
+            String::from("zoom_factor"),
+            String::from("aspect"),
+            String::from("last_zoom_action"),
+            // Grid-specific uniforms
+            String::from("location_color"),
+        ];
         let shader_grid = Shader::new(&gl,
             shaders::grid_projeted_vert::CONTENT,
             shaders::grid_frag::CONTENT,
-            [
-                // General uniforms
-                "current_time",
-                "model",
-                // Viewport uniforms
-                "zoom_factor",
-                "aspect",
-                "last_zoom_action",
-                // Grid-specific uniforms
-                "location_color",
-            ].as_ref()
+            uniforms_grid
         );
         let mut shaders = HashMap::new();
         shaders.insert("hips_sphere", shader_2d_proj);
