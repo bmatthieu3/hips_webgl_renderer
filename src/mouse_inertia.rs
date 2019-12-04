@@ -20,7 +20,7 @@ impl MouseInertia {
         viewport: &mut ViewPort,
     ) -> Option<MouseInertia> {
         let x0 = event.get_last_displacement_amount();
-        if x0 < 1e-3 {
+        if x0 < 1e-5 {
             None
         } else {
             // Tell the viewport we enter in the inertia
@@ -46,7 +46,7 @@ impl MouseInertia {
         viewport: &mut ViewPort,
         dt: f32,
     ) -> bool {
-        if self.x < 1e-3 {
+        if self.x < 1e-5 {
             // Stop inertia
             viewport.stop_inertia();
             return true;
