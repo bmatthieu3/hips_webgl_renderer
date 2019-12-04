@@ -110,6 +110,7 @@ impl FieldOfView {
                 // Compute the depth corresponding to the angular resolution of a pixel
                 // along the width of the screen
                 let mut depth = std::cmp::min(math::ang_per_pixel_to_depth(fov.0 / l), MAX_DEPTH.load(Ordering::Relaxed));
+                console::log_1(&format!("depth {:?}", depth).into());
                 let idx = if depth == 0 {
                     (0..12).collect::<Vec<_>>()
                 } else {

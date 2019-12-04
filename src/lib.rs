@@ -226,31 +226,24 @@ impl App {
     } 
 
     fn update(&mut self, dt: f32) {
-        // Look for inertia
-        if let Some(ref mut inertia) = &mut self.inertia {
-            if inertia.update(
-                &mut self.hips_sphere,
-                &mut self.grid,
-                &mut self.viewport,
-                dt
-            ) {
-                self.inertia = None;
-            }
-        }
-
         // Update the camera. When the camera has reached its final position
         // then we stop rendering the next frames!
         self.viewport.update(&self.projection, dt);
 
-        if !UPDATE_USER_INTERFACE.load(Ordering::Relaxed) {
-            RENDER_FRAME.lock().unwrap().update(&self.viewport);
-            UPDATE_FRAME.lock().unwrap().update(&self.viewport);
-        } else {
-            UPDATE_USER_INTERFACE.store(false, Ordering::Relaxed);
-        }
-
         // Updating
         if UPDATE_FRAME.lock().unwrap().get() {
+            // Look for inertia
+            if let Some(ref mut inertia) = &mut self.inertia {
+                if inertia.update(
+                    &mut self.hips_sphere,
+                    &mut self.grid,
+                    &mut self.viewport,
+                    dt
+                ) {
+                    self.inertia = None;
+                }
+            }
+
             // Update the fov
             self.hips_sphere
                 .update(
@@ -272,6 +265,13 @@ impl App {
                     Some(&self.viewport),
                 );
             }
+        }
+
+        if !UPDATE_USER_INTERFACE.load(Ordering::Relaxed) {
+            RENDER_FRAME.lock().unwrap().update(&self.viewport);
+            UPDATE_FRAME.lock().unwrap().update(&self.viewport);
+        } else {
+            UPDATE_USER_INTERFACE.store(false, Ordering::Relaxed);
         }
     }
 
