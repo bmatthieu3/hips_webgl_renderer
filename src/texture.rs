@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use wasm_bindgen::prelude::Closure;
 use wasm_bindgen::JsCast;
 
-use web_sys::{HtmlImageElement, CanvasRenderingContext2d};
+use web_sys::HtmlImageElement;
 use web_sys::WebGl2RenderingContext;
 
 use std::collections::{BinaryHeap, HashSet};
@@ -185,7 +185,7 @@ impl BufferTiles {
         let loaded_tiles = HashSet::with_capacity(size);
         let requested_tiles = BinaryHeap::with_capacity(size);
 
-        let (texture, idx_texture_unit) = create_sampler_3d(gl, size as u32);
+        let (texture, idx_texture_unit) = create_texture_tile_buffer(gl);
 
         let gl = gl.clone();
         let num_load_tiles = 0;
@@ -384,6 +384,28 @@ impl BufferTiles {
         .expect("Texture 3d");
     }
 
+    fn replace_texture_sampler_2d(&self, idx: i32, image: &HtmlImageElement) {
+        self.gl.active_texture(self.idx_texture_unit);
+        self.gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, self.texture.as_ref());
+
+        let idx_row = idx / 8;
+        let idx_col = idx % 8;
+
+        let xoffset = idx_col * WIDTH_TEXTURE;
+        let yoffset = idx_row * HEIGHT_TEXTURE;
+
+        self.gl.tex_sub_image_2d_with_u32_and_u32_and_html_image_element(
+            WebGl2RenderingContext::TEXTURE_2D,
+            0,
+            xoffset,
+            yoffset,
+            WebGl2RenderingContext::RGB,
+            WebGl2RenderingContext::UNSIGNED_BYTE,
+            image,
+        )
+        .expect("Sub texture 2d");
+    }
+
     fn tiles(&self) -> Vec<TileGPU> {
         let mut tiles: Vec<TileGPU> = self.buffer
             .clone()
@@ -401,7 +423,8 @@ impl BufferTiles {
     fn send_sampler_uniform(&self, shader: &Shader) {
         let location_sampler_3d = shader.get_uniform_location(self.texture_name);
         self.gl.active_texture(self.idx_texture_unit);
-        self.gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, self.texture.as_ref());
+        //self.gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, self.texture.as_ref());
+        self.gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, self.texture.as_ref());
 
         let idx_sampler: i32 = (self.idx_texture_unit - WebGl2RenderingContext::TEXTURE0).try_into().unwrap();
         self.gl.uniform1i(location_sampler_3d, idx_sampler);
@@ -503,7 +526,8 @@ fn load_healpix_tile(buffer: Rc<RefCell<BufferTiles>>, idx: u64, depth: u8, rese
             buffer.borrow_mut().add_to_loaded_tiles(depth, idx);
             // Add the received tile to the buffer
             let idx_texture = buffer.borrow_mut().add(depth, idx, time_request);
-            buffer.borrow().replace_texture_sampler_3d(idx_texture as i32, &image.borrow());
+            //buffer.borrow().replace_texture_sampler_3d(idx_texture as i32, &image.borrow());
+            buffer.borrow().replace_texture_sampler_2d(idx_texture as i32, &image.borrow());
 
             // Tell the app to render the next frame
             // because a a new has been received
@@ -521,6 +545,47 @@ fn load_healpix_tile(buffer: Rc<RefCell<BufferTiles>>, idx: u64, depth: u8, rese
     onerror.forget();
 }
 
+// Create a 4096x4096 texture that contains 8*8 tiles
+fn create_texture_tile_buffer(gl: &WebGl2Context) -> (Option<web_sys::WebGlTexture>, u32) {
+    let window = web_sys::window().unwrap();
+    let document = window.document().unwrap();
+    let canvas = document.create_element("canvas").unwrap();
+    let canvas: web_sys::HtmlCanvasElement = canvas.dyn_into::<web_sys::HtmlCanvasElement>().unwrap();
+
+    canvas.set_width((WIDTH_TEXTURE as u32) * 8);
+    canvas.set_height((HEIGHT_TEXTURE as u32) * 8);
+
+    let idx_texture_unit = unsafe { NUM_TEXTURE_UNIT };
+    let webgl_texture = gl.create_texture();
+    gl.active_texture(idx_texture_unit);
+
+    unsafe {
+        NUM_TEXTURE_UNIT += 1;
+    }
+    gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, webgl_texture.as_ref());
+
+    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::NEAREST as i32);
+    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::NEAREST as i32);
+
+    // Prevents s-coordinate wrapping (repeating)
+    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
+    // Prevents t-coordinate wrapping (repeating)
+    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_WRAP_T, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
+
+    gl.tex_image_2d_with_u32_and_u32_and_html_canvas_element(
+        WebGl2RenderingContext::TEXTURE_2D,
+        0,
+        WebGl2RenderingContext::RGB as i32,
+        WebGl2RenderingContext::RGB,
+        WebGl2RenderingContext::UNSIGNED_BYTE,
+        &canvas,
+    )
+    .expect("Texture 2d");
+    //gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_2D);
+
+    (webgl_texture, idx_texture_unit)
+}
+
 fn create_sampler_3d(gl: &WebGl2Context, size_buffer: u32) -> (Option<web_sys::WebGlTexture>, u32) {
     let window = web_sys::window().unwrap();
     let document = window.document().unwrap();
@@ -528,15 +593,6 @@ fn create_sampler_3d(gl: &WebGl2Context, size_buffer: u32) -> (Option<web_sys::W
     let canvas: web_sys::HtmlCanvasElement = canvas.dyn_into::<web_sys::HtmlCanvasElement>().unwrap();
     canvas.set_width(WIDTH_TEXTURE as u32);
     canvas.set_height((HEIGHT_TEXTURE as u32) * size_buffer);
-
-    let ctx = Rc::new(
-        RefCell::new(
-            canvas.get_context("2d")
-                .unwrap()
-                .unwrap()
-                .dyn_into::<CanvasRenderingContext2d>().unwrap()
-        )
-    );
 
     let idx_texture_unit = unsafe { NUM_TEXTURE_UNIT };
     let webgl_texture = gl.create_texture();
@@ -567,7 +623,7 @@ fn create_sampler_3d(gl: &WebGl2Context, size_buffer: u32) -> (Option<web_sys::W
         0,
         WebGl2RenderingContext::RGB,
         WebGl2RenderingContext::UNSIGNED_BYTE,
-        &ctx.borrow().canvas().unwrap(),
+        &canvas,
     )
     .expect("Texture 3d");
     gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_3D);

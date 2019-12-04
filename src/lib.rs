@@ -122,7 +122,7 @@ impl App {
             String::from("max_depth"),
         ];
 
-        add_tile_buffer_uniforms("textures", 20, &mut uniforms_2d_proj);
+        add_tile_buffer_uniforms("textures", 64, &mut uniforms_2d_proj);
         add_tile_buffer_uniforms("textures_0", 12, &mut uniforms_2d_proj);
 
         let shader_2d_proj = Shader::new(&gl,
@@ -470,22 +470,21 @@ impl WebGl2Context {
         let canvas = document.get_element_by_id("canvas").unwrap();
         let canvas = canvas.dyn_into::<web_sys::HtmlCanvasElement>().unwrap();
 
-        //let context_options = js_sys::JSON::parse(&"{\"antialias\":true}").unwrap();
-
-        /*let inner = Rc::new(
+        let context_options = js_sys::JSON::parse(&"{\"antialias\":false}").unwrap();
+        let inner = Rc::new(
             canvas.get_context_with_context_options("webgl2", context_options.as_ref())
                 .unwrap()
                 .unwrap()
                 .dyn_into::<WebGl2RenderingContext>()
                 .unwrap()
-        );*/
-        let inner = Rc::new(
+        );
+        /*let inner = Rc::new(
             canvas.get_context("webgl2")
                 .unwrap()
                 .unwrap()
                 .dyn_into::<WebGl2RenderingContext>()
                 .unwrap()
-        );
+        );*/
 
         WebGl2Context {
             inner

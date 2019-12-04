@@ -195,10 +195,10 @@ pub static CONTENT: &'static str = r#"#version 300 es
 
     uniform int current_depth;
     
-    uniform sampler3D textures;
-    uniform Tile textures_tiles[20];
+    uniform sampler2D textures;
+    uniform Tile textures_tiles[64];
 
-    uniform sampler3D textures_0;
+    uniform sampler2D textures_0;
     uniform Tile textures_0_tiles[12];
 
     uniform float current_time; // current time in ms
@@ -225,9 +225,13 @@ pub static CONTENT: &'static str = r#"#version 300 es
         for(int step = 0; step < h; step++) {
             if (uniq == textures_tiles[i].uniq) {
                 Tile tile = textures_tiles[i];
-                float step_depth_texture = 1.f / size;
-                float idx_texture = (float(tile.texture_idx) + 0.5f) * step_depth_texture;
-                vec3 color = texture(textures, vec3(uv, idx_texture)).rgb;
+
+                float idx_row = float(tile.texture_idx / 8); // in [0; 7]
+                float idx_col = float(tile.texture_idx % 8); // in [0; 7]
+
+                vec2 offset = (vec2(idx_col, idx_row) + uv)/8.f;
+
+                vec3 color = texture(textures, offset).rgb;
 
                 return TileColor(tile, color, true);
             } else if (uniq < textures_tiles[i].uniq) {
@@ -262,10 +266,13 @@ pub static CONTENT: &'static str = r#"#version 300 es
         for(int step = 0; step < h; step++) {
             if (uniq == textures_0_tiles[i].uniq) {
                 Tile tile = textures_0_tiles[i];
-                float step_depth_texture = 1.f / 12.f;
-                float idx_texture = (float(tile.texture_idx) + 0.5f) * step_depth_texture;
-                vec3 color = texture(textures_0, vec3(uv, idx_texture)).rgb;
 
+                float idx_row = float(tile.texture_idx / 8); // in [0; 7]
+                float idx_col = float(tile.texture_idx % 8); // in [0; 7]
+
+                vec2 offset = (vec2(idx_col, idx_row) + uv)/8.f;
+
+                vec3 color = texture(textures_0, offset).rgb;
                 return TileColor(tile, color, true);
             } else if (uniq < textures_0_tiles[i].uniq) {
                 // go to left
@@ -291,7 +298,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
 
         //out_frag_color = vec4(1.0f);
         //return;
-        TileColor current_tile = get_tile_color(frag_pos, 20.f, current_depth);
+        TileColor current_tile = get_tile_color(frag_pos, 64.f, current_depth);
 
         float alpha = clamp((current_time - current_tile.tile.time_received) / duration, 0.f, 1.f);
 
@@ -311,7 +318,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
             depth = min(max_depth, current_depth + 1);
         }
 
-        TileColor tile = get_tile_color(frag_pos, 20.f, depth);
+        TileColor tile = get_tile_color(frag_pos, 64.f, depth);
         if (!tile.found) {
             tile = get_depth_0_tile(frag_pos);
         }

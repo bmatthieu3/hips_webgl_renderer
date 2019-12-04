@@ -49,7 +49,7 @@ use crate::WebGl2Context;
 
 impl<'a> HiPSSphere {
     pub fn new(gl: &WebGl2Context, projection: &ProjectionType) -> HiPSSphere {
-        let buffer_tiles = Rc::new(RefCell::new(BufferTiles::new(gl, 20, "textures")));
+        let buffer_tiles = Rc::new(RefCell::new(BufferTiles::new(gl, 64, "textures")));
         let base_tiles = (0..12).collect::<Vec<u64>>();
         load_tiles(buffer_tiles.clone(), &base_tiles, 0, false);
 
@@ -86,7 +86,7 @@ impl<'a> HiPSSphere {
         console::log_1(&format!("refresh buffers").into());
         let base_tiles = (0..12).collect::<Vec<u64>>();
 
-        self.buffer_tiles.replace(BufferTiles::new(&self.gl, 20, "textures"));
+        self.buffer_tiles.replace(BufferTiles::new(&self.gl, 64, "textures"));
         load_tiles(self.buffer_tiles.clone(), &base_tiles, 0, false);
 
         self.buffer_depth_zero_tiles.replace(BufferTiles::new(&self.gl, 12, "textures_0"));
