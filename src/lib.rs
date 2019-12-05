@@ -188,7 +188,7 @@ impl App {
         gl.clear_color(0.08, 0.08, 0.08, 1.0);
 
         // Projection definition
-        let projection = ProjectionType::Aitoff(Aitoff {});
+        let projection = ProjectionType::Orthographic(Orthographic {});
         // HiPS Sphere definition
         let hips_sphere_mesh = HiPSSphere::new(&gl, &projection);
         let size_pixels = *hips_sphere_mesh.get_default_pixel_size();

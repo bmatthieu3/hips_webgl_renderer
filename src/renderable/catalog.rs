@@ -1,6 +1,6 @@
-use crate::texture::create_texture_2d;
 use crate::texture::Texture2D;
 
+use web_sys::WebGlFramebuffer;
 pub struct Catalog {
     center: Vec<f32>, // Position of the observations
     num_instances: usize,
@@ -10,12 +10,17 @@ pub struct Catalog {
     size: f32,
 
     kernel_texture: Texture2D,
+
+    fbo: Option<WebGlFramebuffer>,
+    fbo_texture: Texture2D,
+
+    fbo_texture_width: i32,
+    fbo_texture_height: i32,
 }
 
 use js_sys::Math;
 use cgmath::Vector3;
 use cgmath::InnerSpace;
-
 impl Catalog {
     pub fn new(gl: &WebGl2Context) -> Catalog {
         let mut center = vec![];
@@ -50,7 +55,17 @@ impl Catalog {
         let size = 0.01_f32;
 
         // Load the texture of the gaussian kernel
-        let kernel_texture = create_texture_2d(gl, "./textures/kernel.png");
+        let kernel_texture = Texture2D::create(gl, "./textures/kernel.png");
+
+        // Initialize texture for framebuffer
+        let fbo_texture_width = 1024;
+        let fbo_texture_height = 1024;
+        let fbo_texture = Texture2D::create_empty(gl, fbo_texture_width, fbo_texture_height);
+        // Create and bind the framebuffer
+        let fbo = gl.create_framebuffer();
+        gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, fbo.as_ref());
+        // attach the texture as the first color attachment
+        fbo_texture.attach_to_framebuffer(&gl);
 
         Catalog {
             center,
@@ -61,7 +76,13 @@ impl Catalog {
 
             size,
 
-            kernel_texture
+            kernel_texture,
+
+            fbo,
+            fbo_texture,
+
+            fbo_texture_width,
+            fbo_texture_height,
         }
     }
 }
@@ -82,6 +103,8 @@ use crate::WebGl2Context;
 
 use crate::projection::ProjectionType;
 use crate::viewport::ViewPort;
+
+use crate::window_size_u32;
 
 impl Mesh for Catalog {
     fn create_buffers(&self, gl: &WebGl2Context) -> VertexArrayObject {
@@ -139,13 +162,54 @@ impl Mesh for Catalog {
     fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: &ViewPort) {}
 
     fn draw(&self, gl: &WebGl2Context, vao: &VertexArrayObject) {
-        gl.draw_elements_instanced_with_i32(
-            WebGl2RenderingContext::TRIANGLES,
-            vao.num_elements() as i32,
-            WebGl2RenderingContext::UNSIGNED_SHORT,
-            0,
-            vao.num_instances() as i32,
-        );
+        {
+            // Render to the fbo_texture
+            gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, self.fbo.as_ref());
+
+            // Set the viewport
+            gl.viewport(0, 0, self.fbo_texture_width, self.fbo_texture_height);
+
+            //gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+
+            gl.draw_elements_instanced_with_i32(
+                WebGl2RenderingContext::TRIANGLES,
+                vao.num_elements() as i32,
+                WebGl2RenderingContext::UNSIGNED_SHORT,
+                0,
+                vao.num_instances() as i32,
+            );
+
+            gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
+        }
+
+        let (width_screen, height_screen) = window_size_u32();
+            // Set the viewport
+        gl.viewport(0, 0, width_screen as i32, height_screen as i32);
+
+        /*{
+            // Render to the canvas
+            gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
+        
+            // Set the viewport
+            gl.viewport(0, 0, self.fbo_texture_width, self.fbo_texture_height);
+
+            // Bind shader
+
+
+
+            // Send the texture we just rendered to
+            self.fbo_texture.send_to_shader(&gl, shader, "texture");
+        
+            // Tell WebGL how to convert from clip space to pixels
+            gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+        
+            // Clear the canvas AND the depth buffer.
+            gl.clearColor(1, 1, 1, 1);   // clear to white
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        
+            const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
+            drawCube(aspect)
+        }*/
     }
 }
 
