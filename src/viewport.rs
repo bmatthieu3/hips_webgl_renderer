@@ -21,6 +21,8 @@ pub struct ViewPort {
     fov: FieldOfView,
     fov_max: Rad<f32>,
 
+    time_start_zoom: Option<f32>, // Absolute time of the beginning of a zoom (in ms)
+    time_end_zoom: Option<f32>, // Duration of a zoom (in ms)
     current_zoom: f32,
     final_zoom: f32,
 
@@ -64,6 +66,7 @@ use crate::math;
 use std::sync::atomic::Ordering;
 use crate::MAX_DEPTH;
 use crate::print_to_console;
+use crate::utils;
 impl ViewPort {
     pub fn new(gl: &WebGl2Context, size_pixels: &Vector2<f32>) -> ViewPort {
         let current_zoom = 1_f32;
@@ -85,6 +88,8 @@ impl ViewPort {
         let fov_max = math::depth_to_fov(MAX_DEPTH.load(Ordering::Relaxed));
 
         let default_size_scissor = *size_pixels;
+        let time_start_zoom = None;
+        let time_end_zoom = None;
 
         let gl = gl.clone();
         let mut viewport = ViewPort {
@@ -93,6 +98,9 @@ impl ViewPort {
 
             fov,
             fov_max,
+
+            time_start_zoom,
+            time_end_zoom,
 
             current_zoom,
             final_zoom,
@@ -123,15 +131,29 @@ impl ViewPort {
                 return;
             }
         }*/
+        let current_time = utils::get_current_time();
+        if !self.is_zooming {
+            self.time_start_zoom = Some(current_time);
+        }
+        self.time_end_zoom = Some(current_time + 1000_f32);
+
         self.is_zooming = true;
         self.is_action = true;
 
         self.last_zoom_action = LastZoomAction::Zoom;
 
         self.final_zoom *= (1_f32 + 0.01_f32 * amount);
+
+        self.time_start_zoom = Some(utils::get_current_time());
     }
 
     pub fn unzoom(&mut self, amount: f32) {
+        let current_time = utils::get_current_time();
+        if !self.is_zooming {
+            self.time_start_zoom = Some(current_time);
+        }
+        self.time_end_zoom = Some(current_time + 1000_f32);
+        
         self.is_zooming = true;
         self.is_action = true;
 
@@ -163,6 +185,8 @@ impl ViewPort {
         if !self.is_moving && !self.is_inertia {
             self.is_action = false;
         }
+
+        self.time_start_zoom = None;
     }
 
     pub fn start_inertia(&mut self) {
@@ -198,17 +222,43 @@ impl ViewPort {
                     return;
                 }
             }
+            // We update the zoom factor
+            /*let t = (utils::get_current_time() - self.time_start_zoom.unwrap()) / (self.time_end_zoom.unwrap() - self.time_start_zoom.unwrap());
 
+            let v = self.compute_speed(t);
+            if v < 1e-3 {
+                self.stop_zooming();
+                return;
+            }
+            self.current_zoom += (self.final_zoom - self.current_zoom).signum() * v * dt * 1e-3;
+            */
             // Here we are currently zooming
             if (self.current_zoom - self.final_zoom).abs() < 1e-3 {
                 self.stop_zooming();
                 return;
             }
-
-            // We update the zoom factor
             self.current_zoom += (self.final_zoom - self.current_zoom) * 0.005_f32 * dt;
-
             self.update_scissor();
+        }
+    }
+
+    fn compute_speed(&self, mut t: f32) -> f32 {
+        let speed_limit = 1_f32;
+
+        if t > 0.9_f32 {
+            t = 0.5_f32 + (t - 0.9_f32) * 5_f32;
+
+            let u = 1_f32 - t;
+            let w = u * t;
+            speed_limit * (w * w / 0.0625_f32)
+        } else if t < 0.1_f32 {
+            t *= 5_f32;
+
+            let u = 1_f32 - t;
+            let w = u * t;
+            speed_limit * (w * w / 0.0625_f32)
+        } else {
+            speed_limit
         }
     }
 

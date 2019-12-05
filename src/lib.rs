@@ -155,6 +155,7 @@ impl App {
         gl.enable(WebGl2RenderingContext::BLEND);
         gl.blend_func(WebGl2RenderingContext::SRC_ALPHA, WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA);
         gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
+        gl.disable(WebGl2RenderingContext::DEPTH_TEST);
 
         gl.clear_color(0.08, 0.08, 0.08, 1.0);
 
