@@ -28,8 +28,8 @@ use std::sync::atomic::Ordering;
 use web_sys::console;
 impl FieldOfView {
     pub fn new() -> FieldOfView {
-        let num_vertices_width = 5;
-        let num_vertices_height = 5;
+        let num_vertices_width = 3;
+        let num_vertices_height = 3;
         let num_vertices = 4 + 2*num_vertices_width + 2*num_vertices_height;
 
         let mut x_screen_space = itertools_num::linspace::<f32>(-1., 1., num_vertices_width + 2)

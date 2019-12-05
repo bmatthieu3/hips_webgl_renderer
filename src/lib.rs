@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate lazy_static;
 extern crate itertools_num;
+extern crate rand;
 
 use web_sys::console;
 #[macro_export]
@@ -34,14 +35,17 @@ mod mouse_inertia;
 mod color;
 
 use shader::Shader;
+
 use renderable::Renderable;
 use renderable::hips_sphere::HiPSSphere;
+use renderable::grid::ProjetedGrid;
+use renderable::catalog::Catalog;
+
 use renderable::projection;
 use renderable::projection::ProjectionType;
 use renderable::projection::{Aitoff, Orthographic, MollWeide};
-use viewport::ViewPort;
 
-use crate::renderable::grid::ProjetedGrid;
+use viewport::ViewPort;
 
 use std::sync::Mutex;
 use std::sync::Arc;
@@ -72,6 +76,8 @@ struct App {
     hips_sphere: Renderable<HiPSSphere>,
     // The grid renderable
     grid: Renderable<ProjetedGrid>,
+    // The catalogs
+    catalog: Renderable<Catalog>,
 
     // Move event
     move_event: Option<Move>,
@@ -108,6 +114,7 @@ use crate::event::screen_to_world_space;
 impl App {
     fn new(gl: &WebGl2Context) -> Result<App, JsValue> {
         // Shader definition
+        // HiPS sphere shader
         // uniforms definition
         let mut uniforms_2d_proj = vec![
             // General uniforms
@@ -132,6 +139,8 @@ impl App {
             uniforms_2d_proj
         );
 
+        // Grid shader
+        // uniforms definition
         let uniforms_grid = vec![
             // General uniforms
             String::from("current_time"),
@@ -148,9 +157,29 @@ impl App {
             shaders::grid_frag::CONTENT,
             uniforms_grid
         );
+
+        // Catalog shader
+        // uniforms definition
+        let uniforms_catalog = vec![
+            // General uniforms
+            String::from("current_time"),
+            String::from("model"),
+            // Viewport uniforms
+            String::from("zoom_factor"),
+            String::from("aspect"),
+            String::from("last_zoom_action"),
+            // Catalog-specific uniforms
+            String::from("kernel_texture"),
+        ];
+        let shader_catalog = Shader::new(&gl,
+            shaders::catalog_vert::CONTENT,
+            shaders::catalog_frag::CONTENT,
+            uniforms_catalog
+        );
         let mut shaders = HashMap::new();
         shaders.insert("hips_sphere", shader_2d_proj);
         shaders.insert("grid", shader_grid);
+        shaders.insert("catalog", shader_catalog);
 
         gl.enable(WebGl2RenderingContext::BLEND);
         gl.blend_func(WebGl2RenderingContext::SRC_ALPHA, WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA);
@@ -181,6 +210,14 @@ impl App {
             &gl,
             &shaders["grid"],
             projeted_grid_mesh,
+        );
+
+        // Catalog definition
+        let catalog_mesh = Catalog::new(&gl);
+        let catalog = Renderable::<Catalog>::new(
+            &gl,
+            &shaders["catalog"],
+            catalog_mesh
         );
 
         // Resize event
@@ -216,6 +253,8 @@ impl App {
             hips_sphere,
             // The grid renderable
             grid,
+            // The catalog renderable
+            catalog,
 
             move_event,
 
@@ -237,6 +276,7 @@ impl App {
                 if inertia.update(
                     &mut self.hips_sphere,
                     &mut self.grid,
+                    &mut self.catalog,
                     &mut self.viewport,
                     dt
                 ) {
@@ -287,7 +327,12 @@ impl App {
             // Draw the HiPS sphere
             self.hips_sphere.draw(
                 &shaders["hips_sphere"],
-                WebGl2RenderingContext::TRIANGLES,
+                viewport
+            );
+
+            // Draw the catalogs
+            self.catalog.draw(
+                &shaders["catalog"],
                 viewport
             );
 
@@ -296,7 +341,6 @@ impl App {
                 // The grid lines
                 self.grid.draw(
                     &shaders["grid"],
-                    WebGl2RenderingContext::LINES,
                     viewport
                 );
                 // The labels
@@ -348,6 +392,7 @@ impl App {
                 
                 &mut self.hips_sphere,
                 &mut self.grid,
+                &mut self.catalog,
                 
                 &self.projection,
                 

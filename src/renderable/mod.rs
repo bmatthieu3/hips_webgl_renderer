@@ -1,17 +1,13 @@
-use web_sys::WebGl2RenderingContext;
-use web_sys::WebGlVertexArrayObject;
 use crate::shader::Shader;
 
 use crate::viewport::ViewPort;
 use crate::renderable::projection::ProjectionType;
 
-use std::rc::Rc;
-use std::borrow::Borrow;
-
 pub mod buffers;
 pub mod hips_sphere;
 pub mod projection;
 pub mod grid;
+pub mod catalog;
 
 trait VertexBufferObject {
     fn bind(&self);
@@ -30,6 +26,8 @@ pub trait Mesh {
     fn get_vertices<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>);
 
     fn send_uniforms(&self, gl: &WebGl2Context, shader: &Shader);
+
+    fn draw(&self, gl: &WebGl2Context, vao: &VertexArrayObject);
 }
 
 pub trait DisableDrawing {
@@ -151,7 +149,7 @@ where T: Mesh + DisableDrawing {
         self.vertex_array_object.update_array_and_element_buffer(vertices, idx_vertices);
     }
 
-    pub fn draw(&self, shader: &Shader, mode: u32, viewport: &ViewPort) {
+    pub fn draw(&self, shader: &Shader, viewport: &ViewPort) {
         shader.bind(&self.gl);
 
         self.vertex_array_object.bind();
@@ -169,12 +167,7 @@ where T: Mesh + DisableDrawing {
         let location_time = shader.get_uniform_location("current_time");
         self.gl.uniform1f(location_time, utils::get_current_time());
 
-        self.gl.draw_elements_with_i32(
-            mode,
-            self.vertex_array_object.num_vertices() as i32,
-            WebGl2RenderingContext::UNSIGNED_SHORT,
-            0,
-        );
+        self.mesh.draw(&self.gl, &self.vertex_array_object);
         //self.vertex_array_object.unbind();
     }
 }

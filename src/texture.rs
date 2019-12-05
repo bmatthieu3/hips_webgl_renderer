@@ -680,8 +680,8 @@ pub fn create_texture_2d(gl: &WebGl2Context, src: &'static str) -> Texture2D {
             }
             gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, webgl_texture.borrow().as_ref());
 
-            gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::NEAREST as i32);
-            gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::NEAREST as i32);
+            gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::LINEAR as i32);
+            gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::LINEAR as i32);
 
             // Prevents s-coordinate wrapping (repeating)
             gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
@@ -696,7 +696,7 @@ pub fn create_texture_2d(gl: &WebGl2Context, src: &'static str) -> Texture2D {
                 WebGl2RenderingContext::UNSIGNED_BYTE,
                 &image.borrow()
             ).expect("Texture 2D");
-            //gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_2D);
+            gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_2D);
         }) as Box<dyn Fn()>)
     };
 

@@ -1,16 +1,16 @@
-use web_sys::WebGl2RenderingContext;
 use web_sys::WebGlVertexArrayObject;
 
 use crate::renderable::buffers::array_buffer::ArrayBuffer;
+use crate::renderable::buffers::array_buffer_instanced::ArrayBufferInstanced;
 use crate::renderable::buffers::element_array_buffer::ElementArrayBuffer;
 use crate::renderable::buffers::buffer_data::BufferData;
-
-use std::rc::Rc;
 
 use crate::WebGl2Context;
 
 pub struct VertexArrayObject {
     array_buffer: Option<ArrayBuffer>,
+    array_buffer_instanced: Option<ArrayBufferInstanced>,
+
     element_array_buffer: Option<ElementArrayBuffer>,
 
     vao: WebGlVertexArrayObject,
@@ -25,11 +25,14 @@ impl<'a> VertexArrayObject {
             .unwrap();
 
         let array_buffer = None;
+        let array_buffer_instanced = None;
+
         let element_array_buffer = None;
 
         let gl = gl.clone();
         VertexArrayObject {
             array_buffer,
+            array_buffer_instanced,
             element_array_buffer,
             vao,
             gl
@@ -49,6 +52,10 @@ impl<'a> VertexArrayObject {
         self.array_buffer = Some(array_buffer);
     }
 
+    pub fn set_array_buffer_instanced(&mut self, array_buffer: ArrayBufferInstanced) {
+        self.array_buffer_instanced = Some(array_buffer);
+    }
+    
     pub fn set_element_array_buffer(&mut self, element_array_buffer: ElementArrayBuffer) {
         self.element_array_buffer = Some(element_array_buffer);
     }
@@ -61,8 +68,12 @@ impl<'a> VertexArrayObject {
         self.gl.bind_vertex_array(None);
     }
 
-    pub fn num_vertices(&self) -> usize {
-        self.element_array_buffer.as_ref().unwrap().size()
+    pub fn num_elements(&self) -> usize {
+        self.element_array_buffer.as_ref().unwrap().num_elements()
+    }
+
+    pub fn num_instances(&self) -> usize {
+        self.array_buffer_instanced.as_ref().unwrap().num_instances()
     }
 }
 

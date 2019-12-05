@@ -240,6 +240,15 @@ impl Mesh for HiPSSphere {
         load_tiles(self.buffer_tiles.clone(), &hpx_idx, depth, reset_time_received);
         //console::log_1(&format!("{:?}", self.buffer_tiles.borrow().requested_tiles).into());
     }
+
+    fn draw(&self, gl: &WebGl2Context, vao: &VertexArrayObject) {
+        gl.draw_elements_with_i32(
+            WebGl2RenderingContext::TRIANGLES,
+            vao.num_elements() as i32,
+            WebGl2RenderingContext::UNSIGNED_SHORT,
+            0,
+        );
+    }
 }
 
 use crate::renderable::DisableDrawing;

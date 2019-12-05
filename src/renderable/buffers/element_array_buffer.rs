@@ -64,7 +64,7 @@ impl<'a> ElementArrayBuffer {
     }
 
     // Returns the number of vertices stored in the array buffer
-    pub fn size(&self) -> usize {
+    pub fn num_elements(&self) -> usize {
         self.buffer_size
     }
 

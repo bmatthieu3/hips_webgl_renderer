@@ -428,6 +428,15 @@ impl Mesh for ProjetedGrid {
             idx_start += num_points_step;
         }
     }
+
+    fn draw(&self, gl: &WebGl2Context, vao: &VertexArrayObject) {
+        gl.draw_elements_with_i32(
+            WebGl2RenderingContext::LINES,
+            vao.num_elements() as i32,
+            WebGl2RenderingContext::UNSIGNED_SHORT,
+            0,
+        );
+    }
 }
 
 use crate::renderable::DisableDrawing;

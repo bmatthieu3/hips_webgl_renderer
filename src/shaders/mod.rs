@@ -4,3 +4,6 @@ pub mod proj_frag;
 pub mod grid_vert;
 pub mod grid_projeted_vert;
 pub mod grid_frag;
+
+pub mod catalog_vert;
+pub mod catalog_frag;

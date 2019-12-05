@@ -184,7 +184,7 @@ impl ViewPort {
         // If there is an action whether it is a zoom or a displacement
         // then we update the fov
         if self.is_action {
-            console::log_1(&format!("update FOV").into());
+            //console::log_1(&format!("update FOV").into());
             self.fov.update(self.current_zoom, projection);
         }
 
