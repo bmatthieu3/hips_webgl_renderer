@@ -26,7 +26,7 @@ use std::convert::TryInto;
 use crate::renderable::buffers::buffer_data::BufferData;
 
 impl<'a> ElementArrayBuffer {
-    pub fn new(gl: &WebGl2Context, data: BufferData<'a, u16>, usage: u32) -> ElementArrayBuffer {
+    pub fn new(gl: &WebGl2Context, usage: u32, data: BufferData<'a, u16>) -> ElementArrayBuffer {
         let buffer = gl.create_buffer()
             .ok_or("failed to create buffer")
             .unwrap();
@@ -41,19 +41,6 @@ impl<'a> ElementArrayBuffer {
             usage,
         );
 
-        /*let memory_buffer = wasm_bindgen::memory()
-            .dyn_into::<WebAssembly::Memory>()
-            .map_err(|_| "Unable to get the WASM memory buffer for storing the vertices data!")
-            .unwrap()
-            .buffer();
-        gl.buffer_data_with_array_buffer_view_and_src_offset_and_length(
-            WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
-            &js_sys::Uint16Array::new(&memory_buffer),
-            usage,
-            (data.0.as_ptr() as u32) / 2,
-            data.0.len() as u32,
-        );*/
-        //gl.bind_buffer(WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER, None);
         // Returns an instance that keeps only the buffer
         let gl = gl.clone();
         ElementArrayBuffer {

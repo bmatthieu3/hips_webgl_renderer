@@ -25,7 +25,7 @@ use crate::renderable::buffers::buffer_data::BufferData;
 use std::convert::TryInto;
 
 impl<'a> ArrayBufferInstanced {
-    pub fn new(gl: &WebGl2Context, idx: u32, stride: usize, size: usize, data: BufferData<'a, f32>, usage: u32) -> ArrayBufferInstanced {
+    pub fn new(gl: &WebGl2Context, idx: u32, stride: usize, size: usize, usage: u32, data: BufferData<'a, f32>) -> ArrayBufferInstanced {
         let num_instances = data.0.len() / size;
 
         let buffer = gl.create_buffer()

@@ -317,37 +317,35 @@ impl ProjetedGrid {
 
 use crate::WebGl2Context;
 use cgmath::Matrix4;
+
+use crate::renderable::Renderable;
+use crate::utils;
+use std::collections::HashMap;
 impl Mesh for ProjetedGrid {
     fn create_buffers(&self, gl: &WebGl2Context) -> VertexArrayObject {
         let mut vertex_array_object = VertexArrayObject::new(gl);
-        vertex_array_object.bind();
 
         let ref vertices_data = self.pos_screen_space;
         let ref idx_data = self.idx_vertices;
-        // ARRAY buffer creation
-        let array_buffer = ArrayBuffer::new(
-            gl,
-            2 * std::mem::size_of::<f32>(),
-            &[2],
-            &[0 * std::mem::size_of::<f32>()],
-            BufferData(&vertices_data),
-            WebGl2RenderingContext::DYNAMIC_DRAW,
-        );
 
-        // ELEMENT ARRAY buffer creation
-        //console::log_1(&format!("indexes: {:?} {:?}", idx_data.len(), idx_data).into());
-        //console::log_1(&format!("indexes: {:?}, len {:?}", indexes_data.0, indexes_data.0.len()).into());
-        let indexes_buffer = ElementArrayBuffer::new(
-            gl,
-            BufferData(&idx_data),
-            WebGl2RenderingContext::DYNAMIC_DRAW,
-        );
+        vertex_array_object.bind()
+            // Store the vertex positions
+            .add_array_buffer(
+                2 * std::mem::size_of::<f32>(),
+                &[2],
+                &[0 * std::mem::size_of::<f32>()],
+                WebGl2RenderingContext::DYNAMIC_DRAW,
+                BufferData(&vertices_data),
+            )
+            // Set the element buffer
+            .add_element_buffer(
+                WebGl2RenderingContext::DYNAMIC_DRAW,
+                BufferData(&idx_data),
+            )
+            // Unbind the buffer
+            .unbind();
 
-        vertex_array_object.set_array_buffer(array_buffer);
-        vertex_array_object.set_element_array_buffer(indexes_buffer);
         console::log_1(&format!("grid init").into());
-        vertex_array_object.unbind();
-        // Unbind the buffer
         //gl.bind_buffer(WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER, None);
         vertex_array_object
     }
@@ -429,10 +427,34 @@ impl Mesh for ProjetedGrid {
         }
     }
 
-    fn draw(&self, gl: &WebGl2Context, vao: &VertexArrayObject) {
+    fn draw<T: Mesh + DisableDrawing>(
+        &self,
+        gl: &WebGl2Context,
+        renderable: &Renderable<T>,
+        shaders: &HashMap<&'static str, Shader>,
+        viewport: &ViewPort
+    ) {
+        let shader = &shaders["grid"];
+        shader.bind(gl);
+
+        renderable.vertex_array_object.bind_ref();
+
+        // Send Uniforms
+        viewport.send_to_vertex_shader(gl, shader);
+        self.send_uniforms(gl, shader);
+
+        // Send model matrix
+        let model_mat_location = shader.get_uniform_location("model");
+        let model_mat_f32_slice: &[f32; 16] = renderable.model_mat.as_ref();
+        gl.uniform_matrix4fv_with_f32_array(model_mat_location, false, model_mat_f32_slice);
+
+        // Send current time
+        let location_time = shader.get_uniform_location("current_time");
+        gl.uniform1f(location_time, utils::get_current_time());
+
         gl.draw_elements_with_i32(
             WebGl2RenderingContext::LINES,
-            vao.num_elements() as i32,
+            renderable.vertex_array_object.num_elements() as i32,
             WebGl2RenderingContext::UNSIGNED_SHORT,
             0,
         );

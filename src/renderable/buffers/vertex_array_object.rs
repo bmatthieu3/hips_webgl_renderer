@@ -8,14 +8,15 @@ use crate::renderable::buffers::buffer_data::BufferData;
 use crate::WebGl2Context;
 
 pub struct VertexArrayObject {
-    array_buffer: Option<ArrayBuffer>,
-    array_buffer_instanced: Option<ArrayBufferInstanced>,
-
+    array_buffer: Vec<ArrayBuffer>,
+    array_buffer_instanced: Vec<ArrayBufferInstanced>,
     element_array_buffer: Option<ElementArrayBuffer>,
+
+    idx: u32, // Number of vertex attributes
 
     vao: WebGlVertexArrayObject,
 
-    gl: WebGl2Context
+    gl: WebGl2Context,
 }
 
 impl<'a> VertexArrayObject {
@@ -24,48 +25,34 @@ impl<'a> VertexArrayObject {
             .ok_or("failed to create the vertex array buffer")
             .unwrap();
 
-        let array_buffer = None;
-        let array_buffer_instanced = None;
+        let array_buffer = vec![];
+        let array_buffer_instanced = vec![];
 
         let element_array_buffer = None;
+
+        let idx = 0;
 
         let gl = gl.clone();
         VertexArrayObject {
             array_buffer,
             array_buffer_instanced,
             element_array_buffer,
+
+            idx,
+
             vao,
-            gl
+            gl,
         }
     }
 
-    pub fn update_array_and_element_buffer(&mut self, array_data: BufferData<'a, f32>, element_data: BufferData<'a, u16>) {
-        self.bind();
-        self.array_buffer.as_ref().unwrap().update(array_data);
-        if let Some(ref mut element_array_buffer) = self.element_array_buffer {
-            element_array_buffer.update(element_data);
-        }
-        //self.unbind();
-    }
-
-    pub fn set_array_buffer(&mut self, array_buffer: ArrayBuffer) {
-        self.array_buffer = Some(array_buffer);
-    }
-
-    pub fn set_array_buffer_instanced(&mut self, array_buffer: ArrayBufferInstanced) {
-        self.array_buffer_instanced = Some(array_buffer);
-    }
-    
-    pub fn set_element_array_buffer(&mut self, element_array_buffer: ElementArrayBuffer) {
-        self.element_array_buffer = Some(element_array_buffer);
-    }
-
-    pub fn bind(&self) {
+    pub fn bind(&mut self) -> VertexArrayObjectBound {
         self.gl.bind_vertex_array(Some(self.vao.as_ref()));
+
+        VertexArrayObjectBound::new(self)
     }
 
-    pub fn unbind(&self) {
-        self.gl.bind_vertex_array(None);
+    pub fn bind_ref(&self) {
+        self.gl.bind_vertex_array(Some(self.vao.as_ref()));
     }
 
     pub fn num_elements(&self) -> usize {
@@ -73,7 +60,7 @@ impl<'a> VertexArrayObject {
     }
 
     pub fn num_instances(&self) -> usize {
-        self.array_buffer_instanced.as_ref().unwrap().num_instances()
+        self.array_buffer_instanced[0].num_instances()
     }
 }
 
@@ -83,5 +70,82 @@ impl Drop for VertexArrayObject {
         //self.unbind();
         console::log_1(&format!("delete VAO").into());
         self.gl.delete_vertex_array(Some(self.vao.as_ref()));
+    }
+}
+
+pub struct VertexArrayObjectBound<'a> {
+    vao: &'a mut VertexArrayObject,
+}
+
+impl<'a> VertexArrayObjectBound<'a> {
+    pub fn new(vao: &'a mut VertexArrayObject) -> VertexArrayObjectBound<'a> {
+        VertexArrayObjectBound {
+            vao
+        }
+    }
+
+    /// Precondition: self must be bound
+    pub fn add_array_buffer(&mut self, stride: usize, sizes: &[usize], offsets: &[usize], usage: u32, data: BufferData<'a, f32>) ->  &mut Self {
+        let array_buffer = ArrayBuffer::new(
+            &self.vao.gl,
+            self.vao.idx,
+            stride,
+            sizes,
+            offsets,
+            usage,
+            data
+        );
+
+        // Update the number of vertex attrib
+        self.vao.idx += sizes.len() as u32;
+
+        self.vao.array_buffer.push(array_buffer);
+
+        self
+    }
+
+    /// Precondition: self must be bound
+    pub fn add_instanced_array_buffer(&mut self, stride: usize, sizes: usize, usage: u32, data: BufferData<'a, f32>) -> &mut Self {
+        let array_buffer = ArrayBufferInstanced::new(
+            &self.vao.gl,
+            self.vao.idx,
+            stride,
+            sizes,
+            usage,
+            data,
+        );
+
+        // Update the number of vertex attrib
+        self.vao.idx += 1;
+
+        self.vao.array_buffer_instanced.push(array_buffer);
+
+        self
+    }
+
+    /// Precondition: self must be bound
+    pub fn add_element_buffer(&mut self, usage: u32, data: BufferData<'a, u16>) -> &mut Self {
+        let element_buffer = ElementArrayBuffer::new(
+            &self.vao.gl,
+            usage,
+            data
+        );
+
+        self.vao.element_array_buffer = Some(element_buffer);
+
+        self
+    }
+
+    /// Precondition: self must be bound
+    pub fn update_array_and_element_buffer(&mut self, idx_array_buffer: usize, array_data: BufferData<'a, f32>, element_data: BufferData<'a, u16>) {
+        //self.bind();
+        self.vao.array_buffer[idx_array_buffer].update(array_data);
+        if let Some(ref mut element_array_buffer) = self.vao.element_array_buffer {
+            element_array_buffer.update(element_data);
+        }
+    }
+
+    pub fn unbind(&self) {
+        self.vao.gl.bind_vertex_array(None);
     }
 }

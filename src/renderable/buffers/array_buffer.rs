@@ -26,7 +26,7 @@ use crate::renderable::buffers::buffer_data::BufferData;
 use std::convert::TryInto;
 
 impl<'a> ArrayBuffer {
-    pub fn new(gl: &WebGl2Context, stride: usize, sizes: &[usize], offsets: &[usize], data: BufferData<'a, f32>, usage: u32) -> ArrayBuffer {
+    pub fn new(gl: &WebGl2Context, offset_idx: u32, stride: usize, sizes: &[usize], offsets: &[usize], usage: u32, data: BufferData<'a, f32>) -> ArrayBuffer {
         let buffer = gl.create_buffer()
             .ok_or("failed to create buffer")
             .unwrap();
@@ -39,22 +39,11 @@ impl<'a> ArrayBuffer {
             &data,
             usage,
         );
-        /*let memory_buffer = wasm_bindgen::memory()
-            .dyn_into::<WebAssembly::Memory>()
-            .map_err(|_| "Unable to get the WASM memory buffer for storing the vertices data!")
-            .unwrap()
-            .buffer();
-        gl.buffer_data_with_array_buffer_view_and_src_offset_and_length(
-            WebGl2RenderingContext::ARRAY_BUFFER,
-            &js_sys::Float32Array::new(&memory_buffer),
-            usage,
-            (data.0.as_ptr() as u32) / 4,
-            data.0.len() as u32,
-        );*/
         // Link to the shader
         for (idx, (size, offset)) in sizes.iter().zip(offsets.iter()).enumerate() {
-            gl.vertex_attrib_pointer_with_i32(idx as u32, *size as i32, WebGl2RenderingContext::FLOAT, false, stride as i32, *offset as i32);
-            gl.enable_vertex_attrib_array(idx as u32);
+            let idx = (idx as u32) + offset_idx;
+            gl.vertex_attrib_pointer_with_i32(idx, *size as i32, WebGl2RenderingContext::FLOAT, false, stride as i32, *offset as i32);
+            gl.enable_vertex_attrib_array(idx);
         }
 
         let num_packed_data = sizes.len();

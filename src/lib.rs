@@ -176,16 +176,36 @@ impl App {
             shaders::catalog_frag::CONTENT,
             uniforms_catalog
         );
+
+        // Heatmap shader
+        // uniforms definition
+        let uniforms_heatmap = vec![
+            // General uniforms
+            String::from("current_time"),
+            String::from("model"),
+            // Viewport uniforms
+            String::from("zoom_factor"),
+            String::from("aspect"),
+            String::from("last_zoom_action"),
+            // Heatmap-specific uniforms
+            String::from("texture_fbo"),
+            String::from("colormap"),
+        ];
+        let shader_heatmap = Shader::new(&gl,
+            shaders::heatmap_vert::CONTENT,
+            shaders::heatmap_frag::CONTENT,
+            uniforms_heatmap
+        );
+
         let mut shaders = HashMap::new();
         shaders.insert("hips_sphere", shader_2d_proj);
         shaders.insert("grid", shader_grid);
         shaders.insert("catalog", shader_catalog);
+        shaders.insert("heatmap", shader_heatmap);
 
         gl.enable(WebGl2RenderingContext::BLEND);
         gl.blend_func(WebGl2RenderingContext::SRC_ALPHA, WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA);
         gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
-
-        gl.clear_color(0.08, 0.08, 0.08, 1.0);
 
         // Projection definition
         let projection = ProjectionType::Orthographic(Orthographic {});
@@ -318,6 +338,7 @@ impl App {
     fn render(&self) {
         if RENDER_FRAME.lock().unwrap().get() {
             // Render the scene
+            self.gl.clear_color(0.08, 0.08, 0.08, 1.0);
             self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
 
             // Draw renderables here
@@ -326,13 +347,13 @@ impl App {
 
             // Draw the HiPS sphere
             self.hips_sphere.draw(
-                &shaders["hips_sphere"],
+                shaders,
                 viewport
             );
 
             // Draw the catalogs
             self.catalog.draw(
-                &shaders["catalog"],
+                shaders,
                 viewport
             );
 
@@ -340,7 +361,7 @@ impl App {
             if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
                 // The grid lines
                 self.grid.draw(
-                    &shaders["grid"],
+                    shaders,
                     viewport
                 );
                 // The labels

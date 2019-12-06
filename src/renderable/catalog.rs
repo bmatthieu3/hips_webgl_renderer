@@ -13,9 +13,13 @@ pub struct Catalog {
 
     fbo: Option<WebGlFramebuffer>,
     fbo_texture: Texture2D,
+    colormap_texture: Texture2D,
 
     fbo_texture_width: i32,
     fbo_texture_height: i32,
+
+    // VAO for the screen
+    vao_screen: VertexArrayObject,  
 }
 
 use js_sys::Math;
@@ -25,7 +29,7 @@ impl Catalog {
     pub fn new(gl: &WebGl2Context) -> Catalog {
         let mut center = vec![];
 
-        let num_instances = 10000;
+        let num_instances = 150000;
         for _ in 0..num_instances {
             let x = (Math::random() as f32) * 2_f32 - 1_f32;
             let y = (Math::random() as f32) * 2_f32 - 1_f32;
@@ -56,16 +60,45 @@ impl Catalog {
 
         // Load the texture of the gaussian kernel
         let kernel_texture = Texture2D::create(gl, "./textures/kernel.png");
+        let colormap_texture = Texture2D::create(gl, "./textures/colormap.png");
 
         // Initialize texture for framebuffer
-        let fbo_texture_width = 1024;
-        let fbo_texture_height = 1024;
+        let fbo_texture_width = 512;
+        let fbo_texture_height = 512;
         let fbo_texture = Texture2D::create_empty(gl, fbo_texture_width, fbo_texture_height);
         // Create and bind the framebuffer
         let fbo = gl.create_framebuffer();
         gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, fbo.as_ref());
         // attach the texture as the first color attachment
         fbo_texture.attach_to_framebuffer(&gl);
+        // Unbind the framebuffer
+        gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
+
+        // Create the VAO for the screen
+        let mut vao_screen = VertexArrayObject::new(gl);
+        vao_screen.bind()
+            // Store the screen and uv of the billboard in a VBO
+            .add_array_buffer(
+                4 * std::mem::size_of::<f32>(),
+                &[2, 2],
+                &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
+                WebGl2RenderingContext::STATIC_DRAW,
+                BufferData(
+                    &vec![
+                        -1.0, -1.0, 0.0, 0.0,
+                        1.0, -1.0, 1.0, 0.0,
+                        1.0, 1.0, 1.0, 1.0,
+                        -1.0, 1.0, 0.0, 1.0,
+                    ]
+                ),
+            )
+            // Set the element buffer
+            .add_element_buffer(
+                WebGl2RenderingContext::STATIC_DRAW,
+                BufferData(indices.as_ref()),
+            )
+            // Unbind the buffer
+            .unbind();
 
         Catalog {
             center,
@@ -80,9 +113,12 @@ impl Catalog {
 
             fbo,
             fbo_texture,
+            colormap_texture,
 
             fbo_texture_width,
             fbo_texture_height,
+
+            vao_screen
         }
     }
 }
@@ -91,10 +127,7 @@ use crate::renderable::Mesh;
 use crate::shader::Shader;
 
 use crate::renderable::VertexArrayObject;
-use crate::renderable::buffers::array_buffer::ArrayBuffer;
-use crate::renderable::buffers::array_buffer_instanced::ArrayBufferInstanced;
 use crate::renderable::buffers::buffer_data::BufferData;
-use crate::renderable::buffers::element_array_buffer::ElementArrayBuffer;
 
 use cgmath::Matrix4;
 
@@ -104,45 +137,39 @@ use crate::WebGl2Context;
 use crate::projection::ProjectionType;
 use crate::viewport::ViewPort;
 
+use crate::renderable::Renderable;
+use crate::utils;
+use std::collections::HashMap;
+
 use crate::window_size_u32;
 
 impl Mesh for Catalog {
     fn create_buffers(&self, gl: &WebGl2Context) -> VertexArrayObject {
         let mut vertex_array_object = VertexArrayObject::new(gl);
-        vertex_array_object.bind();
+        vertex_array_object.bind()
+            // Store the UV and the offsets of the billboard in a VBO
+            .add_array_buffer(
+                4 * std::mem::size_of::<f32>(),
+                &[2, 2],
+                &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
+                WebGl2RenderingContext::STATIC_DRAW,
+                BufferData(self.vertices.as_ref()),
+            )
+            // Store the position of the center of the source in the a instanced VBO
+            .add_instanced_array_buffer(
+                3 * std::mem::size_of::<f32>(),
+                3,
+                WebGl2RenderingContext::STATIC_DRAW,
+                BufferData(self.center.as_ref()),
+            )
+            // Set the element buffer
+            .add_element_buffer(
+                WebGl2RenderingContext::STATIC_DRAW,
+                BufferData(self.indices.as_ref()),
+            )
+            // Unbind the buffer
+            .unbind();
 
-        // ARRAY buffer creation
-        let array_buffer = ArrayBuffer::new(
-            gl,
-            4 * std::mem::size_of::<f32>(),
-            &[2, 2],
-            &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
-            BufferData(self.vertices.as_ref()),
-            WebGl2RenderingContext::STATIC_DRAW,
-        );
-        let array_buffer_instanced = ArrayBufferInstanced::new(
-            gl,
-            2,
-            3 * std::mem::size_of::<f32>(),
-            3,
-            BufferData(self.center.as_ref()),
-            WebGl2RenderingContext::STATIC_DRAW,
-        );
-
-        // ELEMENT ARRAY buffer creation
-        let indexes_buffer = ElementArrayBuffer::new(
-            gl,
-            BufferData(self.indices.as_ref()),
-            WebGl2RenderingContext::STATIC_DRAW,
-        );
-
-        vertex_array_object.set_array_buffer(array_buffer);
-        vertex_array_object.set_array_buffer_instanced(array_buffer_instanced);
-
-        vertex_array_object.set_element_array_buffer(indexes_buffer);
-
-        vertex_array_object.unbind();
-        // Unbind the buffer
         //gl.bind_buffer(WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER, None);
         vertex_array_object
     }
@@ -161,32 +188,86 @@ impl Mesh for Catalog {
 
     fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: &ViewPort) {}
 
-    fn draw(&self, gl: &WebGl2Context, vao: &VertexArrayObject) {
+    fn draw<T: Mesh + DisableDrawing>(
+        &self,
+        gl: &WebGl2Context,
+        renderable: &Renderable<T>,
+        shaders: &HashMap<&'static str, Shader>,
+        viewport: &ViewPort
+    ) {
+        // Render to the FRAMEBUFFER
         {
-            // Render to the fbo_texture
+            // bind the FBO
             gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, self.fbo.as_ref());
 
             // Set the viewport
             gl.viewport(0, 0, self.fbo_texture_width, self.fbo_texture_height);
+            gl.scissor(0, 0, self.fbo_texture_width, self.fbo_texture_height);
 
-            //gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+            gl.clear_color(0.0, 0.0, 0.0, 1.0);
+            gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+
+            let shader = &shaders["catalog"];
+            shader.bind(gl);
+
+            renderable.vertex_array_object.bind_ref();
+
+            // Send uniforms
+            viewport.send_to_vertex_shader(gl, shader);
+            self.kernel_texture.send_to_shader(&gl, shader, "kernel_texture");
+
+            // Send model matrix
+            let model_mat_location = shader.get_uniform_location("model");
+            let model_mat_f32_slice: &[f32; 16] = renderable.model_mat.as_ref();
+            gl.uniform_matrix4fv_with_f32_array(model_mat_location, false, model_mat_f32_slice);
+
+            // Send current time
+            let location_time = shader.get_uniform_location("current_time");
+            gl.uniform1f(location_time, utils::get_current_time());
 
             gl.draw_elements_instanced_with_i32(
                 WebGl2RenderingContext::TRIANGLES,
-                vao.num_elements() as i32,
+                renderable.vertex_array_object.num_elements() as i32,
                 WebGl2RenderingContext::UNSIGNED_SHORT,
                 0,
-                vao.num_instances() as i32,
+                renderable.vertex_array_object.num_instances() as i32,
             );
 
+            // Unbind the FBO
             gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
         }
 
-        let (width_screen, height_screen) = window_size_u32();
+        // Render to the heatmap to the screen
+        {
             // Set the viewport
-        gl.viewport(0, 0, width_screen as i32, height_screen as i32);
+            let (width_screen, height_screen) = window_size_u32();
+            gl.viewport(0, 0, width_screen as i32, height_screen as i32);
+            viewport.update_scissor();
 
-        /*{
+            let shader = &shaders["heatmap"];
+            shader.bind(gl);
+
+            self.vao_screen.bind_ref();
+
+            self.colormap_texture.send_to_shader(gl, shader, "colormap");
+            self.fbo_texture.send_to_shader(gl, shader, "texture_fbo");
+
+            gl.draw_elements_with_i32(
+                WebGl2RenderingContext::TRIANGLES,
+                self.vao_screen.num_elements() as i32,
+                WebGl2RenderingContext::UNSIGNED_SHORT,
+                0,
+            );
+        }
+    }
+    /*
+    fn draw(&self, gl: &WebGl2Context, vao: &VertexArrayObject) {
+
+        //let (width_screen, height_screen) = window_size_u32();
+        // Set the viewport
+        //gl.viewport(0, 0, width_screen as i32, height_screen as i32);
+
+        {
             // Render to the canvas
             gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
         
@@ -209,8 +290,8 @@ impl Mesh for Catalog {
         
             const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
             drawCube(aspect)
-        }*/
-    }
+        }
+    }*/
 }
 
 use crate::renderable::DisableDrawing;

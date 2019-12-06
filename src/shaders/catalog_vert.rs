@@ -1,5 +1,5 @@
 pub static CONTENT: &'static str = r#"#version 300 es
-    precision highp float;
+    precision lowp float;
     layout (location = 0) in vec2 offset;
     layout (location = 1) in vec2 uv;
 
@@ -19,7 +19,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
         float delta = asin(p.y);
         float theta = atan(p.x, p.z);
 
-        float theta_by_two = theta / 2.f;
+        float theta_by_two = theta * 0.5f;
 
         float alpha = acos(cos(delta)*cos(theta_by_two));
         float inv_sinc_alpha = 1.f;

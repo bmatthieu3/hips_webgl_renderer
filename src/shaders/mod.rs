@@ -7,3 +7,6 @@ pub mod grid_frag;
 
 pub mod catalog_vert;
 pub mod catalog_frag;
+
+pub mod heatmap_vert;
+pub mod heatmap_frag;

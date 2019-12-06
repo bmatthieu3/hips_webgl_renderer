@@ -162,38 +162,35 @@ impl<'a> HiPSSphere {
 }
 
 use crate::renderable::VertexArrayObject;
-use crate::renderable::buffers::array_buffer::ArrayBuffer;
 use crate::renderable::buffers::buffer_data::BufferData;
-use crate::renderable::buffers::element_array_buffer::ElementArrayBuffer;
 
 use cgmath::Matrix4;
 
+use std::collections::HashMap;
+use crate::renderable::Renderable;
+
+use crate::utils;
 impl Mesh for HiPSSphere {
     fn create_buffers(&self, gl: &WebGl2Context) -> VertexArrayObject {
         let mut vertex_array_object = VertexArrayObject::new(gl);
-        vertex_array_object.bind();
 
-        // ARRAY buffer creation
-        let array_buffer = ArrayBuffer::new(
-            gl,
-            5 * std::mem::size_of::<f32>(),
-            &[2, 3],
-            &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
-            BufferData(self.vertices.as_ref()),
-            WebGl2RenderingContext::STATIC_DRAW,
-        );
+        vertex_array_object.bind()
+            // Store the projeted and 3D vertex positions in a VBO
+            .add_array_buffer(
+                5 * std::mem::size_of::<f32>(),
+                &[2, 3],
+                &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
+                WebGl2RenderingContext::STATIC_DRAW,
+                BufferData(self.vertices.as_ref()),
+            )
+            // Set the element buffer
+            .add_element_buffer(
+                WebGl2RenderingContext::STATIC_DRAW,
+                BufferData(self.idx_vertices.as_ref()),
+            )
+            // Unbind the buffer
+            .unbind();
 
-        // ELEMENT ARRAY buffer creation
-        let indexes_buffer = ElementArrayBuffer::new(
-            gl,
-            BufferData(self.idx_vertices.as_ref()),
-            WebGl2RenderingContext::STATIC_DRAW,
-        );
-
-        vertex_array_object.set_array_buffer(array_buffer);
-        vertex_array_object.set_element_array_buffer(indexes_buffer);
-
-        vertex_array_object.unbind();
         // Unbind the buffer
         //gl.bind_buffer(WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER, None);
         vertex_array_object
@@ -241,10 +238,34 @@ impl Mesh for HiPSSphere {
         //console::log_1(&format!("{:?}", self.buffer_tiles.borrow().requested_tiles).into());
     }
 
-    fn draw(&self, gl: &WebGl2Context, vao: &VertexArrayObject) {
+    fn draw<T: Mesh + DisableDrawing>(
+        &self,
+        gl: &WebGl2Context,
+        renderable: &Renderable<T>,
+        shaders: &HashMap<&'static str, Shader>,
+        viewport: &ViewPort
+    ) {
+        let shader = &shaders["hips_sphere"];
+        shader.bind(gl);
+
+        renderable.vertex_array_object.bind_ref();
+
+        // Send Uniforms
+        viewport.send_to_vertex_shader(gl, shader);
+        self.send_uniforms(gl, shader);
+
+        // Send model matrix
+        let model_mat_location = shader.get_uniform_location("model");
+        let model_mat_f32_slice: &[f32; 16] = renderable.model_mat.as_ref();
+        gl.uniform_matrix4fv_with_f32_array(model_mat_location, false, model_mat_f32_slice);
+
+        // Send current time
+        let location_time = shader.get_uniform_location("current_time");
+        gl.uniform1f(location_time, utils::get_current_time());
+
         gl.draw_elements_with_i32(
             WebGl2RenderingContext::TRIANGLES,
-            vao.num_elements() as i32,
+            renderable.vertex_array_object.num_elements() as i32,
             WebGl2RenderingContext::UNSIGNED_SHORT,
             0,
         );

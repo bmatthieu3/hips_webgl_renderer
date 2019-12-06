@@ -556,12 +556,12 @@ fn create_texture_tile_buffer(gl: &WebGl2Context) -> (Option<web_sys::WebGlTextu
     canvas.set_height((HEIGHT_TEXTURE as u32) * 8);
 
     let idx_texture_unit = unsafe { NUM_TEXTURE_UNIT };
-    let webgl_texture = gl.create_texture();
-    gl.active_texture(idx_texture_unit);
-
     unsafe {
         NUM_TEXTURE_UNIT += 1;
     }
+    let webgl_texture = gl.create_texture();
+    gl.active_texture(idx_texture_unit);
+
     gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, webgl_texture.as_ref());
 
     gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::NEAREST as i32);
@@ -595,12 +595,12 @@ fn create_sampler_3d(gl: &WebGl2Context, size_buffer: u32) -> (Option<web_sys::W
     canvas.set_height((HEIGHT_TEXTURE as u32) * size_buffer);
 
     let idx_texture_unit = unsafe { NUM_TEXTURE_UNIT };
-    let webgl_texture = gl.create_texture();
-    gl.active_texture(idx_texture_unit);
-
     unsafe {
         NUM_TEXTURE_UNIT += 1;
     }
+    let webgl_texture = gl.create_texture();
+    gl.active_texture(idx_texture_unit);
+
     gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, webgl_texture.as_ref());
 
     gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::LINEAR as i32);
@@ -651,7 +651,9 @@ impl Texture2D {
 
         let webgl_texture = Rc::new(RefCell::new(gl.create_texture()));
         let idx_texture_unit = unsafe { NUM_TEXTURE_UNIT };
-
+        unsafe {
+            NUM_TEXTURE_UNIT += 1;
+        }
         let onerror = {
             Closure::wrap(Box::new(move || {
                 console::log_1(&format!("Cannot load texture located at: {:?}", src).into());
@@ -665,9 +667,6 @@ impl Texture2D {
 
             Closure::wrap(Box::new(move || {
                 gl.active_texture(idx_texture_unit);
-                unsafe {
-                    NUM_TEXTURE_UNIT += 1;
-                }
                 gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, webgl_texture.borrow().as_ref());
 
                 gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::LINEAR as i32);
@@ -704,11 +703,11 @@ impl Texture2D {
     pub fn create_empty(gl: &WebGl2Context, width: i32, height: i32) -> Texture2D {
         let webgl_texture = gl.create_texture();
         let idx_texture_unit = unsafe { NUM_TEXTURE_UNIT };
-
-        gl.active_texture(idx_texture_unit);
         unsafe {
             NUM_TEXTURE_UNIT += 1;
         }
+        gl.active_texture(idx_texture_unit);
+
         gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, webgl_texture.as_ref());
 
         gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::LINEAR as i32);
