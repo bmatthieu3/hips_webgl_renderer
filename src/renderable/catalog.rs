@@ -2,7 +2,8 @@ use crate::texture::Texture2D;
 
 use web_sys::WebGlFramebuffer;
 pub struct Catalog {
-    center: Vec<f32>, // Position of the observations
+    center_lonlat: Vec<f32>, // Spherical position of the observations
+    center_xyz: Vec<f32>, // Cartesian position of the observations
     num_instances: usize,
 
     vertices: Vec<f32>, // Offsets and UVs
@@ -22,25 +23,44 @@ pub struct Catalog {
     vao_screen: VertexArrayObject,  
 }
 
-use js_sys::Math;
-use cgmath::Vector3;
-use cgmath::InnerSpace;
+use cgmath::Deg;
+#[derive(Debug)]
+pub struct Source {
+    ra: Deg<f32>,
+    dec: Deg<f32>,
+}
+
+impl Source {
+    pub fn new(ra: Deg<f32>, dec: Deg<f32>) -> Source {
+        Source {
+            ra,
+            dec,
+        }
+    }
+}
+
+impl<'a> From<&[f32]> for Source {
+    fn from(data: &[f32]) -> Self {
+        Source::new(Deg(data[0]), Deg(data[1]))
+    }
+}
+
+use crate::math;
 impl Catalog {
-    pub fn new(gl: &WebGl2Context) -> Catalog {
-        let mut center = vec![];
+    pub fn new(gl: &WebGl2Context, sources: Vec<Source>) -> Catalog {
+        let mut center_lonlat = Vec::with_capacity(sources.len());
+        let mut center_xyz = Vec::with_capacity(sources.len());
 
-        let num_instances = 150000;
-        for _ in 0..num_instances {
-            let x = (Math::random() as f32) * 2_f32 - 1_f32;
-            let y = (Math::random() as f32) * 2_f32 - 1_f32;
-            let z = (Math::random() as f32) * 2_f32 - 1_f32;
+        let num_instances = sources.len();
+        for source in sources.into_iter() {
+            let vertex = math::radec_to_xyz(source.ra.into(), source.dec.into());
 
-            let mut vertex = Vector3::new(x, y, z);
-            vertex = vertex.normalize();
+            center_xyz.push(vertex.x);
+            center_xyz.push(vertex.y);
+            center_xyz.push(vertex.z);
 
-            center.push(vertex.x);
-            center.push(vertex.y);
-            center.push(vertex.z);
+            center_lonlat.push(source.ra.0);
+            center_lonlat.push(source.dec.0);
         }
 
         // Store the vertices position and UV
@@ -101,7 +121,9 @@ impl Catalog {
             .unbind();
 
         Catalog {
-            center,
+            center_lonlat,
+            center_xyz,
+
             num_instances, 
 
             vertices,
@@ -155,12 +177,19 @@ impl Mesh for Catalog {
                 WebGl2RenderingContext::STATIC_DRAW,
                 BufferData(self.vertices.as_ref()),
             )
-            // Store the position of the center of the source in the a instanced VBO
+            // Store the cartesian position of the center of the source in the a instanced VBO
             .add_instanced_array_buffer(
                 3 * std::mem::size_of::<f32>(),
                 3,
                 WebGl2RenderingContext::STATIC_DRAW,
-                BufferData(self.center.as_ref()),
+                BufferData(self.center_xyz.as_ref()),
+            )
+            // Store the spherical position of the center of the source in the a instanced VBO
+            .add_instanced_array_buffer(
+                2 * std::mem::size_of::<f32>(),
+                2,
+                WebGl2RenderingContext::STATIC_DRAW,
+                BufferData(self.center_lonlat.as_ref()),
             )
             // Set the element buffer
             .add_element_buffer(

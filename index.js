@@ -1,4 +1,5 @@
 const autoComplete = require('./js/auto-complete.js');
+
 window.addEventListener('load', function () {
     import('./pkg/webgl')
         .then((webgl) => {
@@ -47,6 +48,9 @@ window.addEventListener('load', function () {
                     }
                     console.log(hipsesArray);
                 });
+            
+            // Load a source catalog from vizier
+            // Do the Ajax query
 
             // Add the UI event listeners
 
@@ -61,6 +65,7 @@ window.addEventListener('load', function () {
 
             // Start our Rust application. You can find `WebClient` in `src/lib.rs`
             const webClient = new webgl.WebClient();
+            retrieveCatalogSources(webClient);
 
             let time = Date.now();
             let time_last_fps = time;
@@ -284,4 +289,21 @@ function touchpad_events(webClient) {
             // zoom event
         }
     }, false);
+}
+
+function retrieveCatalogSources(webClient) {
+    let url = 'http://tapvizier.u-strasbg.fr/TAPVizieR/tap/sync?phase=RUN&lang=adql&format=json&request=doQuery&query=SELECT%22J%2FA%2BA%2F566%2FA43%2Ftable2%22.RAJ2000%2C%20%20%22J%2FA%2BA%2F566%2FA43%2Ftable2%22.DEJ2000%2C%20%22J%2FA%2BA%2F566%2FA43%2Ftable2%22.Bmag%20FROM%20%22J%2FA%2BA%2F566%2FA43%2Ftable2%22';
+
+    var request = {
+        method: 'GET',
+        headers: new Headers(),
+        mode: 'cors',
+        cache: 'default'
+    };
+    fetch(url, request)
+        .then(response => response.json())
+        .then((votable) => {
+            let sources = votable.data;
+            webClient.add_catalog(sources);
+        });
 }

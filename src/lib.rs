@@ -2,6 +2,7 @@
 extern crate lazy_static;
 extern crate itertools_num;
 extern crate rand;
+extern crate serde_derive;
 
 use web_sys::console;
 #[macro_export]
@@ -39,7 +40,7 @@ use shader::Shader;
 use renderable::Renderable;
 use renderable::hips_sphere::HiPSSphere;
 use renderable::grid::ProjetedGrid;
-use renderable::catalog::Catalog;
+use renderable::catalog::{Catalog, Source};
 
 use renderable::projection;
 use renderable::projection::ProjectionType;
@@ -233,7 +234,7 @@ impl App {
         );
 
         // Catalog definition
-        let catalog_mesh = Catalog::new(&gl);
+        let catalog_mesh = Catalog::new(&gl, vec![]);
         let catalog = Renderable::<Catalog>::new(
             &gl,
             &shaders["catalog"],
@@ -451,6 +452,11 @@ impl App {
         } else {
             self.viewport.unzoom(delta_y);
         }
+    }
+
+    fn add_catalog(&mut self, sources: Vec<Source>) {
+        let catalog_mesh = Catalog::new(&self.gl, sources);
+        self.catalog.update_mesh(&self.shaders["catalog"], catalog_mesh);
     }
 }
 
@@ -725,6 +731,21 @@ impl WebClient {
     // Wheel event
     pub fn zoom(&mut self, delta_y: f32) -> Result<(), JsValue> {
         self.app.zoom(delta_y);
+
+        Ok(())
+    }
+
+    // Add new catalog
+    pub fn add_catalog(&mut self, data: &JsValue) -> Result<(), JsValue> {
+        let data: Vec<[f32; 3]> = data.into_serde().unwrap();
+
+        let sources: Vec<Source> = data.into_iter()
+            .map(|ref source| {
+                (source as &[f32]).into()
+            })
+            .collect::<Vec<_>>();
+
+        self.app.add_catalog(sources);
 
         Ok(())
     }
