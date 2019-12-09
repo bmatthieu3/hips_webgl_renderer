@@ -62,6 +62,7 @@ window.addEventListener('load', function () {
             let fps_counter = document.getElementById("fps-counter");
             let grid_color_picker = document.getElementById("grid-color");
             let grid_opacity = document.getElementById("grid-alpha");
+            let catalog_opacity = document.getElementById("catalog-alpha");
 
             // Start our Rust application. You can find `WebClient` in `src/lib.rs`
             const webClient = new webgl.WebClient();
@@ -144,6 +145,14 @@ window.addEventListener('load', function () {
                 console.log(opacity);
 
                 webClient.change_grid_opacity(opacity);
+            }, false);
+
+            // Alpha catalog
+            catalog_opacity.addEventListener("input", (event) => {
+                let opacity = event.target.value;
+                console.log(opacity);
+
+                webClient.set_catalog_opacity(opacity);
             }, false);
 
             // Change HiPS

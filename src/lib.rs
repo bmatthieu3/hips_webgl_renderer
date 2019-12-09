@@ -19,7 +19,6 @@ use wasm_bindgen::JsCast;
 use web_sys::WebGl2RenderingContext;
 
 use cgmath;
-use cgmath::{InnerSpace, Vector3, Vector4, Rad};
 
 mod shader;
 mod shaders;
@@ -191,6 +190,7 @@ impl App {
             // Heatmap-specific uniforms
             String::from("texture_fbo"),
             String::from("colormap"),
+            String::from("alpha"),
         ];
         let shader_heatmap = Shader::new(&gl,
             shaders::heatmap_vert::CONTENT,
@@ -550,13 +550,6 @@ impl WebGl2Context {
                 .dyn_into::<WebGl2RenderingContext>()
                 .unwrap()
         );
-        /*let inner = Rc::new(
-            canvas.get_context("webgl2")
-                .unwrap()
-                .unwrap()
-                .dyn_into::<WebGl2RenderingContext>()
-                .unwrap()
-        );*/
 
         WebGl2Context {
             inner
@@ -696,6 +689,17 @@ impl WebClient {
 
         Ok(())
     }
+    /// Change grid opacity
+    pub fn set_catalog_opacity(&mut self, alpha: f32) -> Result<(), JsValue> {
+        self.app.catalog
+            .mesh_mut()
+            .set_alpha(alpha);
+
+        RENDER_FRAME.lock().unwrap().set(true);
+        UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
+
+        Ok(())
+    }
 
     /// Change HiPS
     pub fn change_hips(&mut self, hips_url: String, hips_depth: i32) -> Result<(), JsValue> {
@@ -728,14 +732,14 @@ impl WebClient {
         Ok(())
     }
 
-    // Wheel event
+    /// Wheel event
     pub fn zoom(&mut self, delta_y: f32) -> Result<(), JsValue> {
         self.app.zoom(delta_y);
 
         Ok(())
     }
 
-    // Add new catalog
+    /// Add new catalog
     pub fn add_catalog(&mut self, data: &JsValue) -> Result<(), JsValue> {
         let data: Vec<[f32; 3]> = data.into_serde().unwrap();
 

@@ -10,6 +10,8 @@ pub struct Catalog {
     indices: Vec<u16>,
     size: f32,
 
+    alpha: f32,
+
     kernel_texture: Texture2D,
 
     fbo: Option<WebGlFramebuffer>,
@@ -120,6 +122,8 @@ impl Catalog {
             // Unbind the buffer
             .unbind();
 
+        let alpha = 0.2_f32;
+
         Catalog {
             center_lonlat,
             center_xyz,
@@ -130,6 +134,7 @@ impl Catalog {
             indices,
 
             size,
+            alpha,
 
             kernel_texture,
 
@@ -142,6 +147,10 @@ impl Catalog {
 
             vao_screen
         }
+    }
+
+    pub fn set_alpha(&mut self, alpha: f32) {
+        self.alpha = alpha;
     }
 }
 
@@ -204,10 +213,6 @@ impl Mesh for Catalog {
     }
 
     fn send_uniforms(&self, gl: &WebGl2Context, shader: &Shader) {
-        // Send current depth
-        //let location_current_depth = shader.get_uniform_location("current_depth");
-        //gl.uniform1i(location_current_depth, 0);
-        // Send the gaussian kernel texture
         self.kernel_texture.send_to_shader(&gl, shader, "kernel_texture");
     }
 
@@ -280,6 +285,10 @@ impl Mesh for Catalog {
 
             self.colormap_texture.send_to_shader(gl, shader, "colormap");
             self.fbo_texture.send_to_shader(gl, shader, "texture_fbo");
+
+            // Send alpha
+            let location_alpha = shader.get_uniform_location("alpha");
+            gl.uniform1f(location_alpha, self.alpha);
 
             gl.draw_elements_with_i32(
                 WebGl2RenderingContext::TRIANGLES,
