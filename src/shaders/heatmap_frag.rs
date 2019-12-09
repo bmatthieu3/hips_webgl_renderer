@@ -11,7 +11,9 @@ pub static CONTENT: &'static str = r#"#version 300 es
     void main() {
         float opacity = texture(texture_fbo, out_uv).r;
 
+        float o = smoothstep(0.f, 0.1f, opacity);
+
         color = texture(colormap, vec2(opacity, 0.5f));
-        color.a = alpha*opacity;
+        color.a = alpha * o;
     }
 "#;

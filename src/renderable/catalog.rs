@@ -11,6 +11,7 @@ pub struct Catalog {
     size: f32,
 
     alpha: f32,
+    strength: f32,
 
     kernel_texture: Texture2D,
 
@@ -82,11 +83,11 @@ impl Catalog {
 
         // Load the texture of the gaussian kernel
         let kernel_texture = Texture2D::create(gl, "./textures/kernel.png");
-        let colormap_texture = Texture2D::create(gl, "./textures/colormap.png");
+        let colormap_texture = Texture2D::create(gl, "./textures/magma_colormap.png");
 
         // Initialize texture for framebuffer
-        let fbo_texture_width = 512;
-        let fbo_texture_height = 512;
+        let fbo_texture_width = 768;
+        let fbo_texture_height = 768;
         let fbo_texture = Texture2D::create_empty(gl, fbo_texture_width, fbo_texture_height);
         // Create and bind the framebuffer
         let fbo = gl.create_framebuffer();
@@ -123,7 +124,7 @@ impl Catalog {
             .unbind();
 
         let alpha = 0.2_f32;
-
+        let strength = 1_f32;
         Catalog {
             center_lonlat,
             center_xyz,
@@ -135,6 +136,7 @@ impl Catalog {
 
             size,
             alpha,
+            strength,
 
             kernel_texture,
 
@@ -151,6 +153,10 @@ impl Catalog {
 
     pub fn set_alpha(&mut self, alpha: f32) {
         self.alpha = alpha;
+    }
+
+    pub fn set_kernel_strength(&mut self, strength: f32) {
+        self.strength = strength;
     }
 }
 
@@ -213,7 +219,7 @@ impl Mesh for Catalog {
     }
 
     fn send_uniforms(&self, gl: &WebGl2Context, shader: &Shader) {
-        self.kernel_texture.send_to_shader(&gl, shader, "kernel_texture");
+        unreachable!();
     }
 
     fn get_vertices<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>) {
@@ -247,8 +253,13 @@ impl Mesh for Catalog {
             renderable.vertex_array_object.bind_ref();
 
             // Send uniforms
+            // Send the viewport uniforms
             viewport.send_to_vertex_shader(gl, shader);
+            // Send the gaussian kernel texture
             self.kernel_texture.send_to_shader(&gl, shader, "kernel_texture");
+            // Send the max strength of one kernel
+            let location_strength = shader.get_uniform_location("strength");
+            gl.uniform1f(location_strength, self.strength);
 
             // Send model matrix
             let model_mat_location = shader.get_uniform_location("model");

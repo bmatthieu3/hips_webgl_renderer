@@ -10,6 +10,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
     uniform float zoom_factor;
 
     uniform sampler2D kernel_texture;
+    uniform float strength;
 
     void main() {
         if (out_p.z < 0.f) {
@@ -17,7 +18,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
         }
 
         color = texture(kernel_texture, out_uv);
-        //float opacity = 0.1f * zoom_factor;
+        color.a *= strength;
         //color.rgb *= 0.6f;
         //color = vec4(1.f, 0.f, 0.f, 1.f);
     }

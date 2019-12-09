@@ -170,6 +170,7 @@ impl App {
             String::from("last_zoom_action"),
             // Catalog-specific uniforms
             String::from("kernel_texture"),
+            String::from("strength"),
         ];
         let shader_catalog = Shader::new(&gl,
             shaders::catalog_vert::CONTENT,
@@ -694,6 +695,17 @@ impl WebClient {
         self.app.catalog
             .mesh_mut()
             .set_alpha(alpha);
+
+        RENDER_FRAME.lock().unwrap().set(true);
+        UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
+
+        Ok(())
+    }
+    /// Change grid opacity
+    pub fn set_kernel_strength(&mut self, strength: f32) -> Result<(), JsValue> {
+        self.app.catalog
+            .mesh_mut()
+            .set_kernel_strength(strength);
 
         RENDER_FRAME.lock().unwrap().set(true);
         UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);

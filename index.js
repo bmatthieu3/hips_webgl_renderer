@@ -63,6 +63,7 @@ window.addEventListener('load', function () {
             let grid_color_picker = document.getElementById("grid-color");
             let grid_opacity = document.getElementById("grid-alpha");
             let catalog_opacity = document.getElementById("catalog-alpha");
+            let kernel_strength = document.getElementById("kernel-strength");
 
             // Start our Rust application. You can find `WebClient` in `src/lib.rs`
             const webClient = new webgl.WebClient();
@@ -142,7 +143,6 @@ window.addEventListener('load', function () {
             // Alpha grid
             grid_opacity.addEventListener("input", (event) => {
                 let opacity = event.target.value;
-                console.log(opacity);
 
                 webClient.change_grid_opacity(opacity);
             }, false);
@@ -150,9 +150,15 @@ window.addEventListener('load', function () {
             // Alpha catalog
             catalog_opacity.addEventListener("input", (event) => {
                 let opacity = event.target.value;
-                console.log(opacity);
 
                 webClient.set_catalog_opacity(opacity);
+            }, false);
+
+            // Alpha catalog
+            kernel_strength.addEventListener("input", (event) => {
+                let strength = event.target.value;
+
+                webClient.set_kernel_strength(strength);
             }, false);
 
             // Change HiPS
