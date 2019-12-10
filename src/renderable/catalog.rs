@@ -348,3 +348,42 @@ impl DisableDrawing for Catalog {
     fn disable(&mut self) {
     }
 }
+
+const MAX_SOURCES: usize = 100;
+
+struct Node<'a, 'b: 'a> {
+    children: Option<[&'a Node<'a, 'b>; 4]>,
+
+    idx: u64,
+    depth: u8,
+
+    sources: Vec<&'b Source>,
+    num_sources: usize,
+}
+
+use healpix;
+use cgmath::Rad;
+impl<'a, 'b> Node<'a, 'b> {
+    fn add(&mut self, source: &'b Source) {
+        // Check whether the source belongs to this cell
+        // if not, we will exit the method here
+        let lon: Rad<f32> = source.ra.into();
+        let lat: Rad<f32> = source.dec.into();
+
+        let idx = healpix::nested::hash(self.depth, lon.0 as f64, lat.0 as f64);
+        if idx == self.idx {
+            if self.num_sources < MAX_SOURCES || self.depth == 29 {
+                self.sources.push(source);
+                self.num_sources += 1;
+            } else {
+                // Otherwise, we add it to the children
+                
+
+            }
+        }
+    }
+
+    fn num_sources(&self) -> usize {
+        self.num_sources
+    }
+}
