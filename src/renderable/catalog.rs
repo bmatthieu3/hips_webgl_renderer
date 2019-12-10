@@ -106,7 +106,7 @@ impl Catalog {
                 &[2, 2],
                 &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
                 WebGl2RenderingContext::STATIC_DRAW,
-                BufferData(
+                BufferData::new(
                     &vec![
                         -1.0, -1.0, 0.0, 0.0,
                         1.0, -1.0, 1.0, 0.0,
@@ -118,7 +118,7 @@ impl Catalog {
             // Set the element buffer
             .add_element_buffer(
                 WebGl2RenderingContext::STATIC_DRAW,
-                BufferData(indices.as_ref()),
+                BufferData::new(indices.as_ref()),
             )
             // Unbind the buffer
             .unbind();
@@ -190,26 +190,26 @@ impl Mesh for Catalog {
                 &[2, 2],
                 &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
                 WebGl2RenderingContext::STATIC_DRAW,
-                BufferData(self.vertices.as_ref()),
+                BufferData::new(self.vertices.as_ref()),
             )
             // Store the cartesian position of the center of the source in the a instanced VBO
             .add_instanced_array_buffer(
                 3 * std::mem::size_of::<f32>(),
                 3,
                 WebGl2RenderingContext::STATIC_DRAW,
-                BufferData(self.center_xyz.as_ref()),
+                BufferData::new(self.center_xyz.as_ref()),
             )
             // Store the spherical position of the center of the source in the a instanced VBO
             .add_instanced_array_buffer(
                 2 * std::mem::size_of::<f32>(),
                 2,
                 WebGl2RenderingContext::STATIC_DRAW,
-                BufferData(self.center_lonlat.as_ref()),
+                BufferData::new(self.center_lonlat.as_ref()),
             )
             // Set the element buffer
             .add_element_buffer(
                 WebGl2RenderingContext::STATIC_DRAW,
-                BufferData(self.indices.as_ref()),
+                BufferData::new(self.indices.as_ref()),
             )
             // Unbind the buffer
             .unbind();
@@ -309,38 +309,6 @@ impl Mesh for Catalog {
             );
         }
     }
-    /*
-    fn draw(&self, gl: &WebGl2Context, vao: &VertexArrayObject) {
-
-        //let (width_screen, height_screen) = window_size_u32();
-        // Set the viewport
-        //gl.viewport(0, 0, width_screen as i32, height_screen as i32);
-
-        {
-            // Render to the canvas
-            gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
-        
-            // Set the viewport
-            gl.viewport(0, 0, self.fbo_texture_width, self.fbo_texture_height);
-
-            // Bind shader
-
-
-
-            // Send the texture we just rendered to
-            self.fbo_texture.send_to_shader(&gl, shader, "texture");
-        
-            // Tell WebGL how to convert from clip space to pixels
-            gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-        
-            // Clear the canvas AND the depth buffer.
-            gl.clearColor(1, 1, 1, 1);   // clear to white
-            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-        
-            const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
-            drawCube(aspect)
-        }
-    }*/
 }
 
 use crate::renderable::DisableDrawing;
@@ -351,34 +319,82 @@ impl DisableDrawing for Catalog {
 
 const MAX_SOURCES: usize = 100;
 
-struct Node<'a, 'b: 'a> {
-    children: Option<[&'a Node<'a, 'b>; 4]>,
+struct Node<'a> {
+    children: [Option<Box<Node<'a>>>; 4],
 
     idx: u64,
     depth: u8,
 
-    sources: Vec<&'b Source>,
+    sources: Vec<&'a Source>,
     num_sources: usize,
 }
 
 use healpix;
 use cgmath::Rad;
-impl<'a, 'b> Node<'a, 'b> {
-    fn add(&mut self, source: &'b Source) {
-        // Check whether the source belongs to this cell
-        // if not, we will exit the method here
-        let lon: Rad<f32> = source.ra.into();
-        let lat: Rad<f32> = source.dec.into();
+impl<'a> Node<'a> {
+    fn new(idx: u64, depth: u8) -> Node<'a> {
+        let children = [None, None, None, None];
+        let sources = Vec::with_capacity(MAX_SOURCES);
+        let num_sources = 0;
 
-        let idx = healpix::nested::hash(self.depth, lon.0 as f64, lat.0 as f64);
-        if idx == self.idx {
-            if self.num_sources < MAX_SOURCES || self.depth == 29 {
-                self.sources.push(source);
-                self.num_sources += 1;
+        Node {
+            children,
+            idx,
+            depth,
+            sources,
+            num_sources
+        }
+    }
+
+    fn add_to_child(&mut self, idx_child: usize, source: &'a Source) {
+        if let Some(ref mut child) = &mut self.children[idx_child] {
+            child.add(source);
+        } else {
+            // Create the child node
+            let depth = self.depth + 1;
+            let idx = (self.idx << 2) + (idx_child as u64);
+            let mut child = Box::new(Node::new(idx, depth));
+
+            // Add the source
+            child.add(source);
+
+            // Loop over all the sources of the current node
+            // and add them if they are located in the child node
+            for s in self.sources.iter() {
+                let lon: Rad<f32> = s.ra.into();
+                let lat: Rad<f32> = s.dec.into();
+                let child_idx = healpix::nested::hash(depth, lon.0 as f64, lat.0 as f64);
+
+                if child_idx == idx {
+                    child.add(s);
+                }
+            }
+
+            // Add it to the tree
+            self.children[idx_child] = Some(child);
+        }
+    } 
+
+    pub fn add(&mut self, source: &'a Source) {
+        if self.num_sources < MAX_SOURCES || self.depth == 29 {
+            self.sources.push(source);
+            self.num_sources += 1;
+        } else {
+            // Determine the children concerned by the source
+            let lon: Rad<f32> = source.ra.into();
+            let lat: Rad<f32> = source.dec.into();
+            let depth = self.depth + 1;
+            let idx = healpix::nested::hash(depth, lon.0 as f64, lat.0 as f64);
+
+            let offset = self.idx << 2;
+            if idx == offset {
+                self.add_to_child(0, source);
+            } else if idx == offset + 1 {
+                self.add_to_child(1, source);
+            } else if idx == offset + 2 {
+                self.add_to_child(2, source);
             } else {
-                // Otherwise, we add it to the children
-                
-
+                self.add_to_child(3, source);
             }
         }
     }
@@ -386,4 +402,71 @@ impl<'a, 'b> Node<'a, 'b> {
     fn num_sources(&self) -> usize {
         self.num_sources
     }
+
+    pub fn get_sources(&self, depth: u8, idx: u64) -> Option<&Vec<&'a Source>> {
+        if self.depth == depth && self.idx == idx {
+            return Some(&self.sources);
+        }
+
+        if self.depth < depth {
+            for child in self.children.iter() {
+                if let Some(child) = child {
+                    let sources = child.get_sources(depth, idx);
+                    if sources.is_some() {
+                        return sources;
+                    }
+                }
+            }
+        }
+
+        None
+    }
 }
+
+struct QuadTree<'a> {
+    nodes: [Option<Box<Node<'a>>>; 12],
+}
+
+impl<'a> QuadTree<'a> {
+    pub fn new(sources: &'a Vec<Source>) -> QuadTree<'a> {
+        let mut nodes: [Option<Box<Node<'a>>>; 12] = [
+            None, None, None, None,
+            None, None, None, None,
+            None, None, None, None
+        ];
+
+        // Loop over all the sources of the current node
+        // and them if they are located in the child node
+        for s in sources.iter() {
+            let lon: Rad<f32> = s.ra.into();
+            let lat: Rad<f32> = s.dec.into();
+            let child_idx = healpix::nested::hash(0, lon.0 as f64, lat.0 as f64);
+
+            if let Some(ref mut child) = &mut nodes[child_idx as usize] {
+                child.add(s);
+            } else {
+                let mut node = Box::new(Node::new(child_idx, 0));
+                node.add(s);
+
+                nodes[child_idx as usize] = Some(node);
+            }
+        }
+
+        QuadTree {
+            nodes,
+        }
+    }
+
+    pub fn get(&self, depth: u8, idx: u64) -> Option<&Vec<&'a Source>> {
+        for node in self.nodes.iter() {
+            if let Some(node) = node {
+                let sources = node.get_sources(depth, idx);
+                if sources.is_some() {
+                    return sources;
+                }
+            }
+        }
+        None
+    }
+}
+

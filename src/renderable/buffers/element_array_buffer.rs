@@ -26,15 +26,15 @@ use std::convert::TryInto;
 use crate::renderable::buffers::buffer_data::BufferData;
 
 impl<'a> ElementArrayBuffer {
-    pub fn new(gl: &WebGl2Context, usage: u32, data: BufferData<'a, u16>) -> ElementArrayBuffer {
+    pub fn new(gl: &WebGl2Context, usage: u32, buffer_data: BufferData<'a, u16>) -> ElementArrayBuffer {
         let buffer = gl.create_buffer()
             .ok_or("failed to create buffer")
             .unwrap();
         // Bind the buffer
         gl.bind_buffer(WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER, Some(buffer.as_ref()));
-        let buffer_size = data.0.len();
+        let buffer_size = buffer_data.data.len();
         // Pass the vertices data to the buffer
-        let data: js_sys::Uint16Array = data.try_into().unwrap();
+        let data: js_sys::Uint16Array = buffer_data.try_into().unwrap();
         gl.buffer_data_with_array_buffer_view(
             WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER,
             &data,

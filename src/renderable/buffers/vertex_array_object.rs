@@ -137,12 +137,16 @@ impl<'a> VertexArrayObjectBound<'a> {
     }
 
     /// Precondition: self must be bound
-    pub fn update_array_and_element_buffer(&mut self, idx_array_buffer: usize, array_data: BufferData<'a, f32>, element_data: BufferData<'a, u16>) {
-        //self.bind();
-        self.vao.array_buffer[idx_array_buffer].update(array_data);
+    pub fn update_array_and_element_buffer(&mut self, idx: usize, array_data: BufferData<'a, f32>, element_data: BufferData<'a, u16>) {
+        self.vao.array_buffer[idx].update(array_data);
         if let Some(ref mut element_array_buffer) = self.vao.element_array_buffer {
             element_array_buffer.update(element_data);
         }
+    }
+
+    /// Precondition: self must be bound
+    pub fn update_instanced_array_buffer(&mut self, idx: usize, array_data: BufferData<'a, f32>) {
+        self.vao.array_buffer_instanced[idx].update(array_data);
     }
 
     pub fn unbind(&self) {

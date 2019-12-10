@@ -335,12 +335,12 @@ impl Mesh for ProjetedGrid {
                 &[2],
                 &[0 * std::mem::size_of::<f32>()],
                 WebGl2RenderingContext::DYNAMIC_DRAW,
-                BufferData(&vertices_data),
+                BufferData::new(&vertices_data),
             )
             // Set the element buffer
             .add_element_buffer(
                 WebGl2RenderingContext::DYNAMIC_DRAW,
-                BufferData(&idx_data),
+                BufferData::new(&idx_data),
             )
             // Unbind the buffer
             .unbind();
@@ -356,7 +356,7 @@ impl Mesh for ProjetedGrid {
     }
 
     fn get_vertices<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>) {
-        (BufferData(&self.pos_screen_space), BufferData(&self.idx_vertices))
+        (BufferData::new(&self.pos_screen_space), BufferData::new(&self.idx_vertices))
     }
 
     fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: &ViewPort) {

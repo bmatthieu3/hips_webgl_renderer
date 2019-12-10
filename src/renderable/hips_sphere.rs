@@ -181,12 +181,12 @@ impl Mesh for HiPSSphere {
                 &[2, 3],
                 &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
                 WebGl2RenderingContext::STATIC_DRAW,
-                BufferData(self.vertices.as_ref()),
+                BufferData::new(self.vertices.as_ref()),
             )
             // Set the element buffer
             .add_element_buffer(
                 WebGl2RenderingContext::STATIC_DRAW,
-                BufferData(self.idx_vertices.as_ref()),
+                BufferData::new(self.idx_vertices.as_ref()),
             )
             // Unbind the buffer
             .unbind();
