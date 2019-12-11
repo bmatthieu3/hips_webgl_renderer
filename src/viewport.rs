@@ -64,6 +64,7 @@ use crate::math;
 use std::sync::atomic::Ordering;
 use crate::MAX_DEPTH;
 use crate::print_to_console;
+use cgmath::Matrix4;
 impl ViewPort {
     pub fn new(gl: &WebGl2Context, size_pixels: &Vector2<f32>) -> ViewPort {
         let current_zoom = 1_f32;
@@ -180,12 +181,12 @@ impl ViewPort {
         }
     }
 
-    pub fn update(&mut self, projection: &ProjectionType, dt: f32) {
+    pub fn update(&mut self, model: &Matrix4<f32>, projection: &ProjectionType, dt: f32) {
         // If there is an action whether it is a zoom or a displacement
         // then we update the fov
         if self.is_action {
-            //console::log_1(&format!("update FOV").into());
-            self.fov.update(self.current_zoom, projection);
+            console::log_1(&format!("update FOV").into());
+            self.fov.update(model, self.current_zoom, projection);
         }
 
         if self.is_zooming {

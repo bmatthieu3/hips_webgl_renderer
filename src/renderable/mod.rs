@@ -15,7 +15,6 @@ trait VertexBufferObject {
 }
 
 use buffers::vertex_array_object::VertexArrayObject;
-use buffers::buffer_data::BufferData;
 use crate::WebGl2Context;
 use cgmath::Matrix4;
 
@@ -25,12 +24,11 @@ pub trait Mesh {
 
     fn update<T: Mesh + DisableDrawing>(
         &mut self,
+        vertex_array_object: &mut VertexArrayObject,
         local_to_world: &Matrix4<f32>,
-        world_to_local: &Matrix4<f32>,
         projection: &ProjectionType,
         viewport: &ViewPort
     );
-    fn update_vao(&self, vertex_array_object: &mut VertexArrayObject);
 
     fn draw<T: Mesh + DisableDrawing>(
         &self,
@@ -64,8 +62,6 @@ where T: Mesh + DisableDrawing {
 
 use cgmath;
 use cgmath::SquareMatrix;
-
-use crate::utils;
 
 impl<T> Renderable<T>
 where T: Mesh + DisableDrawing {
@@ -147,16 +143,14 @@ where T: Mesh + DisableDrawing {
         let ref mut mesh = self.mesh;
 
         let ref local_to_world = self.model_mat;
-        let ref world_to_local = self.inverted_model_mat;
+        let ref mut vertex_array_object = self.vertex_array_object;
 
         mesh.update::<T>(
+            vertex_array_object,
             local_to_world,
-            world_to_local,
             projection,
             viewport
         );
-
-        mesh.update_vao(&mut self.vertex_array_object);
     }
 
     pub fn draw(&self, shaders: &HashMap<&'static str, Shader>, viewport: &ViewPort) {

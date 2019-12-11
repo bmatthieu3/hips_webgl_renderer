@@ -13,11 +13,13 @@ pub struct FieldOfView {
     vertices_world_space: Vec<Vector4<f32>>,
 
     value: Option<Rad<f32>>, // fov can be None if the camera is out of the projection
+
+    cells: (u8, Vec<u64>)
 }
 
 use itertools_num;
 use std::iter;
-
+use crate::viewport::ViewPort;
 use crate::projection::ProjectionType;
 use crate::math;
 use crate::MAX_DEPTH;
@@ -52,6 +54,7 @@ impl FieldOfView {
         }).collect::<Vec<_>>();
         let vertices_world_space = vec![Vector4::new(0_f32, 0_f32, 0_f32, 1_f32); vertices_screen_space.len()];
         let value = None;
+        let cells = (0, (0..12).collect::<Vec<_>>());
 
         FieldOfView {
             num_vertices,
@@ -61,11 +64,13 @@ impl FieldOfView {
             vertices_screen_space,
             vertices_world_space,
 
-            value
+            value,
+
+            cells,
         }
     }
 
-    pub fn update(&mut self, zoom: f32, projection: &ProjectionType) {
+    pub fn update(&mut self, model: &Matrix4<f32>, zoom: f32, projection: &ProjectionType) {
         self.vertices_world_space = self.vertices_screen_space.iter()
             .filter_map(|vertex_screen_space| {
                 let vertex_homogeneous_space = vertex_screen_space / zoom;
@@ -94,12 +99,8 @@ impl FieldOfView {
         } else {
             None
         };
-    }
 
-    // Returns the HEALPix cells located in the
-    // field of view
-    pub fn get_healpix_cells(&self, model: &Matrix4<f32>, max_num_tiles: usize) -> (u8, Vec<u64>) {
-        if let Some(fov) = self.value {
+        self.cells = if let Some(fov) = self.value {
             // The fov does not cross the border of the projection
             if fov >= Deg(150_f32).into() {
                 // The fov is >= 150°
@@ -134,7 +135,7 @@ impl FieldOfView {
                         let num_tiles = moc.entries.len();
                         // Stop when the number of tiles for this depth
                         // can be contained in the tile buffer
-                        if num_tiles <= max_num_tiles {
+                        if num_tiles <= 64 {
                             idx = moc.flat_iter().collect::<Vec<_>>();
                             break;
                         }
@@ -155,6 +156,12 @@ impl FieldOfView {
             // The fov is out the projection
             (0, (0..12).collect::<Vec<_>>())
         }
+    }
+
+    // Returns the HEALPix cells located in the
+    // field of view
+    pub fn cells(&self) -> &(u8, Vec<u64>) {
+        &self.cells
     }
 
     pub fn value(&self) -> &Option<Rad<f32>> {

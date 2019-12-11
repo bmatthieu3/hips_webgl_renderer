@@ -214,30 +214,26 @@ impl Mesh for HiPSSphere {
 
     fn update<T: Mesh + DisableDrawing>(
         &mut self,
-        local_to_world: &Matrix4<f32>,
-        world_to_local: &Matrix4<f32>,
-        projection: &ProjectionType,
+        _vertex_array_object: &mut VertexArrayObject,
+        _local_to_world: &Matrix4<f32>,
+        _projection: &ProjectionType,
         viewport: &ViewPort
     ) {
         let field_of_view = viewport.field_of_view();
-
-        let buffer_size = self.buffer_tiles.borrow().len();
-        let (depth, hpx_idx) = field_of_view.get_healpix_cells(local_to_world, buffer_size);
+        let (depth, hpx_idx) = field_of_view.cells();
 
         let current_depth = DEPTH.load(Ordering::Relaxed);
-        let reset_time_received = if current_depth != depth {
+        let reset_time_received = if current_depth != *depth {
             true
         } else {
             false
         };
 
-        DEPTH.store(depth, Ordering::Relaxed);
+        DEPTH.store(*depth, Ordering::Relaxed);
 
         // TODO: wrap that into a method load_healpix_tiles of BufferTiles
-        load_tiles(self.buffer_tiles.clone(), &hpx_idx, depth, reset_time_received);
+        load_tiles(self.buffer_tiles.clone(), &hpx_idx, *depth, reset_time_received);
     }
-
-    fn update_vao(&self, vertex_array_object: &mut VertexArrayObject) {}
 
     fn draw<T: Mesh + DisableDrawing>(
         &self,

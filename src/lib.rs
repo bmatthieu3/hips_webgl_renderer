@@ -289,7 +289,7 @@ impl App {
     fn update(&mut self, dt: f32) {
         // Update the camera. When the camera has reached its final position
         // then we stop rendering the next frames!
-        self.viewport.update(&self.projection, dt);
+        self.viewport.update(&self.hips_sphere.get_model_mat(), &self.projection, dt);
 
         // Updating
         if UPDATE_FRAME.lock().unwrap().get() {
@@ -313,19 +313,15 @@ impl App {
                     &self.viewport,
                 );
 
+            // Update the catalog vizualization
+            self.catalog.update(&self.projection, &self.viewport);
+
             // The grid buffers and labels
             if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
                 self.grid.update(
                     &self.projection,
                     &self.viewport
                 );
-                //self.grid.update();
-
-                /*self.grid.mesh_mut().update_label_positions(
-                    self.hips_sphere.get_inverted_model_mat(),
-                    &self.projection,
-                    Some(&self.viewport),
-                );*/
             }
         }
 
@@ -354,10 +350,10 @@ impl App {
             );
 
             // Draw the catalogs
-            /*self.catalog.draw(
+            self.catalog.draw(
                 shaders,
                 viewport
-            );*/
+            );
 
             // Draw the grid
             if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {

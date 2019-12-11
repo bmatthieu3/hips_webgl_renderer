@@ -424,23 +424,21 @@ impl Mesh for ProjetedGrid {
 
     fn update<T: Mesh + DisableDrawing>(
         &mut self,
+        vertex_array_object: &mut VertexArrayObject,
         local_to_world: &Matrix4<f32>,
-        world_to_local: &Matrix4<f32>,
         projection: &ProjectionType,
         viewport: &ViewPort
     ) {
         self.update_grid_positions(
-            world_to_local,
+            local_to_world,
             projection,
         );
         self.update_label_positions(
-            world_to_local,
+            local_to_world,
             projection,
             Some(viewport)
         );
-    }
 
-    fn update_vao(&self, vertex_array_object: &mut VertexArrayObject) {
         // Update the VAO
         vertex_array_object.bind()
             .update_array(0, BufferData::new(&self.pos_screen_space))
