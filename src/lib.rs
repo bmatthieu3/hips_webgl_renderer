@@ -319,13 +319,13 @@ impl App {
                     &self.projection,
                     &self.viewport
                 );
-                self.grid.update_vertex_array();
-                
-                self.grid.mesh_mut().update_label_positions(
+                //self.grid.update();
+
+                /*self.grid.mesh_mut().update_label_positions(
                     self.hips_sphere.get_inverted_model_mat(),
                     &self.projection,
                     Some(&self.viewport),
-                );
+                );*/
             }
         }
 
@@ -354,10 +354,10 @@ impl App {
             );
 
             // Draw the catalogs
-            self.catalog.draw(
+            /*self.catalog.draw(
                 shaders,
                 viewport
-            );
+            );*/
 
             // Draw the grid
             if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {

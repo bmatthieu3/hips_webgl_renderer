@@ -181,10 +181,9 @@ impl<'a> HiPSSphere {
 use crate::renderable::VertexArrayObject;
 use crate::renderable::buffers::buffer_data::BufferData;
 
-use cgmath::Matrix4;
-
 use std::collections::HashMap;
 use crate::renderable::Renderable;
+use cgmath::Matrix4;
 
 use crate::utils;
 impl Mesh for HiPSSphere {
@@ -215,14 +214,15 @@ impl Mesh for HiPSSphere {
 
     fn update<T: Mesh + DisableDrawing>(
         &mut self,
-        renderable: &mut Renderable<T>,
+        local_to_world: &Matrix4<f32>,
+        world_to_local: &Matrix4<f32>,
         projection: &ProjectionType,
         viewport: &ViewPort
     ) {
         let field_of_view = viewport.field_of_view();
 
         let buffer_size = self.buffer_tiles.borrow().len();
-        let (depth, hpx_idx) = field_of_view.get_healpix_cells(renderable.get_model_mat(), buffer_size);
+        let (depth, hpx_idx) = field_of_view.get_healpix_cells(local_to_world, buffer_size);
 
         let current_depth = DEPTH.load(Ordering::Relaxed);
         let reset_time_received = if current_depth != depth {
@@ -236,6 +236,8 @@ impl Mesh for HiPSSphere {
         // TODO: wrap that into a method load_healpix_tiles of BufferTiles
         load_tiles(self.buffer_tiles.clone(), &hpx_idx, depth, reset_time_received);
     }
+
+    fn update_vao(&self, vertex_array_object: &mut VertexArrayObject) {}
 
     fn draw<T: Mesh + DisableDrawing>(
         &self,

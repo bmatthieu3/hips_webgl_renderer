@@ -218,7 +218,22 @@ impl Mesh for Catalog {
         vertex_array_object
     }
 
-    fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: &ViewPort) {}
+    fn update<T: Mesh + DisableDrawing>(
+        &mut self,
+        local_to_world: &Matrix4<f32>,
+        world_to_local: &Matrix4<f32>,
+        projection: &ProjectionType,
+        viewport: &ViewPort
+    ) {
+        
+    }
+
+    fn update_vao(&self, vertex_array_object: &mut VertexArrayObject) {
+        // Update the VAO
+        vertex_array_object.bind()
+            .update_instanced_array(0, BufferData::new(&self.center_xyz))
+            .update_instanced_array(1, BufferData::new(&self.center_lonlat));
+    }
 
     fn draw<T: Mesh + DisableDrawing>(
         &self,

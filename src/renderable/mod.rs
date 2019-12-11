@@ -25,15 +25,17 @@ pub trait Mesh {
 
     fn update<T: Mesh + DisableDrawing>(
         &mut self,
-        renderable: &mut Renderable<T>,
+        local_to_world: &Matrix4<f32>,
+        world_to_local: &Matrix4<f32>,
         projection: &ProjectionType,
         viewport: &ViewPort
     );
+    fn update_vao(&self, vertex_array_object: &mut VertexArrayObject);
 
     fn draw<T: Mesh + DisableDrawing>(
         &self,
         gl: &WebGl2Context,
-        renderable: &Renderable<T>,
+        model: &Renderable<T>,
         shaders: &HashMap<&'static str, Shader>,
         viewport: &ViewPort
     );
@@ -59,7 +61,6 @@ where T: Mesh + DisableDrawing {
 
     gl: WebGl2Context,
 }
-
 
 use cgmath;
 use cgmath::SquareMatrix;
@@ -143,22 +144,20 @@ where T: Mesh + DisableDrawing {
     }
 
     pub fn update(&mut self, projection: &ProjectionType, viewport: &ViewPort) {
-        // Update the mesh vertices/indexes
-        self.mesh.update(
+        let ref mut mesh = self.mesh;
+
+        let ref local_to_world = self.model_mat;
+        let ref world_to_local = self.inverted_model_mat;
+
+        mesh.update::<T>(
+            local_to_world,
+            world_to_local,
             projection,
-            &self.model_mat,
             viewport
         );
-    }
 
-    /*pub fn update_vertex_array(&mut self) {
-        // Get the new buffer data
-        let (vertices, idx_vertices) = self.mesh.get_vertices();
-        // Update the VAO with the new data
-        self.vertex_array_object.bind()
-            .update_array(0, vertices)
-            .update_element_array(idx_vertices);
-    }*/
+        mesh.update_vao(&mut self.vertex_array_object);
+    }
 
     pub fn draw(&self, shaders: &HashMap<&'static str, Shader>, viewport: &ViewPort) {
         let ref gl = self.gl;

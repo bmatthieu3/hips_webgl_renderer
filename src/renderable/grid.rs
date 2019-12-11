@@ -243,10 +243,78 @@ impl ProjetedGrid {
             color,
         };
 
-        grid.update(projection, &cgmath::Matrix4::identity(), viewport);
+        grid.update_grid_positions(&cgmath::Matrix4::identity(), projection);
         grid.update_label_positions(&cgmath::Matrix4::identity(), &projection, Some(viewport));
 
         grid
+    }
+
+    pub fn update_grid_positions(&mut self, local_to_world_mat: &Matrix4<f32>, projection: &ProjectionType) {
+        let (mut width_screen, _) = window_size_f32();
+        width_screen *= DEGRADE_CANVAS_RATIO;
+
+        self.pos_screen_space.clear();
+        // UPDATE GRID VERTICES POSITIONS
+        for pos_local_space in self.pos_local_space.iter() {
+            let pos_world_space = local_to_world_mat * pos_local_space;
+
+            let pos_screen_space = projection.world_to_screen_space(pos_world_space.clone()).unwrap();
+
+            self.pos_screen_space.push(pos_screen_space.x);
+            self.pos_screen_space.push(pos_screen_space.y);
+        }
+
+        // UPDATE IDX VERTICES
+        let num_vertices = (self.lat.len() * (self.num_points_lon - 1) + self.lon.len() * (self.num_points_lat - 1)) * 2;
+        //let num_vertices = self.lat.len() * (self.num_points_lon - 1) * 2;
+        self.idx_vertices = vec![0; num_vertices];
+
+        let mut threshold_px = 2_f32 * (100_f32 / width_screen);
+        threshold_px = threshold_px * threshold_px;
+
+        let mut i = 0;
+        let mut idx_start = 0;
+        while idx_start < self.lat.len() * self.num_points_lon {
+            let num_points_step = self.num_points_lon;
+
+            for j in 0..(num_points_step - 1) {
+                let idx = idx_start + j;
+                let next_idx = idx + 1;
+
+                let cur_to_next_screen_pos = cgmath::Vector2::new(
+                    self.pos_screen_space[2*next_idx] - self.pos_screen_space[2*idx],
+                    self.pos_screen_space[2*next_idx + 1] - self.pos_screen_space[2*idx + 1]
+                );
+
+                if cur_to_next_screen_pos.magnitude2() < threshold_px {
+                    self.idx_vertices[i] = idx as u16;
+                    self.idx_vertices[i + 1] = next_idx as u16;
+                    i += 2;
+                }
+            }
+            idx_start += num_points_step;
+        }
+
+        while idx_start < (self.lat.len() * self.num_points_lon + self.lon.len() * self.num_points_lat) {
+            let num_points_step = self.num_points_lat;
+
+            for j in 0..(num_points_step - 1) {
+                let idx = idx_start + j;
+                let next_idx = idx + 1;
+
+                let cur_to_next_screen_pos = cgmath::Vector2::new(
+                    self.pos_screen_space[2*next_idx] - self.pos_screen_space[2*idx],
+                    self.pos_screen_space[2*next_idx + 1] - self.pos_screen_space[2*idx + 1]
+                );
+
+                if cur_to_next_screen_pos.magnitude2() < threshold_px {
+                    self.idx_vertices[i] = idx as u16;
+                    self.idx_vertices[i + 1] = next_idx as u16;
+                    i += 2;
+                }
+            }
+            idx_start += num_points_step;
+        }
     }
 
     pub fn update_label_positions(&mut self, local_to_world_mat: &Matrix4<f32>, projection: &ProjectionType, viewport: Option<&ViewPort>) {
@@ -350,89 +418,33 @@ impl Mesh for ProjetedGrid {
             // Unbind the buffer
             .unbind();
 
-        console::log_1(&format!("grid init").into());
         //gl.bind_buffer(WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER, None);
         vertex_array_object
     }
 
     fn update<T: Mesh + DisableDrawing>(
         &mut self,
-        renderable: &mut Renderable<T>,
+        local_to_world: &Matrix4<f32>,
+        world_to_local: &Matrix4<f32>,
         projection: &ProjectionType,
         viewport: &ViewPort
     ) {
-        let (mut width_screen, _) = window_size_f32();
-        width_screen *= DEGRADE_CANVAS_RATIO;
+        self.update_grid_positions(
+            world_to_local,
+            projection,
+        );
+        self.update_label_positions(
+            world_to_local,
+            projection,
+            Some(viewport)
+        );
+    }
 
-        self.pos_screen_space.clear();
-        // UPDATE GRID VERTICES POSITIONS
-        let local_to_world = renderable.get_model_mat();
-        for pos_local_space in self.pos_local_space.iter() {
-            let pos_world_space = local_to_world * pos_local_space;
-
-            let pos_screen_space = projection.world_to_screen_space(pos_world_space.clone()).unwrap();
-
-            self.pos_screen_space.push(pos_screen_space.x);
-            self.pos_screen_space.push(pos_screen_space.y);
-        }
-
-        // UPDATE IDX VERTICES
-        let num_vertices = (self.lat.len() * (self.num_points_lon - 1) + self.lon.len() * (self.num_points_lat - 1)) * 2;
-        //let num_vertices = self.lat.len() * (self.num_points_lon - 1) * 2;
-        self.idx_vertices = vec![0; num_vertices];
-
-        let mut threshold_px = 2_f32 * (100_f32 / width_screen);
-        threshold_px = threshold_px * threshold_px;
-
-        let mut i = 0;
-        let mut idx_start = 0;
-        while idx_start < self.lat.len() * self.num_points_lon {
-            let num_points_step = self.num_points_lon;
-
-            for j in 0..(num_points_step - 1) {
-                let idx = idx_start + j;
-                let next_idx = idx + 1;
-
-                let cur_to_next_screen_pos = cgmath::Vector2::new(
-                    self.pos_screen_space[2*next_idx] - self.pos_screen_space[2*idx],
-                    self.pos_screen_space[2*next_idx + 1] - self.pos_screen_space[2*idx + 1]
-                );
-
-                if cur_to_next_screen_pos.magnitude2() < threshold_px {
-                    self.idx_vertices[i] = idx as u16;
-                    self.idx_vertices[i + 1] = next_idx as u16;
-                    i += 2;
-                }
-            }
-            idx_start += num_points_step;
-        }
-
-        while idx_start < (self.lat.len() * self.num_points_lon + self.lon.len() * self.num_points_lat) {
-            let num_points_step = self.num_points_lat;
-
-            for j in 0..(num_points_step - 1) {
-                let idx = idx_start + j;
-                let next_idx = idx + 1;
-
-                let cur_to_next_screen_pos = cgmath::Vector2::new(
-                    self.pos_screen_space[2*next_idx] - self.pos_screen_space[2*idx],
-                    self.pos_screen_space[2*next_idx + 1] - self.pos_screen_space[2*idx + 1]
-                );
-
-                if cur_to_next_screen_pos.magnitude2() < threshold_px {
-                    self.idx_vertices[i] = idx as u16;
-                    self.idx_vertices[i + 1] = next_idx as u16;
-                    i += 2;
-                }
-            }
-            idx_start += num_points_step;
-        }
-
+    fn update_vao(&self, vertex_array_object: &mut VertexArrayObject) {
         // Update the VAO
-        renderable.vertex_array_object.bind()
+        vertex_array_object.bind()
             .update_array(0, BufferData::new(&self.pos_screen_space))
             .update_element_array(BufferData::new(&self.idx_vertices));
-
     }
 
     fn draw<T: Mesh + DisableDrawing>(
