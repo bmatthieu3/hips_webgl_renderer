@@ -23,17 +23,11 @@ use std::collections::HashMap;
 pub trait Mesh {
     fn create_buffers(&self, gl: &WebGl2Context) -> VertexArrayObject;
 
-    fn update(
+    fn update<T: Mesh + DisableDrawing>(
         &mut self,
+        renderable: &mut Renderable<T>,
         projection: &ProjectionType,
-        local_to_world_mat: &Matrix4<f32>,
         viewport: &ViewPort
-    );
-    fn get_vertices<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>);
-
-    fn send_uniforms(&self,
-        gl: &WebGl2Context,
-        shader: &Shader
     );
 
     fn draw<T: Mesh + DisableDrawing>(
@@ -157,13 +151,14 @@ where T: Mesh + DisableDrawing {
         );
     }
 
-    pub fn update_vertex_array(&mut self) {
+    /*pub fn update_vertex_array(&mut self) {
         // Get the new buffer data
         let (vertices, idx_vertices) = self.mesh.get_vertices();
         // Update the VAO with the new data
         self.vertex_array_object.bind()
-            .update_array_and_element_buffer(0, vertices, idx_vertices);
-    }
+            .update_array(0, vertices)
+            .update_element_array(idx_vertices);
+    }*/
 
     pub fn draw(&self, shaders: &HashMap<&'static str, Shader>, viewport: &ViewPort) {
         let ref gl = self.gl;

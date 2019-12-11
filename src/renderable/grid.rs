@@ -313,6 +313,11 @@ impl ProjetedGrid {
     pub fn set_alpha(&mut self, alpha: f32) {
         self.color.alpha = alpha;
     }
+
+    fn send_uniforms(&self, gl: &WebGl2Context, shader: &Shader) {
+        let location_color = shader.get_uniform_location("location_color");
+        gl.uniform4f(location_color, self.color.red, self.color.green, self.color.blue, self.color.alpha);
+    }
 }
 
 use crate::WebGl2Context;
@@ -350,23 +355,20 @@ impl Mesh for ProjetedGrid {
         vertex_array_object
     }
 
-    fn send_uniforms(&self, gl: &WebGl2Context, shader: &Shader) {
-        let location_color = shader.get_uniform_location("location_color");
-        gl.uniform4f(location_color, self.color.red, self.color.green, self.color.blue, self.color.alpha);
-    }
-
-    fn get_vertices<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>) {
-        (BufferData::new(&self.pos_screen_space), BufferData::new(&self.idx_vertices))
-    }
-
-    fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: &ViewPort) {
+    fn update<T: Mesh + DisableDrawing>(
+        &mut self,
+        renderable: &mut Renderable<T>,
+        projection: &ProjectionType,
+        viewport: &ViewPort
+    ) {
         let (mut width_screen, _) = window_size_f32();
         width_screen *= DEGRADE_CANVAS_RATIO;
 
         self.pos_screen_space.clear();
         // UPDATE GRID VERTICES POSITIONS
+        let local_to_world = renderable.get_model_mat();
         for pos_local_space in self.pos_local_space.iter() {
-            let pos_world_space = local_to_world_mat * pos_local_space;
+            let pos_world_space = local_to_world * pos_local_space;
 
             let pos_screen_space = projection.world_to_screen_space(pos_world_space.clone()).unwrap();
 
@@ -425,6 +427,12 @@ impl Mesh for ProjetedGrid {
             }
             idx_start += num_points_step;
         }
+
+        // Update the VAO
+        renderable.vertex_array_object.bind()
+            .update_array(0, BufferData::new(&self.pos_screen_space))
+            .update_element_array(BufferData::new(&self.idx_vertices));
+
     }
 
     fn draw<T: Mesh + DisableDrawing>(

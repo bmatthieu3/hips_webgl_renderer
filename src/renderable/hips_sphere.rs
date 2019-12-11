@@ -159,6 +159,23 @@ impl<'a> HiPSSphere {
 
         indices
     }
+
+    fn send_uniforms(&self, gl: &WebGl2Context, shader: &Shader) {
+        // TEXTURES DEPTH 0 TILES BUFFER
+        self.buffer_depth_zero_tiles.borrow().send_to_shader(shader);
+        // TEXTURES TILES BUFFER
+        self.buffer_tiles.borrow().send_to_shader(shader);
+
+        // ANG2PIX TEXTURES
+        //self.ang2pix_textures[0].send_to_shader(gl, shader, "ang2pix_0_texture");
+
+        // Send current depth
+        let location_current_depth = shader.get_uniform_location("current_depth");
+        gl.uniform1i(location_current_depth, DEPTH.load(Ordering::Relaxed) as i32);
+        // Send max depth of the current HiPS
+        let location_max_depth = shader.get_uniform_location("max_depth");
+        gl.uniform1i(location_max_depth, MAX_DEPTH.load(Ordering::Relaxed) as i32);
+    }
 }
 
 use crate::renderable::VertexArrayObject;
@@ -196,32 +213,16 @@ impl Mesh for HiPSSphere {
         vertex_array_object
     }
 
-    fn send_uniforms(&self, gl: &WebGl2Context, shader: &Shader) {
-        // TEXTURES DEPTH 0 TILES BUFFER
-        self.buffer_depth_zero_tiles.borrow().send_to_shader(shader);
-        // TEXTURES TILES BUFFER
-        self.buffer_tiles.borrow().send_to_shader(shader);
-
-        // ANG2PIX TEXTURES
-        //self.ang2pix_textures[0].send_to_shader(gl, shader, "ang2pix_0_texture");
-
-        // Send current depth
-        let location_current_depth = shader.get_uniform_location("current_depth");
-        gl.uniform1i(location_current_depth, DEPTH.load(Ordering::Relaxed) as i32);
-        // Send max depth of the current HiPS
-        let location_max_depth = shader.get_uniform_location("max_depth");
-        gl.uniform1i(location_max_depth, MAX_DEPTH.load(Ordering::Relaxed) as i32);
-    }
-
-    fn get_vertices<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>) {
-        unreachable!();
-    }
-
-    fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: &ViewPort) {
+    fn update<T: Mesh + DisableDrawing>(
+        &mut self,
+        renderable: &mut Renderable<T>,
+        projection: &ProjectionType,
+        viewport: &ViewPort
+    ) {
         let field_of_view = viewport.field_of_view();
 
         let buffer_size = self.buffer_tiles.borrow().len();
-        let (depth, hpx_idx) = field_of_view.get_healpix_cells(local_to_world_mat, buffer_size);
+        let (depth, hpx_idx) = field_of_view.get_healpix_cells(renderable.get_model_mat(), buffer_size);
 
         let current_depth = DEPTH.load(Ordering::Relaxed);
         let reset_time_received = if current_depth != depth {
@@ -229,13 +230,11 @@ impl Mesh for HiPSSphere {
         } else {
             false
         };
-        
-        //console::log_1(&format!("{:?}", self.buffer_tiles.borrow().requested_tiles).into());
+
         DEPTH.store(depth, Ordering::Relaxed);
 
         // TODO: wrap that into a method load_healpix_tiles of BufferTiles
         load_tiles(self.buffer_tiles.clone(), &hpx_idx, depth, reset_time_received);
-        //console::log_1(&format!("{:?}", self.buffer_tiles.borrow().requested_tiles).into());
     }
 
     fn draw<T: Mesh + DisableDrawing>(

@@ -218,14 +218,6 @@ impl Mesh for Catalog {
         vertex_array_object
     }
 
-    fn send_uniforms(&self, gl: &WebGl2Context, shader: &Shader) {
-        unreachable!();
-    }
-
-    fn get_vertices<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>) {
-        unreachable!();
-    }
-
     fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: &ViewPort) {}
 
     fn draw<T: Mesh + DisableDrawing>(
