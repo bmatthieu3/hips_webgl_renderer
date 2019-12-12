@@ -233,8 +233,8 @@ pub static CONTENT: &'static str = r#"#version 300 es
 
                 vec3 color = texture(textures, offset).rgb;
 
-                return TileColor(tile, vec3(float(tile.texture_idx)/64.f), true);
-                //return TileColor(tile, color, true);
+                //return TileColor(tile, vec3(float(tile.texture_idx)/64.f), true);
+                return TileColor(tile, color, true);
             } else if (uniq < textures_tiles[i].uniq) {
                 // go to left
                 b = i - 1;

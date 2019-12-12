@@ -65,6 +65,8 @@ use std::sync::atomic::Ordering;
 use crate::MAX_DEPTH;
 use crate::print_to_console;
 use cgmath::Matrix4;
+
+use crate::renderable::catalog::Catalog;
 impl ViewPort {
     pub fn new(gl: &WebGl2Context, size_pixels: &Vector2<f32>) -> ViewPort {
         let current_zoom = 1_f32;
@@ -181,7 +183,7 @@ impl ViewPort {
         }
     }
 
-    pub fn update(&mut self, model: &Matrix4<f32>, projection: &ProjectionType, dt: f32) {
+    pub fn update(&mut self, model: &Matrix4<f32>, projection: &ProjectionType, dt: f32, catalog: &mut Renderable<Catalog>) {
         // If there is an action whether it is a zoom or a displacement
         // then we update the fov
         if self.is_action {
@@ -196,6 +198,7 @@ impl ViewPort {
                 // Zooming
                 if self.fov_max > *fov && self.current_zoom < self.final_zoom {
                     self.stop_zooming();
+                    catalog.update(projection, self);
                     return;
                 }
             }
@@ -203,13 +206,18 @@ impl ViewPort {
             // Here we are currently zooming
             if (self.current_zoom - self.final_zoom).abs() < 1e-3 {
                 self.stop_zooming();
+                catalog.update(projection, self);
                 return;
             }
 
             // We update the zoom factor
-            self.current_zoom += (self.final_zoom - self.current_zoom) * 0.005_f32 * dt;
+            self.current_zoom = self.final_zoom;
 
             self.update_scissor();
+        }
+
+        if self.is_moving {
+            catalog.update(projection, self);
         }
     }
 

@@ -289,7 +289,7 @@ impl App {
     fn update(&mut self, dt: f32) {
         // Update the camera. When the camera has reached its final position
         // then we stop rendering the next frames!
-        self.viewport.update(&self.hips_sphere.get_model_mat(), &self.projection, dt);
+        self.viewport.update(&self.hips_sphere.get_model_mat(), &self.projection, dt, &mut self.catalog);
 
         // Updating
         if UPDATE_FRAME.lock().unwrap().get() {
@@ -314,7 +314,7 @@ impl App {
                 );
 
             // Update the catalog vizualization
-            self.catalog.update(&self.projection, &self.viewport);
+            //self.catalog.update(&self.projection, &self.viewport);
 
             // The grid buffers and labels
             if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
@@ -323,13 +323,6 @@ impl App {
                     &self.viewport
                 );
             }
-        }
-
-        if !UPDATE_USER_INTERFACE.load(Ordering::Relaxed) {
-            RENDER_FRAME.lock().unwrap().update(&self.viewport);
-            UPDATE_FRAME.lock().unwrap().update(&self.viewport);
-        } else {
-            UPDATE_USER_INTERFACE.store(false, Ordering::Relaxed);
         }
     }
 
@@ -365,6 +358,13 @@ impl App {
                 // The labels
                 self.grid.mesh().draw_labels();
             }
+        }
+
+        if !UPDATE_USER_INTERFACE.load(Ordering::Relaxed) {
+            RENDER_FRAME.lock().unwrap().update(&self.viewport);
+            UPDATE_FRAME.lock().unwrap().update(&self.viewport);
+        } else {
+            UPDATE_USER_INTERFACE.store(false, Ordering::Relaxed);
         }
     }
 

@@ -26,29 +26,48 @@ pub struct Catalog {
     vao_screen: VertexArrayObject,
 
     // Quadtree referring to the sources
-    quadtree: QuadTree
+    quadtree: QuadTree,
+    sources: Vec<Source>,
 }
 
 use cgmath::Deg;
 #[derive(Debug)]
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Source {
     ra: Deg<f32>,
     dec: Deg<f32>,
+    mag: f32,
 }
 
+impl Eq for Source {}
+
 impl Source {
-    pub fn new(ra: Deg<f32>, dec: Deg<f32>) -> Source {
+    pub fn new(ra: Deg<f32>, dec: Deg<f32>, mag: f32) -> Source {
         Source {
             ra,
             dec,
+            mag
         }
+    }
+}
+
+use std::cmp::Ordering;
+use std::cmp::PartialOrd;
+use std::cmp::Ord;
+impl PartialOrd for Source {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.mag.partial_cmp(&other.mag)
+    }
+}
+impl Ord for Source {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_cmp(&other).unwrap()
     }
 }
 
 impl<'a> From<&[f32]> for Source {
     fn from(data: &[f32]) -> Self {
-        Source::new(Deg(data[0]), Deg(data[1]))
+        Source::new(Deg(data[0]), Deg(data[1]), data[2])
     }
 }
 
@@ -57,7 +76,7 @@ impl Catalog {
     pub fn new(gl: &WebGl2Context, sources: Vec<Source>) -> Catalog {
         // Build the quadtree from the list of sources
         console::log_1(&format!("BEGIN quadtree build").into());
-        let quadtree = QuadTree::new(sources);
+        let quadtree = QuadTree::new(&sources);
         console::log_1(&format!("Quadtree BUILT").into());
 
         let num_instances_max = MAX_SOURCES * 64;
@@ -160,6 +179,7 @@ impl Catalog {
             vao_screen,
 
             quadtree,
+            sources,
         }
     }
 
@@ -242,24 +262,34 @@ impl Mesh for Catalog {
         let (depth, hpx_idx) = field_of_view.cells();
 
         let mut sources = Vec::with_capacity(MAX_SOURCES * hpx_idx.len());
+
         for idx in hpx_idx.iter() {
             let tile = self.quadtree.get(*depth, *idx);
             if let Some(tile) = tile {
-                console::log_1(&format!("num aa: {:?}", tile.borrow().sources.len()).into());
-
-                sources.extend(tile.borrow().sources.iter().cloned());
+                //tiles.push(tile);
+                for &source_idx in tile.borrow().sources_idx.iter() {
+                    sources.push(&self.sources[source_idx]);
+                }
+                //console::log_1(&format!("num aa: {:?}", tile.borrow().sources.len()).into());
+                //sources_idx.extend(tile.borrow().sources_idx.iter().cloned());
             } else {
                 console::log_1(&format!("depth, idx: {:?}, {:?}", depth, idx).into());
             }
         }
 
-        self.num_instances = sources.len();
+        console::log_1(&format!("num sources to sort: {:?}", sources.len()).into());
+
+        sources.sort_unstable_by(|a, b| {
+            a.partial_cmp(b).unwrap()
+        });
+
+        self.num_instances = std::cmp::min(sources.len(), MAX_SOURCES);
         console::log_1(&format!("num instances: {:?}", self.num_instances).into());
 
         self.center_lonlat.clear();
         self.center_xyz.clear();
 
-        for source in sources.into_iter() {
+        for &source in &sources[..self.num_instances] {
             let vertex = math::radec_to_xyz(source.ra.into(), source.dec.into());
 
             self.center_xyz.push(vertex.x);
@@ -375,7 +405,7 @@ struct Node {
     idx: u64,
     depth: u8,
 
-    sources: Vec<Source>,
+    sources_idx: Vec<usize>,
     num_sources: usize,
 }
 
@@ -384,19 +414,20 @@ use cgmath::Rad;
 impl Node {
     fn new(idx: u64, depth: u8) -> Node {
         let children = [None, None, None, None];
-        let sources = Vec::with_capacity(MAX_SOURCES);
+        let sources_idx = Vec::with_capacity(MAX_SOURCES);
         let num_sources = 0;
 
         Node {
             children,
             idx,
             depth,
-            sources,
+            sources_idx,
             num_sources
         }
     }
 
-    fn add_to_child(&mut self, source: Source, tiles: &mut HashMap<u64, Rc<RefCell<Node>>>) {
+    fn add_to_child(&mut self, source_idx: usize, sources: &Vec<Source>, tiles: &mut HashMap<u64, Rc<RefCell<Node>>>) {
+        let source = &sources[source_idx];
         let lon: Rad<f32> = source.ra.into();
         let lat: Rad<f32> = source.dec.into();
 
@@ -411,10 +442,12 @@ impl Node {
         }
 
         if let Some(child) = self.children[idx_child].clone() {
-            child.borrow_mut().add(source, tiles);
+            child.borrow_mut().add(source_idx, sources, tiles);
         } else {
             // Create the child node
-            let mut child = Rc::new(RefCell::new(Node::new(idx, depth)));
+            let child = Rc::new(RefCell::new(Node::new(idx, depth)));
+            // Add the source
+            child.borrow_mut().add(source_idx, sources, tiles);
 
             // Add the node to the hashmap
             let uniq = (1 << (2*((depth as u64) + 1))) + idx;
@@ -422,36 +455,30 @@ impl Node {
 
             // Loop over all the sources of the current node
             // and add them if they are located in the child node
-            for s in self.sources.iter() {
-                let lon: Rad<f32> = s.ra.into();
-                let lat: Rad<f32> = s.dec.into();
+            for &parent_source_idx in self.sources_idx.iter() {
+                let parent_source = &sources[parent_source_idx];
+                let lon: Rad<f32> = parent_source.ra.into();
+                let lat: Rad<f32> = parent_source.dec.into();
                 let child_idx = healpix::nested::hash(depth, lon.0 as f64, lat.0 as f64);
 
-                if child_idx == idx {
-                    child.borrow_mut().add(s.clone(), tiles);
+                if child_idx == child.borrow().idx {
+                    child.borrow_mut().add(parent_source_idx, sources, tiles);
                 }
             }
-
-            // Add the source
-            child.borrow_mut().add(source, tiles);
 
             // Add it to the tree
             self.children[idx_child] = Some(child);
         }
     }
 
-    pub fn add(&mut self, source: Source, tiles: &mut HashMap<u64, Rc<RefCell<Node>>>) {
+    pub fn add(&mut self, source_idx: usize, sources: &Vec<Source>, tiles: &mut HashMap<u64, Rc<RefCell<Node>>>) {
         if self.num_sources < MAX_SOURCES || self.depth == 29 {
-            self.sources.push(source);
+            self.sources_idx.push(source_idx);
             self.num_sources += 1;
         } else {
             // Determine the children concerned by the source
-            self.add_to_child(source, tiles);
+            self.add_to_child(source_idx, sources, tiles);
         }
-    }
-
-    fn num_sources(&self) -> usize {
-        self.num_sources
     }
 }
 
@@ -463,7 +490,7 @@ struct QuadTree {
 }
 
 impl QuadTree {
-    pub fn new(sources: Vec<Source>) -> QuadTree {
+    pub fn new(sources: &Vec<Source>) -> QuadTree {
         let mut nodes: [Option<Rc<RefCell<Node>>>; 12] = [
             None, None, None, None,
             None, None, None, None,
@@ -472,16 +499,16 @@ impl QuadTree {
         let mut tiles = HashMap::new();
         // Loop over all the sources of the current node
         // and them if they are located in the child node
-        for s in sources.into_iter() {
-            let lon: Rad<f32> = s.ra.into();
-            let lat: Rad<f32> = s.dec.into();
+        for (source_idx, source) in sources.iter().enumerate() {
+            let lon: Rad<f32> = source.ra.into();
+            let lat: Rad<f32> = source.dec.into();
             let child_idx = healpix::nested::hash(0, lon.0 as f64, lat.0 as f64);
 
             if let Some(child) = nodes[child_idx as usize].clone() {
-                child.borrow_mut().add(s, &mut tiles);
+                child.borrow_mut().add(source_idx, sources, &mut tiles);
             } else {
-                let mut node = Rc::new(RefCell::new(Node::new(child_idx, 0)));
-                node.borrow_mut().add(s, &mut tiles);
+                let node = Rc::new(RefCell::new(Node::new(child_idx, 0)));
+                node.borrow_mut().add(source_idx, sources, &mut tiles);
 
                 // Add it to the hashmap
                 let uniq = 4 + child_idx;
@@ -501,17 +528,79 @@ impl QuadTree {
         // Add the node to the hashmap
         let mut uniq = (1 << (2*((depth as u64) + 1))) + idx;
 
-        while self.tiles.get(&uniq).is_none() {
-            if depth == 0 {
-                return None;
-            }
-            depth -= 1;
-            idx = idx / 4;
+        if let Some(tile) = self.tiles.get(&uniq) {
+            Some(tile.clone())
+        } else {
+            while self.tiles.get(&uniq).is_none() {
+                if depth == 0 {
+                    return None;
+                }
+                depth -= 1;
+                idx = idx >> 2;
 
-            uniq = (1 << (2*((depth as u64) + 1))) + idx;
+                uniq = (1 << (2*((depth as u64) + 1))) + idx;
+            }
+
+            if let Some(tile) = self.tiles.get(&uniq) {
+                if tile.borrow().num_sources < MAX_SOURCES {
+                    // It is a leaf
+                    Some(tile.clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        //Some(self.tiles.get(&uniq).unwrap().clone())
+    }
+}
+
+use std::ops::Range;
+struct Storage {
+    sources: Vec<Source>,
+    cells: Vec<Option<Range<u32>>>, // depth 7
+}
+
+impl Storage {
+    fn new(mut sources: Vec<Source>) -> Storage {
+        // Sort by HEALPix indices at depth 7
+        sources.sort_unstable_by(|a, b| {
+            let lon_a: Rad<f32> = a.ra.into();
+            let lat_a: Rad<f32> = a.dec.into();
+            let idx_a = healpix::nested::hash(7, lon_a.0 as f64, lat_a.0 as f64);
+
+            let lon_b: Rad<f32> = b.ra.into();
+            let lat_b: Rad<f32> = b.dec.into();
+            let idx_b = healpix::nested::hash(7, lon_b.0 as f64, lat_b.0 as f64);
+
+            idx_a.partial_cmp(&idx_b).unwrap()
+        });
+
+        let mut cells: Vec<Option<Range<u32>>> = vec![None; 196608];
+
+        for s in sources.iter() {
+            let lon: Rad<f32> = s.ra.into();
+            let lat: Rad<f32> = s.dec.into();
+            let idx = healpix::nested::hash(7, lon.0 as f64, lat.0 as f64) as usize;
+
+            if let Some(cell) = &mut cells[idx] {
+                cell.end += 1;
+            } else {
+                cells[idx] = Some((idx as u32)..((idx + 1) as u32));
+            }
         }
 
-        Some((*self.tiles.get(&uniq).unwrap()).clone())
+        Storage {
+            sources,
+            cells
+        }
+    }
+
+    fn get_sources(&self, depth: u8, idx: u32) -> Vec<&Source> {
+        /*if depth <= 7 {
+            let range = 12 * 
+        }*/
     }
 }
 
