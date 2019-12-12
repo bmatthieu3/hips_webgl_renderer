@@ -307,7 +307,7 @@ function touchpad_events(webClient) {
 }
 
 function retrieveCatalogSources(webClient) {
-    let url = 'http://tapvizier.u-strasbg.fr/TAPVizieR/tap/sync?phase=RUN&lang=adql&format=json&request=doQuery&query=SELECT%22J%2FA%2BA%2F566%2FA43%2Ftable2%22.RAJ2000%2C%20%20%22J%2FA%2BA%2F566%2FA43%2Ftable2%22.DEJ2000%2C%20%22J%2FA%2BA%2F566%2FA43%2Ftable2%22.Bmag%20FROM%20%22J%2FA%2BA%2F566%2FA43%2Ftable2%22';
+    let url = 'http://tapvizier.u-strasbg.fr/TAPVizieR/tap/sync?phase=RUN&lang=adql&format=json&request=doQuery&query=SELECT%22J%2FA%2BA%2F566%2FA43%2Ftable2%22.RAJ2000%2C%20%20%22J%2FA%2BA%2F566%2FA43%2Ftable2%22.DEJ2000%2C%20%22J%2FA%2BA%2F566%2FA43%2Ftable2%22.Bmag%20FROM%20%22J%2FA%2BA%2F566%2FA43%2Ftable2%22%20ORDER%20BY%20Bmag';
 
     var request = {
         method: 'GET',
