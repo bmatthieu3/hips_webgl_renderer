@@ -141,8 +141,8 @@ impl ViewPort {
         self.last_zoom_action = LastZoomAction::Unzoom;
 
         self.final_zoom /= (1_f32 + 0.01_f32 * amount);
-        if self.final_zoom < 0.75_f32 {
-            self.final_zoom = 0.75_f32;
+        if self.final_zoom < 0.5_f32 {
+            self.final_zoom = 0.5_f32;
         }
     }
 

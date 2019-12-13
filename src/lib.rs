@@ -358,6 +358,8 @@ impl App {
                 // The labels
                 self.grid.mesh().draw_labels();
             }
+        } else {
+            console::log_1(&format!("stop render").into());
         }
 
         if !UPDATE_USER_INTERFACE.load(Ordering::Relaxed) {

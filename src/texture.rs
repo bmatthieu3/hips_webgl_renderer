@@ -164,6 +164,8 @@ pub struct BufferTiles {
 
     buffer: BinaryHeap<Tile>,
     loaded_tiles: HashSet<(u8, u64)>,
+    // This binary heap contains the requests that must be canceled
+    // This must be rebuilt whenever we change of order
     pub requested_tiles: BinaryHeap<TileRequest>,
 
     size: usize,
@@ -171,9 +173,6 @@ pub struct BufferTiles {
 
     texture: Option<web_sys::WebGlTexture>,
     texture_name: &'static str,
-
-    num_load_tiles: u8,
-    num_tiles_to_load: u8,
 }
 
 use crate::utils;
@@ -188,8 +187,6 @@ impl BufferTiles {
         let (texture, idx_texture_unit) = create_texture_tile_buffer(gl);
 
         let gl = gl.clone();
-        let num_load_tiles = 0;
-        let num_tiles_to_load = size as u8;
         BufferTiles {
             gl,
 
@@ -203,9 +200,6 @@ impl BufferTiles {
 
             texture,
             texture_name,
-
-            num_load_tiles,
-            num_tiles_to_load,
         }
     }
 
@@ -237,16 +231,13 @@ impl BufferTiles {
         };
 
         // Push it to the GPU buffer
-        self.num_load_tiles += 1;
+        //self.num_load_tiles += 1;
         self.push_tile(tile);
 
         texture_idx
     }
 
-    pub fn prepare_for_loading(&mut self, num_tiles_to_load: u8) {
-        self.num_load_tiles = 0;
-        self.num_tiles_to_load = num_tiles_to_load;
-
+    pub fn refresh_requested_tiles_heap(&mut self) {
         self.requested_tiles = self.requested_tiles
             .clone()
             .into_vec()
@@ -256,17 +247,7 @@ impl BufferTiles {
 
     fn push_tile(&mut self, tile: Tile) {
         self.buffer.push(tile);
-
-        // if all the requested tiles are all in the buffer
-        // i.e. if there is no more tiles to load
-        if self.num_tiles_to_load == 0 {
-            return;
-        }
-
-        if self.num_load_tiles == self.num_tiles_to_load {
-            // Do not render next frame
-            RENDER_FRAME.lock().unwrap().set_for_duration_seconds(500_f32);
-        }
+        RENDER_FRAME.lock().unwrap().set_for_duration_seconds(500_f32);
     }
 
     pub fn add_to_loaded_tiles(&mut self, depth: u8, idx: u64) {
@@ -316,33 +297,29 @@ impl BufferTiles {
         if self.loaded_tiles.contains(&tile_loaded) {
             // Change its priority in the buffer (if it is present!).
             let tile = self.buffer
-                .clone()
-                .into_iter()
-                .find(|tile| {
+                .iter()
+                .find(|&tile| {
                     tile.depth == depth && tile.idx == idx
                 });
 
-            if let Some(mut tile) = tile {
+            if let Some(tile) = tile {
                 //console::log_1(&format!("found healpix cell").into());
                 // Found
+                let mut tile = tile.clone();
                 tile.time_request = time_request;
                 if reset_time_received {
                     tile.time_received = Some(utils::get_current_time());
                 }
-                //tile.time_received = Some(utils::get_current_time());
 
                 // Push it to the buffer again
-                let mut buffer = BinaryHeap::new();
-                for t in self.buffer.iter() {
-                    if t.depth != depth || t.idx != idx {
-                        buffer.push(t.clone());
-                    }
-                }
-                
-                self.buffer = buffer;
+                self.buffer = self.buffer.iter()
+                    .filter(|&tile| {
+                        tile.depth != depth || tile.idx != idx
+                    })
+                    .cloned()
+                    .collect();
 
                 // Push it to the GPU buffer
-                self.num_tiles_to_load -= 1;
                 self.push_tile(tile);
             } else {
                 unreachable!();
@@ -467,7 +444,15 @@ pub fn load_tiles(
     depth: u8,
     reset_time_received: bool
 ) {
-    buffer_tiles.borrow_mut().prepare_for_loading(tiles_idx.len() as u8);
+    //buffer_tiles.borrow_mut().prepare_for_loading(tiles_idx.len() as u8);
+    // If the depth has just changed, we must rebuild the
+    // requested tiles binary heap
+    if reset_time_received {
+        buffer_tiles.borrow_mut().refresh_requested_tiles_heap();
+    }
+    // And cancel the oldest async tile requests i.e. of depth
+    // > current_depth + 1 and < current_depth - 1
+    buffer_tiles.borrow_mut().cancel_obsolete_tile_requests(depth);
     for &idx in tiles_idx {
         load_healpix_tile(buffer_tiles.clone(), idx, depth, reset_time_received);
     }
@@ -484,11 +469,6 @@ fn load_healpix_tile(buffer: Rc<RefCell<BufferTiles>>, idx: u64, depth: u8, rese
 
     // Here we know we have to launch a new async request
     buffer.borrow_mut().add_to_requested_tiles(tile_request);
-
-    // Before doing that, we can loop over the requested tiles that have
-    // not been yet received and cancel oldest async tile requests of depth
-    // > current_depth + 1 and < current_depth - 1
-    buffer.borrow_mut().cancel_obsolete_tile_requests(depth);
 
     let url = {
         let dir_idx = (idx / 10000) * 10000;

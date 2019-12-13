@@ -26,8 +26,7 @@ pub struct Catalog {
     vao_screen: VertexArrayObject,
 
     // Quadtree referring to the sources
-    quadtree: QuadTree,
-    sources: Vec<Source>,
+    //quadtree: QuadTree
 }
 
 use cgmath::Deg;
@@ -75,15 +74,14 @@ use web_sys::console;
 impl Catalog {
     pub fn new(gl: &WebGl2Context, sources: Vec<Source>) -> Catalog {
         // Build the quadtree from the list of sources
-        console::log_1(&format!("BEGIN quadtree build").into());
-        let quadtree = QuadTree::new(&sources);
-        console::log_1(&format!("Quadtree BUILT").into());
+        //console::log_1(&format!("BEGIN quadtree build").into());
+        //let quadtree = QuadTree::new(sources);
+        //console::log_1(&format!("Quadtree BUILT").into());
 
-        let num_instances_max = MAX_SOURCES * 64;
-        let mut center_lonlat = vec![0_f32; num_instances_max * 2];
-        let mut center_xyz = vec![0_f32; num_instances_max * 3];
-
-        /*for source in sources.into_iter() {
+        let num_instances_max = sources.len();
+        let mut center_xyz = vec![];
+        let mut center_lonlat = vec![];
+        for source in sources.into_iter() {
             let vertex = math::radec_to_xyz(source.ra.into(), source.dec.into());
 
             center_xyz.push(vertex.x);
@@ -92,7 +90,10 @@ impl Catalog {
 
             center_lonlat.push(source.ra.0);
             center_lonlat.push(source.dec.0);
-        }*/
+        }
+        /*let num_instances_max = MAX_SOURCES * 64;
+        let mut center_lonlat = vec![0_f32; num_instances_max * 2];
+        let mut center_xyz = vec![0_f32; num_instances_max * 3];*/
         let num_instances = num_instances_max;
 
         // Store the vertices position and UV
@@ -178,8 +179,7 @@ impl Catalog {
 
             vao_screen,
 
-            quadtree,
-            sources,
+            //quadtree,
         }
     }
 
@@ -258,7 +258,7 @@ impl Mesh for Catalog {
         _projection: &ProjectionType,
         viewport: &ViewPort
     ) {
-        let field_of_view = viewport.field_of_view();
+        /*let field_of_view = viewport.field_of_view();
         let (depth, hpx_idx) = field_of_view.cells();
 
         let mut sources = Vec::with_capacity(MAX_SOURCES * hpx_idx.len());
@@ -303,7 +303,7 @@ impl Mesh for Catalog {
         // Update the VAO
         vertex_array_object.bind()
             .update_instanced_array(0, BufferData::new(&self.center_xyz))
-            .update_instanced_array(1, BufferData::new(&self.center_lonlat));
+            .update_instanced_array(1, BufferData::new(&self.center_lonlat));*/
     }
 
     fn draw<T: Mesh + DisableDrawing>(
@@ -597,10 +597,10 @@ impl Storage {
         }
     }
 
-    fn get_sources(&self, depth: u8, idx: u32) -> Vec<&Source> {
+    /*fn get_sources(&self, depth: u8, idx: u32) -> Vec<&Source> {
         /*if depth <= 7 {
             let range = 12 * 
         }*/
-    }
+    }*/
 }
 
