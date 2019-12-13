@@ -64,6 +64,8 @@ window.addEventListener('load', function () {
             let grid_opacity = document.getElementById("grid-alpha");
             let catalog_opacity = document.getElementById("catalog-alpha");
             let kernel_strength = document.getElementById("kernel-strength");
+            let canvas = document.getElementById("canvas");
+            canvas.focus();
 
             // Start our Rust application. You can find `WebClient` in `src/lib.rs`
             const webClient = new webgl.WebClient();

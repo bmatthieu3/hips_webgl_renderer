@@ -231,7 +231,6 @@ impl BufferTiles {
         };
 
         // Push it to the GPU buffer
-        //self.num_load_tiles += 1;
         self.push_tile(tile);
 
         texture_idx

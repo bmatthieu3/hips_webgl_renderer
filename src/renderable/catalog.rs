@@ -25,6 +25,7 @@ pub struct Catalog {
     // VAO for the screen
     vao_screen: VertexArrayObject,
 
+    data: Storage,
     // Quadtree referring to the sources
     //quadtree: QuadTree
 }
@@ -77,6 +78,8 @@ impl Catalog {
         //console::log_1(&format!("BEGIN quadtree build").into());
         //let quadtree = QuadTree::new(sources);
         //console::log_1(&format!("Quadtree BUILT").into());
+
+        let data = Storage::new(sources.clone());
 
         let num_instances_max = sources.len();
         let mut center_xyz = vec![];
@@ -180,6 +183,7 @@ impl Catalog {
             vao_screen,
 
             //quadtree,
+            data,
         }
     }
 
@@ -559,12 +563,12 @@ impl QuadTree {
 use std::ops::Range;
 struct Storage {
     sources: Vec<Source>,
-    cells: Vec<Option<Range<u32>>>, // depth 7
+    healpix_idx: Box<[Option<Range<u32>>]>, // depth 7
 }
 
 impl Storage {
     fn new(mut sources: Vec<Source>) -> Storage {
-        // Sort by HEALPix indices at depth 7
+        // Sort the sources by HEALPix indices at depth 7
         sources.sort_unstable_by(|a, b| {
             let lon_a: Rad<f32> = a.ra.into();
             let lat_a: Rad<f32> = a.dec.into();
@@ -577,30 +581,90 @@ impl Storage {
             idx_a.partial_cmp(&idx_b).unwrap()
         });
 
-        let mut cells: Vec<Option<Range<u32>>> = vec![None; 196608];
-
-        for s in sources.iter() {
-            let lon: Rad<f32> = s.ra.into();
-            let lat: Rad<f32> = s.dec.into();
+        let mut healpix_idx: Vec<Option<Range<u32>>> = vec![None; 196608];
+        for (idx_source, source) in sources.iter().enumerate() {
+            let lon: Rad<f32> = source.ra.into();
+            let lat: Rad<f32> = source.dec.into();
             let idx = healpix::nested::hash(7, lon.0 as f64, lat.0 as f64) as usize;
 
-            if let Some(cell) = &mut cells[idx] {
-                cell.end += 1;
+            if let Some(ref mut healpix_idx) = &mut healpix_idx[idx] {
+                healpix_idx.end += 1;
             } else {
-                cells[idx] = Some((idx as u32)..((idx + 1) as u32));
+                healpix_idx[idx] = Some((idx_source as u32)..((idx_source + 1) as u32));
             }
         }
 
+        let mut idx_source = 0;
+        for i in 0..healpix_idx.len() {
+            if let Some(ref healpix_idx) = healpix_idx[i] {
+                idx_source = healpix_idx.end;
+            } else {
+                healpix_idx[i] = Some(idx_source..idx_source);
+            }
+        }
+
+        console::log_1(&format!("sources ranges: {:?}", healpix_idx).into());
+
+        let mut healpix_idx = healpix_idx.into_boxed_slice();
         Storage {
             sources,
-            cells
+            healpix_idx
         }
     }
 
-    /*fn get_sources(&self, depth: u8, idx: u32) -> Vec<&Source> {
-        /*if depth <= 7 {
-            let range = 12 * 
-        }*/
-    }*/
+    fn get_sources(&self, depth: u8, idx: u32) -> Vec<&Source> {
+        let idx = idx as usize;
+        let depth = depth as usize;
+
+        let sources = if depth <= 7 {
+            let off = 2*(7 - depth);
+
+            let healpix_idx_start = idx << off;
+            let healpix_idx_end = (idx + 1) << off;
+
+            let idx_start_sources = self.healpix_idx[healpix_idx_start]
+                .as_ref()
+                .unwrap().start as usize;
+            let idx_end_sources = self.healpix_idx[healpix_idx_end - 1]
+                .as_ref()
+                .unwrap().end as usize;
+
+            self.sources[idx_start_sources..idx_end_sources].iter().collect()
+        } else {
+            // depth > 7
+            // Get the sources that are contained in parent cell of depth 7
+            let off = 2*(depth - 7);
+
+            let healpix_idx_start = idx >> off;
+            let healpix_idx_end = healpix_idx_start + (1 << off);
+
+            let idx_start_sources = self.healpix_idx[healpix_idx_start]
+                .as_ref()
+                .unwrap().start as usize;
+            let idx_end_sources = self.healpix_idx[healpix_idx_end - 1]
+                .as_ref()
+                .unwrap().end as usize;
+
+            let candidates = &self.sources[idx_start_sources..idx_end_sources];
+
+            let mut result = vec![];
+            let d = depth as u8;
+            let idx = idx as u64;
+
+            for source in candidates {
+                let lon: Rad<f32> = source.ra.into();
+                let lat: Rad<f32> = source.dec.into();
+                let candidate_idx = healpix::nested::hash(d, lon.0 as f64, lat.0 as f64);
+
+                if idx == candidate_idx {
+                    result.push(source);
+                }
+            }
+
+            result
+        };
+
+        sources
+    }
 }
 

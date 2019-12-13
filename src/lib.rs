@@ -343,10 +343,10 @@ impl App {
             );
 
             // Draw the catalogs
-            self.catalog.draw(
+            /*self.catalog.draw(
                 shaders,
                 viewport
-            );
+            );*/
 
             // Draw the grid
             if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
