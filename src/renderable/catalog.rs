@@ -298,20 +298,6 @@ impl Mesh for Catalog {
         self.num_instances = mem::size_of_val(&sources[..]) / mem::size_of::<Source>();
         console::log_1(&format!("num sources: {:?}", self.num_instances).into());
 
-        /*for idx in hpx_idx.iter() {
-            let tile = self.quadtree.get(*depth, *idx);
-            if let Some(tile) = tile {
-                //tiles.push(tile);
-                for &source_idx in tile.borrow().sources_idx.iter() {
-                    sources.push(&self.sources[source_idx]);
-                }
-                //console::log_1(&format!("num aa: {:?}", tile.borrow().sources.len()).into());
-                //sources_idx.extend(tile.borrow().sources_idx.iter().cloned());
-            } else {
-                console::log_1(&format!("depth, idx: {:?}, {:?}", depth, idx).into());
-            }
-        }*/
-
         // Update the VAO
         vertex_array_object.bind()
             .update_instanced_array(0, BufferData::new(&sources));

@@ -183,7 +183,7 @@ impl ViewPort {
         }
     }
 
-    pub fn update(&mut self, model: &Matrix4<f32>, projection: &ProjectionType, dt: f32, catalog: &mut Renderable<Catalog>) {
+    pub fn update(&mut self, model: &Matrix4<f32>, projection: &ProjectionType, dt: f32) {
         // If there is an action whether it is a zoom or a displacement
         // then we update the fov
         if self.is_action {
@@ -198,7 +198,7 @@ impl ViewPort {
                 // Zooming
                 if self.fov_max > *fov && self.current_zoom < self.final_zoom {
                     self.stop_zooming();
-                    catalog.update(projection, self);
+                    //catalog.update(projection, self);
                     return;
                 }
             }
@@ -206,7 +206,7 @@ impl ViewPort {
             // Here we are currently zooming
             if (self.current_zoom - self.final_zoom).abs() < 1e-3 {
                 self.stop_zooming();
-                catalog.update(projection, self);
+                //catalog.update(projection, self);
                 return;
             }
 
@@ -216,9 +216,9 @@ impl ViewPort {
             self.update_scissor();
         }
 
-        if self.is_moving {
+        /*if self.is_moving {
             catalog.update(projection, self);
-        }
+        }*/
     }
 
     pub fn set_max_field_of_view(&mut self, max_fov: Rad<f32>) {
