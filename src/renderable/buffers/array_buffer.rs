@@ -10,6 +10,7 @@ use crate::WebGl2Context;
 pub struct ArrayBuffer {
     buffer: WebGlBuffer,
     num_packed_data: usize,
+    offset_idx: u32,
     gl: WebGl2Context,
 }
 
@@ -53,6 +54,7 @@ impl<'a> ArrayBuffer {
         ArrayBuffer {
             buffer,
             num_packed_data,
+            offset_idx,
             gl,
         }
     }
@@ -76,7 +78,8 @@ impl<'a> ArrayBuffer {
 impl Drop for ArrayBuffer {
     fn drop(&mut self) {
         for idx in 0..self.num_packed_data {
-            self.gl.disable_vertex_attrib_array(idx as u32);
+            let idx = (idx as u32) + self.offset_idx;
+            self.gl.disable_vertex_attrib_array(idx);
         }
 
         self.gl.delete_buffer(Some(self.buffer.as_ref()));

@@ -5,6 +5,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
 
     layout (location = 2) in vec3 center;
     layout (location = 3) in vec2 center_lonlat;
+    layout (location = 4) in float score;
 
     uniform float current_time;
     uniform mat4 model;

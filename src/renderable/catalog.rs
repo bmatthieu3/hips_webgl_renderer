@@ -1,9 +1,8 @@
 use crate::texture::Texture2D;
 
 use web_sys::WebGlFramebuffer;
+use std::collections::HashSet;
 pub struct Catalog {
-    center_lonlat: Vec<f32>, // Spherical position of the observations
-    center_xyz: Vec<f32>, // Cartesian position of the observations
     num_instances: usize,
 
     vertices: Vec<f32>, // Offsets and UVs
@@ -26,27 +25,45 @@ pub struct Catalog {
     vao_screen: VertexArrayObject,
 
     data: Storage,
+    cells: HashSet<(u8, u32)>,
     // Quadtree referring to the sources
     //quadtree: QuadTree
 }
 
-use cgmath::Deg;
+use cgmath::Rad;
 #[derive(Debug)]
 #[derive(Clone, PartialEq)]
+#[repr(C)]
 pub struct Source {
-    ra: Deg<f32>,
-    dec: Deg<f32>,
-    mag: f32,
+    x: f32,
+    y: f32,
+    z: f32,
+
+    lon: Rad<f32>,
+    lat: Rad<f32>,
+
+    score: f32,
 }
 
 impl Eq for Source {}
 
 impl Source {
-    pub fn new(ra: Deg<f32>, dec: Deg<f32>, mag: f32) -> Source {
+    pub fn new(lon: Rad<f32>, lat: Rad<f32>, score: f32) -> Source {
+        let world_pos = math::radec_to_xyz(lon, lat);
+
+        let x = world_pos.x;
+        let y = world_pos.y;
+        let z = world_pos.z;
+
         Source {
-            ra,
-            dec,
-            mag
+            x,
+            y,
+            z,
+
+            lon,
+            lat,
+
+            score
         }
     }
 }
@@ -56,7 +73,7 @@ use std::cmp::PartialOrd;
 use std::cmp::Ord;
 impl PartialOrd for Source {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.mag.partial_cmp(&other.mag)
+        self.score.partial_cmp(&other.score)
     }
 }
 impl Ord for Source {
@@ -65,9 +82,14 @@ impl Ord for Source {
     }
 }
 
-impl<'a> From<&[f32]> for Source {
-    fn from(data: &[f32]) -> Self {
-        Source::new(Deg(data[0]), Deg(data[1]), data[2])
+use cgmath::Deg;
+impl From<&[f32]> for Source {
+    fn from(data: &[f32]) -> Source {
+        let lon = Deg(data[0]).into();
+        let lat = Deg(data[1]).into();
+        let score = data[2];
+
+        Source::new(lon, lat, score)
     }
 }
 
@@ -78,26 +100,12 @@ impl Catalog {
         //console::log_1(&format!("BEGIN quadtree build").into());
         //let quadtree = QuadTree::new(sources);
         //console::log_1(&format!("Quadtree BUILT").into());
+        let num_instances = sources.len();
+        let data = Storage::new(sources);
 
-        let data = Storage::new(sources.clone());
-
-        let num_instances_max = sources.len();
-        let mut center_xyz = vec![];
-        let mut center_lonlat = vec![];
-        for source in sources.into_iter() {
-            let vertex = math::radec_to_xyz(source.ra.into(), source.dec.into());
-
-            center_xyz.push(vertex.x);
-            center_xyz.push(vertex.y);
-            center_xyz.push(vertex.z);
-
-            center_lonlat.push(source.ra.0);
-            center_lonlat.push(source.dec.0);
-        }
         /*let num_instances_max = MAX_SOURCES * 64;
         let mut center_lonlat = vec![0_f32; num_instances_max * 2];
         let mut center_xyz = vec![0_f32; num_instances_max * 3];*/
-        let num_instances = num_instances_max;
 
         // Store the vertices position and UV
         let vertices = vec![
@@ -158,10 +166,9 @@ impl Catalog {
 
         let alpha = 0.2_f32;
         let strength = 1_f32;
-        Catalog {
-            center_lonlat,
-            center_xyz,
 
+        let cells = HashSet::new();
+        Catalog {
             num_instances, 
 
             vertices,
@@ -184,6 +191,7 @@ impl Catalog {
 
             //quadtree,
             data,
+            cells,
         }
     }
 
@@ -217,9 +225,12 @@ use std::collections::HashMap;
 use crate::window_size_u32;
 
 use crate::math;
+use std::mem;
+use crate::renderable::buffers::buffer_data::BufferDataSlice;
 impl Mesh for Catalog {
-    fn create_buffers(&self, gl: &WebGl2Context) -> VertexArrayObject {
+    fn create_buffers(&mut self, gl: &WebGl2Context) -> VertexArrayObject {
         let mut vertex_array_object = VertexArrayObject::new(gl);
+
         vertex_array_object.bind()
             // Store the UV and the offsets of the billboard in a VBO
             .add_array_buffer(
@@ -231,17 +242,11 @@ impl Mesh for Catalog {
             )
             // Store the cartesian position of the center of the source in the a instanced VBO
             .add_instanced_array_buffer(
-                3 * std::mem::size_of::<f32>(),
-                3,
+                std::mem::size_of::<Source>(),
+                &[3, 2, 1],
+                &[0 * mem::size_of::<f32>(), 3 * mem::size_of::<f32>(), 5 * mem::size_of::<f32>()],
                 WebGl2RenderingContext::DYNAMIC_DRAW,
-                BufferData::new(self.center_xyz.as_ref()),
-            )
-            // Store the spherical position of the center of the source in the a instanced VBO
-            .add_instanced_array_buffer(
-                2 * std::mem::size_of::<f32>(),
-                2,
-                WebGl2RenderingContext::DYNAMIC_DRAW,
-                BufferData::new(self.center_lonlat.as_ref()),
+                BufferData::new(self.data.sources.as_ref()),
             )
             // Set the element buffer
             .add_element_buffer(
@@ -262,12 +267,38 @@ impl Mesh for Catalog {
         _projection: &ProjectionType,
         viewport: &ViewPort
     ) {
-        /*let field_of_view = viewport.field_of_view();
+        let field_of_view = viewport.field_of_view();
         let (depth, hpx_idx) = field_of_view.cells();
+        console::log_1(&format!("depth: {:?}", depth).into());
 
-        let mut sources = Vec::with_capacity(MAX_SOURCES * hpx_idx.len());
+        let mut sources = vec![];
 
-        for idx in hpx_idx.iter() {
+        if *depth > 7 {
+            self.cells.clear();
+            for idx in hpx_idx.iter() {
+                let idx_7 = *idx >> (2*(*depth - 7));
+                let cell = (7 as u8, idx_7 as u32);
+
+                if !self.cells.contains(&cell) {
+                    let result = self.data.get_sources(*depth, *idx as u32);
+                    sources.push(result);
+
+                    self.cells.insert(cell);
+                }
+            }
+        } else {
+            for idx in hpx_idx.iter() {
+                let result = self.data.get_sources(*depth, *idx as u32);
+                sources.push(result);
+            }
+        }
+
+        let sources = &sources[..].concat();
+
+        self.num_instances = mem::size_of_val(&sources[..]) / mem::size_of::<Source>();
+        console::log_1(&format!("num sources: {:?}", self.num_instances).into());
+
+        /*for idx in hpx_idx.iter() {
             let tile = self.quadtree.get(*depth, *idx);
             if let Some(tile) = tile {
                 //tiles.push(tile);
@@ -279,35 +310,11 @@ impl Mesh for Catalog {
             } else {
                 console::log_1(&format!("depth, idx: {:?}, {:?}", depth, idx).into());
             }
-        }
-
-        console::log_1(&format!("num sources to sort: {:?}", sources.len()).into());
-
-        sources.sort_unstable_by(|a, b| {
-            a.partial_cmp(b).unwrap()
-        });
-
-        self.num_instances = std::cmp::min(sources.len(), MAX_SOURCES);
-        console::log_1(&format!("num instances: {:?}", self.num_instances).into());
-
-        self.center_lonlat.clear();
-        self.center_xyz.clear();
-
-        for &source in &sources[..self.num_instances] {
-            let vertex = math::radec_to_xyz(source.ra.into(), source.dec.into());
-
-            self.center_xyz.push(vertex.x);
-            self.center_xyz.push(vertex.y);
-            self.center_xyz.push(vertex.z);
-
-            self.center_lonlat.push(source.ra.0);
-            self.center_lonlat.push(source.dec.0);
-        }
+        }*/
 
         // Update the VAO
         vertex_array_object.bind()
-            .update_instanced_array(0, BufferData::new(&self.center_xyz))
-            .update_instanced_array(1, BufferData::new(&self.center_lonlat));*/
+            .update_instanced_array(0, BufferData::new(&sources));
     }
 
     fn draw<T: Mesh + DisableDrawing>(
@@ -400,7 +407,7 @@ impl<'a> DisableDrawing for Catalog {
 }
 
 const MAX_SOURCES: usize = 1000;
-
+/*
 use std::rc::Rc;
 use std::cell::RefCell;
 struct Node {
@@ -559,33 +566,28 @@ impl QuadTree {
         //Some(self.tiles.get(&uniq).unwrap().clone())
     }
 }
-
+*/
 use std::ops::Range;
 struct Storage {
-    sources: Vec<Source>,
+    // Sources data
+    sources: Vec<f32>,
+
     healpix_idx: Box<[Option<Range<u32>>]>, // depth 7
 }
 
 impl Storage {
     fn new(mut sources: Vec<Source>) -> Storage {
         // Sort the sources by HEALPix indices at depth 7
-        sources.sort_unstable_by(|a, b| {
-            let lon_a: Rad<f32> = a.ra.into();
-            let lat_a: Rad<f32> = a.dec.into();
-            let idx_a = healpix::nested::hash(7, lon_a.0 as f64, lat_a.0 as f64);
+        sources.sort_unstable_by(|s1, s2| {
+            let idx1 = healpix::nested::hash(7, s1.lon.0 as f64, s1.lat.0 as f64);
+            let idx2 = healpix::nested::hash(7, s2.lon.0 as f64, s2.lat.0 as f64);
 
-            let lon_b: Rad<f32> = b.ra.into();
-            let lat_b: Rad<f32> = b.dec.into();
-            let idx_b = healpix::nested::hash(7, lon_b.0 as f64, lat_b.0 as f64);
-
-            idx_a.partial_cmp(&idx_b).unwrap()
+            idx1.partial_cmp(&idx2).unwrap()
         });
 
         let mut healpix_idx: Vec<Option<Range<u32>>> = vec![None; 196608];
-        for (idx_source, source) in sources.iter().enumerate() {
-            let lon: Rad<f32> = source.ra.into();
-            let lat: Rad<f32> = source.dec.into();
-            let idx = healpix::nested::hash(7, lon.0 as f64, lat.0 as f64) as usize;
+        for (idx_source, s) in sources.iter().enumerate() {
+            let idx = healpix::nested::hash(7, s.lon.0 as f64, s.lat.0 as f64) as usize;
 
             if let Some(ref mut healpix_idx) = &mut healpix_idx[idx] {
                 healpix_idx.end += 1;
@@ -603,18 +605,30 @@ impl Storage {
             }
         }
 
+        let sources = {            
+            let ptr = sources.as_mut_ptr();
+            let len = sources.len() * mem::size_of::<Source>();
+            let cap = sources.capacity() * mem::size_of::<Source>();
+            
+            mem::forget(sources);
+
+            unsafe { Vec::from_raw_parts(ptr as *mut f32, len, cap) }
+        };
         console::log_1(&format!("sources ranges: {:?}", healpix_idx).into());
 
         let mut healpix_idx = healpix_idx.into_boxed_slice();
         Storage {
             sources,
+
             healpix_idx
         }
     }
 
-    fn get_sources(&self, depth: u8, idx: u32) -> Vec<&Source> {
+    fn get_sources(&self, depth: u8, idx: u32) -> &[f32] {
         let idx = idx as usize;
         let depth = depth as usize;
+
+        let size = std::mem::size_of::<Source>() / std::mem::size_of::<f32>();
 
         let sources = if depth <= 7 {
             let off = 2*(7 - depth);
@@ -629,42 +643,47 @@ impl Storage {
                 .as_ref()
                 .unwrap().end as usize;
 
-            self.sources[idx_start_sources..idx_end_sources].iter().collect()
+            &self.sources[(size*idx_start_sources)..(size*idx_end_sources)]
         } else {
             // depth > 7
             // Get the sources that are contained in parent cell of depth 7
+            /*let shift = 2*(depth - 7);
+            let off = (1 << shift) - 1;
+            let mask = !off;
+
+            let add = off;
+
+            let idx_start = idx & mask;*/
+
             let off = 2*(depth - 7);
+            let idx_start = idx >> off;
 
-            let healpix_idx_start = idx >> off;
-            let healpix_idx_end = healpix_idx_start + (1 << off);
-
-            let idx_start_sources = self.healpix_idx[healpix_idx_start]
+            let idx_start_sources = self.healpix_idx[idx_start]
                 .as_ref()
                 .unwrap().start as usize;
-            let idx_end_sources = self.healpix_idx[healpix_idx_end - 1]
+            let idx_end_sources = self.healpix_idx[idx_start]
                 .as_ref()
                 .unwrap().end as usize;
 
-            let candidates = &self.sources[idx_start_sources..idx_end_sources];
+            &self.sources[(size*idx_start_sources)..(size*idx_end_sources)]
 
-            let mut result = vec![];
+            /*let candidates = &self.sources[6*idx_start_sources..6*idx_end_sources];
+            let mut result = Vec::<&f32>::new();
             let d = depth as u8;
-            let idx = idx as u64;
-
-            for source in candidates {
-                let lon: Rad<f32> = source.ra.into();
-                let lat: Rad<f32> = source.dec.into();
-                let candidate_idx = healpix::nested::hash(d, lon.0 as f64, lat.0 as f64);
+            let idx = idx as u64;*/
+            /*for source in candidates {
+                let candidate_idx = healpix::nested::hash(d, source.lon.0 as f64, source.lat.0 as f64);
 
                 if idx == candidate_idx {
                     result.push(source);
                 }
             }
-
             result
+            */
         };
 
         sources
     }
 }
+
 

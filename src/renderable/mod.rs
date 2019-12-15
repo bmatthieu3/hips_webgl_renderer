@@ -20,7 +20,7 @@ use cgmath::Matrix4;
 
 use std::collections::HashMap;
 pub trait Mesh {
-    fn create_buffers(&self, gl: &WebGl2Context) -> VertexArrayObject;
+    fn create_buffers(&mut self, gl: &WebGl2Context) -> VertexArrayObject;
 
     fn update<T: Mesh + DisableDrawing>(
         &mut self,
@@ -65,7 +65,7 @@ use cgmath::SquareMatrix;
 
 impl<T> Renderable<T>
 where T: Mesh + DisableDrawing {
-    pub fn new(gl: &WebGl2Context, shader: &Shader, mesh: T) -> Renderable<T> {
+    pub fn new(gl: &WebGl2Context, shader: &Shader, mut mesh: T) -> Renderable<T> {
         shader.bind(gl);
         let vertex_array_object = mesh.create_buffers(gl);
 
@@ -92,7 +92,7 @@ where T: Mesh + DisableDrawing {
         }
     }
 
-    pub fn update_mesh(&mut self, shader: &Shader, mesh: T) {
+    pub fn update_mesh(&mut self, shader: &Shader, mut mesh: T) {
         shader.bind(&self.gl);
         self.vertex_array_object = mesh.create_buffers(&self.gl);
 

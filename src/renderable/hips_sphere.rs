@@ -187,7 +187,7 @@ use cgmath::Matrix4;
 
 use crate::utils;
 impl Mesh for HiPSSphere {
-    fn create_buffers(&self, gl: &WebGl2Context) -> VertexArrayObject {
+    fn create_buffers(&mut self, gl: &WebGl2Context) -> VertexArrayObject {
         let mut vertex_array_object = VertexArrayObject::new(gl);
 
         vertex_array_object.bind()

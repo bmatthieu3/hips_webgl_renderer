@@ -395,7 +395,7 @@ use crate::renderable::Renderable;
 use crate::utils;
 use std::collections::HashMap;
 impl Mesh for ProjetedGrid {
-    fn create_buffers(&self, gl: &WebGl2Context) -> VertexArrayObject {
+    fn create_buffers(&mut self, gl: &WebGl2Context) -> VertexArrayObject {
         let mut vertex_array_object = VertexArrayObject::new(gl);
 
         let ref vertices_data = self.pos_screen_space;

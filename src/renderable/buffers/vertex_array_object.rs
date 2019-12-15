@@ -3,7 +3,7 @@ use web_sys::WebGlVertexArrayObject;
 use crate::renderable::buffers::array_buffer::ArrayBuffer;
 use crate::renderable::buffers::array_buffer_instanced::ArrayBufferInstanced;
 use crate::renderable::buffers::element_array_buffer::ElementArrayBuffer;
-use crate::renderable::buffers::buffer_data::BufferData;
+use crate::renderable::buffers::buffer_data::{BufferData, BufferDataSlice};
 
 use crate::WebGl2Context;
 
@@ -105,18 +105,19 @@ impl<'a> VertexArrayObjectBound<'a> {
     }
 
     /// Precondition: self must be bound
-    pub fn add_instanced_array_buffer(&mut self, stride: usize, sizes: usize, usage: u32, data: BufferData<'a, f32>) -> &mut Self {
+    pub fn add_instanced_array_buffer(&mut self, stride: usize, sizes: &[usize], offsets: &[usize], usage: u32, data: BufferData<'a, f32>) -> &mut Self {
         let array_buffer = ArrayBufferInstanced::new(
             &self.vao.gl,
             self.vao.idx,
             stride,
             sizes,
+            offsets,
             usage,
             data,
         );
 
         // Update the number of vertex attrib
-        self.vao.idx += 1;
+        self.vao.idx += sizes.len() as u32;
 
         self.vao.array_buffer_instanced.push(array_buffer);
 
@@ -148,6 +149,10 @@ impl<'a> VertexArrayObjectBound<'a> {
     }
     pub fn update_instanced_array(&mut self, idx: usize, array_data: BufferData<'a, f32>) -> &mut Self {
         self.vao.array_buffer_instanced[idx].update(array_data);
+        self
+    }
+    pub fn update_instanced_array_slice(&mut self, idx: usize, array_data: BufferDataSlice<'a, f32>) -> &mut Self {
+        self.vao.array_buffer_instanced[idx].update_slice(array_data);
         self
     }
 
