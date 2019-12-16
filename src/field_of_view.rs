@@ -14,7 +14,7 @@ pub struct FieldOfView {
 
     value: Option<Rad<f32>>, // fov can be None if the camera is out of the projection
 
-    cells: HashSet<HEALPixCell>,
+    cells: BTreeSet<HEALPixCell>,
     current_depth: u8,
 }
 
@@ -29,14 +29,9 @@ use std::sync::atomic;
 use std::cmp;
 
 #[derive(Clone)]
+#[derive(Debug)]
+#[derive(PartialEq, Eq, Hash)]
 pub struct HEALPixCell(pub u8, pub u64);
-
-impl PartialEq for HEALPixCell {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0 && self.1 == other.1
-    }
-}
-impl Eq for HEALPixCell {}
 
 impl PartialOrd for HEALPixCell {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
@@ -52,20 +47,12 @@ impl Ord for HEALPixCell {
     }
 }
 
-use std::hash::{Hash, Hasher};
-impl Hash for HEALPixCell {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
-        self.1.hash(state);
-    }
-}
-
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 lazy_static! {
-    pub static ref ALLSKY: Arc<Mutex<HashSet<HEALPixCell>>> = {
-        let mut allsky = HashSet::with_capacity(12);
+    pub static ref ALLSKY: Arc<Mutex<BTreeSet<HEALPixCell>>> = {
+        let mut allsky = BTreeSet::new();
         allsky.insert(HEALPixCell(0, 0));
         allsky.insert(HEALPixCell(0, 1));
         allsky.insert(HEALPixCell(0, 2));
@@ -189,7 +176,7 @@ impl FieldOfView {
                         .collect::<Vec<_>>();
 
                     //console::log_1(&format!("LONLAT, {:?}", lon_lat_world_space).into());
-                    let mut cells = HashSet::new();
+                    let mut cells = BTreeSet::new();
                     while depth > 0 {
                         let moc = healpix::nested::polygon_coverage(depth, &lon_lat_world_space, true);
                         let num_tiles = moc.entries.len();
@@ -200,7 +187,7 @@ impl FieldOfView {
                                 .map(|idx| {
                                     HEALPixCell(depth, idx)
                                 })
-                                .collect::<HashSet<_>>();
+                                .collect::<BTreeSet<_>>();
                             break;
                         }
     
@@ -225,7 +212,7 @@ impl FieldOfView {
 
     // Returns the HEALPix cells located in the
     // field of view
-    pub fn cells(&self) -> &HashSet<HEALPixCell> {
+    pub fn cells(&self) -> &BTreeSet<HEALPixCell> {
         &self.cells
     }
 

@@ -438,9 +438,10 @@ impl BufferTiles {
 
 use crate::HIPS_NAME;
 use crate::field_of_view::HEALPixCell;
+use std::collections::BTreeSet;
 pub fn load_tiles(
     buffer_tiles: Rc<RefCell<BufferTiles>>,
-    tiles: &HashSet<HEALPixCell>,
+    tiles: &BTreeSet<HEALPixCell>,
     depth: u8,
     reset_time_received: bool
 ) {

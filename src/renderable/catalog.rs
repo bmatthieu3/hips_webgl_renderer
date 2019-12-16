@@ -39,8 +39,8 @@ pub struct Source {
     y: f32,
     z: f32,
 
-    lon: Rad<f32>,
-    lat: Rad<f32>,
+    lon: f32,
+    lat: f32,
 
     mag: f32,
 }
@@ -54,6 +54,9 @@ impl Source {
         let x = world_pos.x;
         let y = world_pos.y;
         let z = world_pos.z;
+
+        let lon = lon.0;
+        let lat = lat.0;
 
         Source {
             x,
@@ -226,7 +229,6 @@ use std::collections::BinaryHeap;
 use crate::window_size_u32;
 
 use crate::math;
-use std::mem;
 use crate::renderable::buffers::buffer_data::BufferDataSlice;
 impl Mesh for Catalog {
     fn create_buffers(&mut self, gl: &WebGl2Context) -> VertexArrayObject {
@@ -272,7 +274,8 @@ impl Mesh for Catalog {
 
         let healpix_cells = field_of_view.cells();
         let current_depth = field_of_view.get_current_depth();
-        console::log_1(&format!("depth: {:?}", current_depth).into());
+        //console::log_1(&format!("depth: {:?}", current_depth).into());
+        //console::log_1(&format!("fov: {:?}", healpix_cells).into());
 
         let mut sources = vec![];
 
@@ -447,19 +450,20 @@ struct Storage {
     healpix_idx: Box<[Option<Range<u32>>]>, // depth 7
 }
 
+use std::mem;
 impl Storage {
     fn new(mut sources: Vec<Source>) -> Storage {
         // Sort the sources by HEALPix indices at depth 7
         sources.sort_unstable_by(|s1, s2| {
-            let idx1 = healpix::nested::hash(7, s1.lon.0 as f64, s1.lat.0 as f64);
-            let idx2 = healpix::nested::hash(7, s2.lon.0 as f64, s2.lat.0 as f64);
+            let idx1 = healpix::nested::hash(7, s1.lon as f64, s1.lat as f64);
+            let idx2 = healpix::nested::hash(7, s2.lon as f64, s2.lat as f64);
 
             idx1.partial_cmp(&idx2).unwrap()
         });
 
         let mut healpix_idx: Vec<Option<Range<u32>>> = vec![None; 196608];
         for (idx_source, s) in sources.iter().enumerate() {
-            let idx = healpix::nested::hash(7, s.lon.0 as f64, s.lat.0 as f64) as usize;
+            let idx = healpix::nested::hash(7, s.lon as f64, s.lat as f64) as usize;
 
             if let Some(ref mut healpix_idx) = &mut healpix_idx[idx] {
                 healpix_idx.end += 1;
