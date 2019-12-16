@@ -46,15 +46,17 @@ use crate::viewport::ViewPort;
 use cgmath::Vector2;
 
 use crate::WebGl2Context;
+use crate::field_of_view::ALLSKY;
 
 impl<'a> HiPSSphere {
     pub fn new(gl: &WebGl2Context, projection: &ProjectionType) -> HiPSSphere {
         let buffer_tiles = Rc::new(RefCell::new(BufferTiles::new(gl, 64, "textures")));
-        let base_tiles = (0..12).collect::<Vec<u64>>();
-        load_tiles(buffer_tiles.clone(), &base_tiles, 0, false);
+
+        let ref allsky = ALLSKY.lock().unwrap();
+        load_tiles(buffer_tiles.clone(), allsky, 0, false);
 
         let buffer_depth_zero_tiles = Rc::new(RefCell::new(BufferTiles::new(gl, 12, "textures_0")));
-        load_tiles(buffer_depth_zero_tiles.clone(), &base_tiles, 0, false);
+        load_tiles(buffer_depth_zero_tiles.clone(), allsky, 0, false);
 
         let (vertices, size_in_pixels) = HiPSSphere::create_vertices_array(gl, projection);
         let idx_vertices = HiPSSphere::create_index_array();
@@ -84,13 +86,13 @@ impl<'a> HiPSSphere {
     /// Called when the HiPS has been changed
     pub fn refresh_buffer_tiles(&mut self) {
         console::log_1(&format!("refresh buffers").into());
-        let base_tiles = (0..12).collect::<Vec<u64>>();
 
+        let ref allsky = ALLSKY.lock().unwrap();
         self.buffer_tiles.replace(BufferTiles::new(&self.gl, 64, "textures"));
-        load_tiles(self.buffer_tiles.clone(), &base_tiles, 0, false);
+        load_tiles(self.buffer_tiles.clone(), &allsky, 0, false);
 
         self.buffer_depth_zero_tiles.replace(BufferTiles::new(&self.gl, 12, "textures_0"));
-        load_tiles(self.buffer_depth_zero_tiles.clone(), &base_tiles, 0, false);
+        load_tiles(self.buffer_depth_zero_tiles.clone(), &allsky, 0, false);
     }
 
     pub fn get_default_pixel_size(&self) -> &Vector2<f32> {
@@ -220,19 +222,20 @@ impl Mesh for HiPSSphere {
         viewport: &ViewPort
     ) {
         let field_of_view = viewport.field_of_view();
-        let (depth, hpx_idx) = field_of_view.cells();
+        let healpix_cells = field_of_view.cells();
+        let current_depth = field_of_view.get_current_depth();
 
-        let current_depth = DEPTH.load(Ordering::Relaxed);
-        let reset_time_received = if current_depth != *depth {
+        let prev_depth = DEPTH.load(Ordering::Relaxed);
+        let reset_time_received = if prev_depth != current_depth {
             true
         } else {
             false
         };
 
-        DEPTH.store(*depth, Ordering::Relaxed);
+        DEPTH.store(current_depth, Ordering::Relaxed);
 
         // TODO: wrap that into a method load_healpix_tiles of BufferTiles
-        load_tiles(self.buffer_tiles.clone(), &hpx_idx, *depth, reset_time_received);
+        load_tiles(self.buffer_tiles.clone(), healpix_cells, current_depth, reset_time_received);
     }
 
     fn draw<T: Mesh + DisableDrawing>(

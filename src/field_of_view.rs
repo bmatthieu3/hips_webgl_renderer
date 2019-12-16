@@ -14,20 +14,75 @@ pub struct FieldOfView {
 
     value: Option<Rad<f32>>, // fov can be None if the camera is out of the projection
 
-    cells: (u8, Vec<u64>)
+    cells: HashSet<HEALPixCell>,
+    current_depth: u8,
 }
 
 use itertools_num;
 use std::iter;
-use crate::viewport::ViewPort;
 use crate::projection::ProjectionType;
 use crate::math;
 use crate::MAX_DEPTH;
 use crate::window_size_f32;
 
-use std::sync::atomic::Ordering;
+use std::sync::atomic;
+use std::cmp;
 
-use web_sys::console;
+#[derive(Clone)]
+pub struct HEALPixCell(pub u8, pub u64);
+
+impl PartialEq for HEALPixCell {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0 && self.1 == other.1
+    }
+}
+impl Eq for HEALPixCell {}
+
+impl PartialOrd for HEALPixCell {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        let uniq = (1 << (2*((self.0 as u64) + 1))) + self.1;
+        let uniq_other = (1 << (2*((other.0 as u64) + 1))) + other.1;
+
+        uniq.partial_cmp(&uniq_other)
+    }
+}
+impl Ord for HEALPixCell {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.partial_cmp(&other).unwrap()
+    }
+}
+
+use std::hash::{Hash, Hasher};
+impl Hash for HEALPixCell {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+        self.1.hash(state);
+    }
+}
+
+use std::collections::HashSet;
+use std::sync::Arc;
+use std::sync::Mutex;
+lazy_static! {
+    pub static ref ALLSKY: Arc<Mutex<HashSet<HEALPixCell>>> = {
+        let mut allsky = HashSet::with_capacity(12);
+        allsky.insert(HEALPixCell(0, 0));
+        allsky.insert(HEALPixCell(0, 1));
+        allsky.insert(HEALPixCell(0, 2));
+        allsky.insert(HEALPixCell(0, 3));
+        allsky.insert(HEALPixCell(0, 4));
+        allsky.insert(HEALPixCell(0, 5));
+        allsky.insert(HEALPixCell(0, 6));
+        allsky.insert(HEALPixCell(0, 7));
+        allsky.insert(HEALPixCell(0, 8));
+        allsky.insert(HEALPixCell(0, 9));
+        allsky.insert(HEALPixCell(0, 10));
+        allsky.insert(HEALPixCell(0, 11));
+
+        Arc::new(Mutex::new(allsky))
+    };
+}
+
 impl FieldOfView {
     pub fn new() -> FieldOfView {
         let num_vertices_width = 3;
@@ -54,8 +109,9 @@ impl FieldOfView {
         }).collect::<Vec<_>>();
         let vertices_world_space = vec![Vector4::new(0_f32, 0_f32, 0_f32, 1_f32); vertices_screen_space.len()];
         let value = None;
-        let cells = (0, (0..12).collect::<Vec<_>>());
 
+        let cells = ALLSKY.lock().unwrap().clone();
+        let current_depth = 0;
         FieldOfView {
             num_vertices,
             num_vertices_width,
@@ -67,6 +123,7 @@ impl FieldOfView {
             value,
 
             cells,
+            current_depth,
         }
     }
 
@@ -100,20 +157,23 @@ impl FieldOfView {
             None
         };
 
+        
+        let allsky = ALLSKY.lock().unwrap();
         self.cells = if let Some(fov) = self.value {
             // The fov does not cross the border of the projection
             if fov >= Deg(150_f32).into() {
                 // The fov is >= 150°
-                (0, (0..12).collect::<Vec<_>>())
+                self.current_depth = 0;
+                allsky.clone()
             } else {
                 let (width, _) = window_size_f32();
                 let l = width;
                 // Compute the depth corresponding to the angular resolution of a pixel
                 // along the width of the screen
-                let mut depth = std::cmp::min(math::ang_per_pixel_to_depth(fov.0 / l), MAX_DEPTH.load(Ordering::Relaxed));
+                let mut depth = std::cmp::min(math::ang_per_pixel_to_depth(fov.0 / l), MAX_DEPTH.load(atomic::Ordering::Relaxed));
                 //console::log_1(&format!("depth {:?}", depth).into());
-                let idx = if depth == 0 {
-                    (0..12).collect::<Vec<_>>()
+                let cells = if depth == 0 {
+                    allsky.clone()
                 } else {
                     // The fov is not too big so we can get the HEALPix cells
                     // being in the fov
@@ -129,14 +189,18 @@ impl FieldOfView {
                         .collect::<Vec<_>>();
 
                     //console::log_1(&format!("LONLAT, {:?}", lon_lat_world_space).into());
-                    let mut idx = vec![];
+                    let mut cells = HashSet::new();
                     while depth > 0 {
                         let moc = healpix::nested::polygon_coverage(depth, &lon_lat_world_space, true);
                         let num_tiles = moc.entries.len();
                         // Stop when the number of tiles for this depth
                         // can be contained in the tile buffer
                         if num_tiles <= 64 {
-                            idx = moc.flat_iter().collect::<Vec<_>>();
+                            cells = moc.flat_iter()
+                                .map(|idx| {
+                                    HEALPixCell(depth, idx)
+                                })
+                                .collect::<HashSet<_>>();
                             break;
                         }
     
@@ -144,24 +208,29 @@ impl FieldOfView {
                     }
 
                     if depth == 0 {
-                        idx = (0..12).collect::<Vec<_>>();
+                        cells = allsky.clone();
                     }
-
-                    idx
+                    
+                    cells
                 };
-
-                (depth, idx)
+                self.current_depth = depth;
+                cells
             }
         } else {
             // The fov is out the projection
-            (0, (0..12).collect::<Vec<_>>())
-        }
+            self.current_depth = 0;
+            allsky.clone()
+        };
     }
 
     // Returns the HEALPix cells located in the
     // field of view
-    pub fn cells(&self) -> &(u8, Vec<u64>) {
+    pub fn cells(&self) -> &HashSet<HEALPixCell> {
         &self.cells
+    }
+
+    pub fn get_current_depth(&self) -> u8 {
+        self.current_depth
     }
 
     pub fn value(&self) -> &Option<Rad<f32>> {

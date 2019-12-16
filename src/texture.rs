@@ -437,9 +437,10 @@ impl BufferTiles {
 }
 
 use crate::HIPS_NAME;
+use crate::field_of_view::HEALPixCell;
 pub fn load_tiles(
     buffer_tiles: Rc<RefCell<BufferTiles>>,
-    tiles_idx: &Vec<u64>,
+    tiles: &HashSet<HEALPixCell>,
     depth: u8,
     reset_time_received: bool
 ) {
@@ -452,13 +453,16 @@ pub fn load_tiles(
     // And cancel the oldest async tile requests i.e. of depth
     // > current_depth + 1 and < current_depth - 1
     buffer_tiles.borrow_mut().cancel_obsolete_tile_requests(depth);
-    for &idx in tiles_idx {
-        load_healpix_tile(buffer_tiles.clone(), idx, depth, reset_time_received);
+    for tile in tiles {
+        load_healpix_tile(buffer_tiles.clone(), tile, reset_time_received);
     }
 }
-fn load_healpix_tile(buffer: Rc<RefCell<BufferTiles>>, idx: u64, depth: u8, reset_time_received: bool) {
+fn load_healpix_tile(buffer: Rc<RefCell<BufferTiles>>, tile: &HEALPixCell, reset_time_received: bool) {
     let time_request = utils::get_current_time();
     
+    let depth = tile.0;
+    let idx = tile.1;
+
     let image = Rc::new(RefCell::new(HtmlImageElement::new().unwrap()));
     let tile_request = TileRequest::new(idx, depth, time_request, image.clone());
     // Check whether the tile is already in the buffer or requested

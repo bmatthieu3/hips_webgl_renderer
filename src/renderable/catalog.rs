@@ -269,31 +269,40 @@ impl Mesh for Catalog {
         viewport: &ViewPort
     ) {
         let field_of_view = viewport.field_of_view();
-        let (depth, hpx_idx) = field_of_view.cells();
-        console::log_1(&format!("depth: {:?}", depth).into());
+
+        let healpix_cells = field_of_view.cells();
+        let current_depth = field_of_view.get_current_depth();
+        console::log_1(&format!("depth: {:?}", current_depth).into());
 
         let mut sources = vec![];
 
-        if *depth > 7 {
+        if current_depth > 7 {
             self.cells.clear();
-            for idx in hpx_idx.iter() {
-                let idx_7 = *idx >> (2*(*depth - 7));
+            for tile in healpix_cells.into_iter() {
+                let depth = tile.0;
+                let idx = tile.1;
+
+                let idx_7 = idx >> (2*(depth - 7));
                 let cell = (7 as u8, idx_7 as u32);
 
                 if !self.cells.contains(&cell) {
-                    let result = self.data.get_sources(*depth, *idx as u32);
+                    let result = self.data.get_sources(depth, idx as u32);
                     sources.push(result);
 
                     self.cells.insert(cell);
                 }
             }
         } else {
-            for idx in hpx_idx.iter() {
-                let result = self.data.get_sources(*depth, *idx as u32);
+            for tile in healpix_cells.into_iter() {
+                let depth = tile.0;
+                let idx = tile.1;
+
+                let result = self.data.get_sources(depth, idx as u32);
                 sources.push(result);
             }
         }
         let mut sources = sources[..].concat();
+        //self.num_instances = sources.len() / 6;
 
         let sources = { 
             let ptr = sources.as_mut_ptr();
@@ -331,7 +340,7 @@ impl Mesh for Catalog {
 
             unsafe { Vec::from_raw_parts(ptr as *mut f32, len, cap) }
         };
-
+        
         // Update the VAO
         vertex_array_object.bind()
             .update_instanced_array(0, BufferData::new(&sources));
@@ -490,9 +499,7 @@ impl Storage {
         let idx = idx as usize;
         let depth = depth as usize;
 
-        let size = std::mem::size_of::<Source>() / std::mem::size_of::<f32>();
-
-        let sources = if depth <= 7 {
+        let mut sources_idx_range = if depth <= 7 {
             let off = 2*(7 - depth);
 
             let healpix_idx_start = idx << off;
@@ -505,7 +512,7 @@ impl Storage {
                 .as_ref()
                 .unwrap().end as usize;
 
-            &self.sources[(size*idx_start_sources)..(size*idx_end_sources)]
+            idx_start_sources..idx_end_sources
         } else {
             // depth > 7
             // Get the sources that are contained in parent cell of depth 7
@@ -519,11 +526,12 @@ impl Storage {
                 .as_ref()
                 .unwrap().end as usize;
 
-            &self.sources[(size*idx_start_sources)..(size*idx_end_sources)]
+            idx_start_sources..idx_end_sources
         };
+        let size = std::mem::size_of::<Source>() / std::mem::size_of::<f32>();
 
-        sources
+        sources_idx_range.start = sources_idx_range.start * size;
+        sources_idx_range.end = sources_idx_range.end * size;
+        &self.sources[sources_idx_range.start..sources_idx_range.end]
     }
 }
-
-
