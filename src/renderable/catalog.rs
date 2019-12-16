@@ -1,7 +1,9 @@
 use crate::texture::Texture2D;
 
 use web_sys::WebGlFramebuffer;
-use std::collections::HashSet;
+use std::collections::{HashSet, BTreeSet};
+use crate::field_of_view::HEALPixCell;
+
 pub struct Catalog {
     num_instances: usize,
 
@@ -26,6 +28,9 @@ pub struct Catalog {
 
     data: Storage,
     cells: HashSet<(u8, u32)>,
+
+    prev_field_of_view: BTreeSet<HEALPixCell>,
+    sources: BinaryHeap<Source>,
     // Quadtree referring to the sources
     //quadtree: QuadTree
 }
@@ -171,6 +176,9 @@ impl Catalog {
         let strength = 1_f32;
 
         let cells = HashSet::new();
+        let prev_field_of_view = BTreeSet::new();
+
+        let sources = BinaryHeap::with_capacity(MAX_SOURCES);
         Catalog {
             num_instances, 
 
@@ -195,6 +203,9 @@ impl Catalog {
             //quadtree,
             data,
             cells,
+            prev_field_of_view,
+
+            sources,
         }
     }
 
@@ -272,16 +283,39 @@ impl Mesh for Catalog {
     ) {
         let field_of_view = viewport.field_of_view();
 
-        let healpix_cells = field_of_view.cells();
+        let mut current_field_of_view = field_of_view.cells();
         let current_depth = field_of_view.get_current_depth();
-        //console::log_1(&format!("depth: {:?}", current_depth).into());
-        //console::log_1(&format!("fov: {:?}", healpix_cells).into());
+
+        let mut rebuild_binary_heap = true;
+
+        if self.prev_field_of_view.symmetric_difference(&current_field_of_view).count() == 0 {
+            // The field of view has not changed
+            // We do not refresh the sources
+            return;
+        }
+
+        let removed_cells = self.prev_field_of_view.difference(&current_field_of_view).collect::<Vec<_>>();
+        let healpix_cells = if removed_cells.is_empty() {
+            // Only new cells must be added. We just can add the corresponding sources
+            // to the binary heap without clearing it!
+
+            rebuild_binary_heap = false;
+            // There is only new cells
+            current_field_of_view.difference(&self.prev_field_of_view).cloned().collect::<BTreeSet<_>>()
+        } else {
+            // Some cells has been removed so their sources must be removed
+            // from the binary heap too. We must clear it.
+            current_field_of_view.clone()
+        };
+        self.prev_field_of_view = current_field_of_view.clone();
 
         let mut sources = vec![];
 
         if current_depth > 7 {
-            self.cells.clear();
-            for tile in healpix_cells.into_iter() {
+            if rebuild_binary_heap {
+                self.cells.clear();
+            }
+            for tile in healpix_cells.iter() {
                 let depth = tile.0;
                 let idx = tile.1;
 
@@ -296,7 +330,7 @@ impl Mesh for Catalog {
                 }
             }
         } else {
-            for tile in healpix_cells.into_iter() {
+            for tile in healpix_cells.iter() {
                 let depth = tile.0;
                 let idx = tile.1;
 
@@ -305,8 +339,8 @@ impl Mesh for Catalog {
             }
         }
         let mut sources = sources[..].concat();
-        //self.num_instances = sources.len() / 6;
 
+        // Get a vector of sources from a f32 vector
         let sources = { 
             let ptr = sources.as_mut_ptr();
             let len = sources.len() / 6;
@@ -317,23 +351,27 @@ impl Mesh for Catalog {
             unsafe { Vec::from_raw_parts(ptr as *mut Source, len, cap) }
         };
 
-        let mut sorted_sources = BinaryHeap::with_capacity(MAX_SOURCES);
+        if rebuild_binary_heap {
+            self.sources.clear();
+        }
 
         for source in sources.into_iter() {
-            if sorted_sources.len() < MAX_SOURCES {
-                sorted_sources.push(source);
+            if self.sources.len() < MAX_SOURCES {
+                self.sources.push(source);
             } else {
-                if sorted_sources.peek().unwrap().mag > source.mag {
+                if self.sources.peek().unwrap().mag > source.mag {
                     // We insert it into the heap and remove the faintest source
-                    sorted_sources.pop();
-                    sorted_sources.push(source);
+                    self.sources.pop();
+                    self.sources.push(source);
                 }
             }
         }
 
-        let mut sources = sorted_sources.into_vec();
+        let mut sources = self.sources.clone().into_vec();
+
         self.num_instances = sources.len();
 
+        // Get back a vector of f32 from the vec of Sources for drawing purposes
         let sources = { 
             let ptr = sources.as_mut_ptr();
             let len = sources.len() * 6;
