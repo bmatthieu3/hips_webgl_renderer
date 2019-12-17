@@ -199,11 +199,37 @@ impl App {
             uniforms_heatmap
         );
 
+        // HiPS Ortho shader
+        // uniforms definition
+        let mut uniforms_ortho_hips = vec![
+            // General uniforms
+            String::from("current_time"),
+            String::from("model"),
+            // Viewport uniforms
+            String::from("zoom_factor"),
+            String::from("aspect"),
+            String::from("last_zoom_action"),
+            // HiPS Ortho specific uniforms
+            String::from("current_depth"),
+            String::from("max_depth"),
+        ];
+
+        add_tile_buffer_uniforms("textures", 64, &mut uniforms_ortho_hips);
+        add_tile_buffer_uniforms("textures_0", 12, &mut uniforms_ortho_hips);
+        //add_tile_buffer_uniforms("textures_0", 12, &mut uniforms_ortho_hips);
+
+        let shader_ortho_hips = Shader::new(&gl,
+            shaders::hips_sphere_small_fov_vert::CONTENT,
+            shaders::hips_sphere_small_fov_frag::CONTENT,
+            uniforms_ortho_hips
+        );
+
         let mut shaders = HashMap::new();
         shaders.insert("hips_sphere", shader_2d_proj);
         shaders.insert("grid", shader_grid);
         shaders.insert("catalog", shader_catalog);
         shaders.insert("heatmap", shader_heatmap);
+        shaders.insert("hips_sphere_small_fov", shader_ortho_hips);
 
         gl.enable(WebGl2RenderingContext::BLEND);
         gl.blend_func(WebGl2RenderingContext::SRC_ALPHA, WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA);
@@ -213,7 +239,6 @@ impl App {
         let projection = ProjectionType::Orthographic(Orthographic {});
         // HiPS Sphere definition
         let hips_sphere_mesh = HiPSSphere::new(&gl, &projection);
-        let size_pixels = *hips_sphere_mesh.get_default_pixel_size();
         let hips_sphere = Renderable::<HiPSSphere>::new(
             &gl,
             &shaders["hips_sphere"],
@@ -221,13 +246,13 @@ impl App {
         );
 
         // Viewport definition
-        let viewport = ViewPort::new(&gl, &size_pixels);
+        let viewport = ViewPort::new(&gl, &projection.size());
 
         // Grid definition
         let lon_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-30_f32).into(), cgmath::Deg(30_f32).into());
         let lat_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-90_f32).into(), cgmath::Deg(90_f32).into());
         //let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(10_f32).into(), cgmath::Deg(10_f32).into(), Some(lat_bound), Some(lon_bound), &projection.get(), &viewport.borrow());
-        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, &projection, &viewport);
+        let projeted_grid_mesh = ProjetedGrid::new(&gl, cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, &projection, &viewport);
         let grid = Renderable::<ProjetedGrid>::new(
             &gl,
             &shaders["grid"],
@@ -341,6 +366,10 @@ impl App {
                 shaders,
                 viewport
             );
+            /*self.ortho_hips_sphere.draw(
+                shaders,
+                viewport
+            );*/
 
             // Draw the catalogs
             self.catalog.draw(
@@ -378,7 +407,7 @@ impl App {
         let hips_sphere_mesh = HiPSSphere::new(&self.gl, &projection);
 
         // Update the scissor for the new projection
-        self.viewport.resize(hips_sphere_mesh.get_default_pixel_size());
+        self.viewport.resize(&projection.size());
 
         self.hips_sphere.update_mesh(&self.shaders["hips_sphere"], hips_sphere_mesh);
     }

@@ -4,6 +4,8 @@ use web_sys::WebGlFramebuffer;
 use std::collections::{HashSet, BTreeSet};
 use crate::field_of_view::HEALPixCell;
 
+use crate::renderable::buffers::vertex_array_object::VertexArrayObject;
+
 pub struct Catalog {
     num_instances: usize,
 
@@ -31,8 +33,8 @@ pub struct Catalog {
 
     prev_field_of_view: BTreeSet<HEALPixCell>,
     sources: BinaryHeap<Source>,
-    // Quadtree referring to the sources
-    //quadtree: QuadTree
+
+    vertex_array_object: VertexArrayObject,
 }
 
 use cgmath::Rad;
@@ -179,6 +181,8 @@ impl Catalog {
         let prev_field_of_view = BTreeSet::new();
 
         let sources = BinaryHeap::with_capacity(MAX_SOURCES);
+        let vertex_array_object = VertexArrayObject::new(gl);
+
         Catalog {
             num_instances, 
 
@@ -200,12 +204,13 @@ impl Catalog {
 
             vao_screen,
 
-            //quadtree,
             data,
             cells,
             prev_field_of_view,
 
             sources,
+
+            vertex_array_object
         }
     }
 
@@ -221,7 +226,6 @@ impl Catalog {
 use crate::renderable::Mesh;
 use crate::shader::Shader;
 
-use crate::renderable::VertexArrayObject;
 use crate::renderable::buffers::buffer_data::BufferData;
 
 use cgmath::Matrix4;
@@ -242,10 +246,8 @@ use crate::window_size_u32;
 use crate::math;
 use crate::renderable::buffers::buffer_data::BufferDataSlice;
 impl Mesh for Catalog {
-    fn create_buffers(&mut self, gl: &WebGl2Context) -> VertexArrayObject {
-        let mut vertex_array_object = VertexArrayObject::new(gl);
-
-        vertex_array_object.bind()
+    fn create_buffers(&mut self, gl: &WebGl2Context) {
+        self.vertex_array_object.bind()
             // Store the UV and the offsets of the billboard in a VBO
             .add_array_buffer(
                 4 * std::mem::size_of::<f32>(),
@@ -269,14 +271,10 @@ impl Mesh for Catalog {
             )
             // Unbind the buffer
             .unbind();
-
-        //gl.bind_buffer(WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER, None);
-        vertex_array_object
     }
 
     fn update<T: Mesh + DisableDrawing>(
         &mut self,
-        vertex_array_object: &mut VertexArrayObject,
         _local_to_world: &Matrix4<f32>,
         _projection: &ProjectionType,
         viewport: &ViewPort
@@ -368,7 +366,6 @@ impl Mesh for Catalog {
         }
 
         let mut sources = self.sources.clone().into_vec();
-
         self.num_instances = sources.len();
 
         // Get back a vector of f32 from the vec of Sources for drawing purposes
@@ -383,7 +380,7 @@ impl Mesh for Catalog {
         };
         
         // Update the VAO
-        vertex_array_object.bind()
+        self.vertex_array_object.bind()
             .update_instanced_array(0, BufferData::new(&sources));
 
         console::log_1(&format!("num sources: {:?}", self.num_instances).into());
@@ -411,7 +408,7 @@ impl Mesh for Catalog {
             let shader = &shaders["catalog"];
             shader.bind(gl);
 
-            renderable.vertex_array_object.bind_ref();
+            self.vertex_array_object.bind_ref();
 
             // Send uniforms
             // Send the viewport uniforms
@@ -433,7 +430,7 @@ impl Mesh for Catalog {
 
             gl.draw_elements_instanced_with_i32(
                 WebGl2RenderingContext::TRIANGLES,
-                renderable.vertex_array_object.num_elements() as i32,
+                self.vertex_array_object.num_elements() as i32,
                 WebGl2RenderingContext::UNSIGNED_SHORT,
                 0,
                 self.num_instances as i32,

@@ -19,7 +19,7 @@ pub fn screen_pixels_to_homogenous(screen_pos: &Vector2<f32>, viewport: &ViewPor
 }
 
 pub trait Projection {
-    fn build_screen_map() -> (Vec<cgmath::Vector2<f32>>, cgmath::Vector2<f32>);
+    fn build_screen_map() -> Vec<cgmath::Vector2<f32>>;
 
     //fn scale_by_screen_ratio(x: f32, y: f32) -> (f32, f32);
     /// Screen space to world space transformation
@@ -39,6 +39,9 @@ pub trait Projection {
     /// * `x` - X mouse position in homogenous screen space (between [-1, 1])
     /// * `y` - Y mouse position in homogenous screen space (between [-1, 1])
     fn world_to_screen_space(pos_world_space: cgmath::Vector4<f32>) -> Option<cgmath::Vector2<f32>>;
+
+    /// Get the size in pixels on the screen 
+    fn size() -> cgmath::Vector2<f32>;
 }
 
 #[derive(Clone, Copy)]
@@ -56,7 +59,7 @@ pub enum ProjectionType {
 }
 
 impl ProjectionType {
-    pub fn build_screen_map(&self) -> (Vec<cgmath::Vector2<f32>>, cgmath::Vector2<f32>) {
+    pub fn build_screen_map(&self) -> Vec<cgmath::Vector2<f32>> {
         match self {
             ProjectionType::Aitoff(_) => {
                 Aitoff::build_screen_map()
@@ -112,6 +115,21 @@ impl ProjectionType {
             },
         }
     }
+
+    /// Get the size in pixel on the screen
+    pub fn size(&self) -> cgmath::Vector2<f32> {
+        match self {
+            ProjectionType::Aitoff(_) => {
+                Aitoff::size()
+            },
+            ProjectionType::Orthographic(_) => {
+                Orthographic::size()
+            },
+            ProjectionType::MollWeide(_) => {
+                MollWeide::size()
+            },
+        }
+    }
 }
 
 use cgmath::Vector2;
@@ -121,7 +139,7 @@ use crate::renderable::hips_sphere::NUM_STEPS;
 
 use crate::math::is_inside_ellipse;
 impl Projection for Aitoff {
-    fn build_screen_map() -> (Vec<cgmath::Vector2<f32>>, cgmath::Vector2<f32>) {
+    fn build_screen_map() -> Vec<cgmath::Vector2<f32>> {
         let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
 
         let (width, height) = window_size_f32();
@@ -149,8 +167,7 @@ impl Projection for Aitoff {
             }
         }
 
-        let size_px = cgmath::Vector2::new(width - 2_f32, width/2_f32 - 1_f32);
-        (vertices_screen, size_px)
+        vertices_screen
     }
 
     /// View to world space transformation
@@ -232,13 +249,21 @@ impl Projection for Aitoff {
 
         Some(cgmath::Vector2::new(x / std::f32::consts::PI, y / std::f32::consts::PI))
     }
+
+    fn size() -> cgmath::Vector2<f32> {
+        let (width, _) = window_size_f32();
+
+        cgmath::Vector2::new(
+            width - 2_f32,
+            width/2_f32 - 1_f32
+        )
+    }
 }
 
 use cgmath::Vector3;
 use crate::math;
-use web_sys::console;
 impl Projection for MollWeide {
-    fn build_screen_map() -> (Vec<cgmath::Vector2<f32>>, cgmath::Vector2<f32>) {
+    fn build_screen_map() -> Vec<cgmath::Vector2<f32>> {
         let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
 
         let (width, height) = window_size_f32();
@@ -266,8 +291,7 @@ impl Projection for MollWeide {
             }
         }
 
-        let size_px = cgmath::Vector2::new(width - 2_f32, width/2_f32 - 1_f32);
-        (vertices_screen, size_px)
+        vertices_screen
     }
 
     /// View to world space transformation
@@ -350,10 +374,19 @@ impl Projection for MollWeide {
 
         Some(cgmath::Vector2::new(x, y))
     }
+
+    fn size() -> cgmath::Vector2<f32> {
+        let (width, _) = window_size_f32();
+
+        cgmath::Vector2::new(
+            width - 2_f32,
+            width/2_f32 - 1_f32
+        )
+    }
 }
 
 impl Projection for Orthographic {
-    fn build_screen_map() -> (Vec<cgmath::Vector2<f32>>, cgmath::Vector2<f32>) {
+    fn build_screen_map() -> Vec<cgmath::Vector2<f32>> {
         let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
 
         let (width, height) = window_size_f32();
@@ -383,8 +416,7 @@ impl Projection for Orthographic {
             }
         }
 
-        let size_px = cgmath::Vector2::new(height - 2_f32, height - 2_f32);
-        (vertices_screen, size_px)
+        vertices_screen
     }
 
     /// View to world space transformation
@@ -428,5 +460,14 @@ impl Projection for Orthographic {
             -pos_world_space.x,
             pos_world_space.y,
         ) * aspect)
+    }
+
+    fn size() -> cgmath::Vector2<f32> {
+        let (_, height) = window_size_f32();
+
+        cgmath::Vector2::new(
+            height - 2_f32,
+            height - 2_f32
+        )
     }
 }

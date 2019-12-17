@@ -98,16 +98,20 @@ pub struct ProjetedGrid {
 
     text_canvas: web_sys::CanvasRenderingContext2d,
     color: Color,
+
+    vertex_array_object: VertexArrayObject,
 }
 
 use cgmath::{SquareMatrix, InnerSpace};
 use wasm_bindgen::JsCast;
 use crate::math::radec_to_xyz;
-use crate::{window_size_f32, window_size_f64, window_size_u32};
+use crate::{window_size_f32, window_size_f64};
 use crate::DEGRADE_CANVAS_RATIO;
 
 impl ProjetedGrid {
-    pub fn new(step_lat: cgmath::Rad<f32>,
+    pub fn new(
+        gl: &WebGl2Context,
+        step_lat: cgmath::Rad<f32>,
         step_lon: cgmath::Rad<f32>,
         lat_bound: Option<Vector2<Rad<f32>>>,
         lon_bound: Option<Vector2<Rad<f32>>>,
@@ -224,6 +228,8 @@ impl ProjetedGrid {
 
         let label_pos_screen_space = Vec::new();
 
+        let vertex_array_object = VertexArrayObject::new(&gl);
+
         let mut grid = ProjetedGrid {
             lat,
             lon,
@@ -241,6 +247,8 @@ impl ProjetedGrid {
 
             text_canvas,
             color,
+
+            vertex_array_object
         };
 
         grid.update_grid_positions(&cgmath::Matrix4::identity(), projection);
@@ -395,13 +403,11 @@ use crate::renderable::Renderable;
 use crate::utils;
 use std::collections::HashMap;
 impl Mesh for ProjetedGrid {
-    fn create_buffers(&mut self, gl: &WebGl2Context) -> VertexArrayObject {
-        let mut vertex_array_object = VertexArrayObject::new(gl);
-
+    fn create_buffers(&mut self, gl: &WebGl2Context) {
         let ref vertices_data = self.pos_screen_space;
         let ref idx_data = self.idx_vertices;
 
-        vertex_array_object.bind()
+        self.vertex_array_object.bind()
             // Store the vertex positions
             .add_array_buffer(
                 2 * std::mem::size_of::<f32>(),
@@ -417,14 +423,10 @@ impl Mesh for ProjetedGrid {
             )
             // Unbind the buffer
             .unbind();
-
-        //gl.bind_buffer(WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER, None);
-        vertex_array_object
     }
 
     fn update<T: Mesh + DisableDrawing>(
         &mut self,
-        vertex_array_object: &mut VertexArrayObject,
         local_to_world: &Matrix4<f32>,
         projection: &ProjectionType,
         viewport: &ViewPort
@@ -440,7 +442,7 @@ impl Mesh for ProjetedGrid {
         );
 
         // Update the VAO
-        vertex_array_object.bind()
+        self.vertex_array_object.bind()
             .update_array(0, BufferData::new(&self.pos_screen_space))
             .update_element_array(BufferData::new(&self.idx_vertices));
     }
@@ -455,7 +457,7 @@ impl Mesh for ProjetedGrid {
         let shader = &shaders["grid"];
         shader.bind(gl);
 
-        renderable.vertex_array_object.bind_ref();
+        self.vertex_array_object.bind_ref();
 
         // Send Uniforms
         viewport.send_to_vertex_shader(gl, shader);
@@ -472,7 +474,7 @@ impl Mesh for ProjetedGrid {
 
         gl.draw_elements_with_i32(
             WebGl2RenderingContext::LINES,
-            renderable.vertex_array_object.num_elements() as i32,
+            self.vertex_array_object.num_elements() as i32,
             WebGl2RenderingContext::UNSIGNED_SHORT,
             0,
         );

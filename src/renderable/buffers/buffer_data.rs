@@ -86,3 +86,17 @@ impl<'a> TryFrom<BufferData<'a, u16>> for js_sys::Uint16Array {
         Ok(data)
     }
 }
+impl<'a> TryFrom<BufferData<'a, u8>> for js_sys::Uint8Array {
+    type Error = &'static str;
+
+    fn try_from(buf: BufferData<'a, u8>) -> Result<Self, Self::Error> {
+        let memory_buffer = wasm_bindgen::memory()
+            .dyn_into::<WebAssembly::Memory>()
+            .map_err(|_| "Unable to get the WASM memory buffer for storing the vertices data!")?
+            .buffer();
+        let location = buf.data.as_ptr() as u32;
+        let data = js_sys::Uint8Array::new(&memory_buffer)
+            .subarray(location, location + buf.data.len() as u32);
+        Ok(data)
+    }
+}

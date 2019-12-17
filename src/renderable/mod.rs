@@ -14,17 +14,15 @@ trait VertexBufferObject {
     fn unbind(&self);
 }
 
-use buffers::vertex_array_object::VertexArrayObject;
 use crate::WebGl2Context;
 use cgmath::Matrix4;
 
 use std::collections::HashMap;
 pub trait Mesh {
-    fn create_buffers(&mut self, gl: &WebGl2Context) -> VertexArrayObject;
+    fn create_buffers(&mut self, gl: &WebGl2Context);
 
     fn update<T: Mesh + DisableDrawing>(
         &mut self,
-        vertex_array_object: &mut VertexArrayObject,
         local_to_world: &Matrix4<f32>,
         projection: &ProjectionType,
         viewport: &ViewPort
@@ -52,9 +50,6 @@ where T: Mesh + DisableDrawing {
     rotation_mat: cgmath::Matrix4::<f32>,
     translation_mat: cgmath::Matrix4::<f32>,
 
-    // VAO index
-    vertex_array_object: VertexArrayObject,
-
     mesh: T,
 
     gl: WebGl2Context,
@@ -67,7 +62,7 @@ impl<T> Renderable<T>
 where T: Mesh + DisableDrawing {
     pub fn new(gl: &WebGl2Context, shader: &Shader, mut mesh: T) -> Renderable<T> {
         shader.bind(gl);
-        let vertex_array_object = mesh.create_buffers(gl);
+        mesh.create_buffers(gl);
 
         let model_mat = cgmath::Matrix4::identity();
         let inverted_model_mat = model_mat;
@@ -85,8 +80,7 @@ where T: Mesh + DisableDrawing {
             scale_mat,
             rotation_mat,
             translation_mat,
-            // Vertex-Array Object index
-            vertex_array_object,
+
             mesh,
             gl,
         }
@@ -94,7 +88,7 @@ where T: Mesh + DisableDrawing {
 
     pub fn update_mesh(&mut self, shader: &Shader, mut mesh: T) {
         shader.bind(&self.gl);
-        self.vertex_array_object = mesh.create_buffers(&self.gl);
+        mesh.create_buffers(&self.gl);
 
         self.mesh = mesh;
     }
@@ -143,10 +137,8 @@ where T: Mesh + DisableDrawing {
         let ref mut mesh = self.mesh;
 
         let ref local_to_world = self.model_mat;
-        let ref mut vertex_array_object = self.vertex_array_object;
 
         mesh.update::<T>(
-            vertex_array_object,
             local_to_world,
             projection,
             viewport

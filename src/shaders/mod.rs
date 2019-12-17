@@ -10,3 +10,6 @@ pub mod catalog_frag;
 
 pub mod heatmap_vert;
 pub mod heatmap_frag;
+
+pub mod hips_sphere_small_fov_vert;
+pub mod hips_sphere_small_fov_frag;
