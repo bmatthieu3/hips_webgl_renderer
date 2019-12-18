@@ -7,9 +7,11 @@ use crate::WebGl2Context;
 
 pub struct ArrayBufferInstanced {
     buffer: WebGlBuffer,
+
     num_packed_data: usize,
     offset_idx: u32,
     num_instances: usize,
+
     gl: WebGl2Context,
 }
 
@@ -22,15 +24,19 @@ impl VertexBufferObject for ArrayBufferInstanced {
     }
 }
 
-use crate::renderable::buffers::buffer_data::{BufferData, BufferDataSlice};
+use crate::renderable::buffers::buffer_data::BufferData;
 use std::convert::TryInto;
 
 impl<'a> ArrayBufferInstanced {
     pub fn new(gl: &WebGl2Context, offset_idx: u32, stride: usize, sizes: &[usize], offsets: &[usize], usage: u32, data: BufferData<'a, f32>) -> ArrayBufferInstanced {
-    
-    //pub fn new(gl: &WebGl2Context, idx: u32, stride: usize, size: usize, usage: u32, buffer_data: BufferData<'a, f32>) -> ArrayBufferInstanced {
-        let num_bytes_source: usize = sizes.iter().sum();
-        let num_instances = data.data.len() / num_bytes_source;
+        // Instance length
+        let instance_size: usize = sizes.iter().sum(); 
+        // Total length
+        let data_size = match &data {
+            BufferData::VecData(data) => data.len(),
+            BufferData::SliceData(data) => data.len()
+        };
+        let num_instances = data_size / instance_size;
 
         let buffer = gl.create_buffer()
             .ok_or("failed to create buffer")
@@ -67,27 +73,12 @@ impl<'a> ArrayBufferInstanced {
     }
 
     pub fn update(&self, buffer: BufferData<'a, f32>) {
-        let offset = buffer.offset;
         let data: js_sys::Float32Array = buffer.try_into().unwrap();
 
-        // offset expressed in bytes where data replacement will begin in the buffer
         self.bind();
         self.gl.buffer_sub_data_with_i32_and_array_buffer_view(
             WebGl2RenderingContext::ARRAY_BUFFER,
-            offset as i32,
-            &data,
-        );
-    }
-
-    pub fn update_slice(&self, buffer: BufferDataSlice<'a, f32>) {
-        let offset = buffer.offset;
-        let data: js_sys::Float32Array = buffer.try_into().unwrap();
-
-        // offset expressed in bytes where data replacement will begin in the buffer
-        self.bind();
-        self.gl.buffer_sub_data_with_i32_and_array_buffer_view(
-            WebGl2RenderingContext::ARRAY_BUFFER,
-            offset as i32,
+            0,
             &data,
         );
     }

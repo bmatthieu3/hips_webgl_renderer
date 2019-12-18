@@ -28,7 +28,7 @@ use crate::window_size_f32;
 use std::sync::atomic;
 use std::cmp;
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 #[derive(Debug)]
 #[derive(PartialEq, Eq, Hash)]
 pub struct HEALPixCell(pub u8, pub u64);
@@ -44,6 +44,19 @@ impl PartialOrd for HEALPixCell {
 impl Ord for HEALPixCell {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         self.partial_cmp(&other).unwrap()
+    }
+}
+
+use crate::texture::Tile;
+impl From<Tile> for HEALPixCell {
+    fn from(tile: Tile) -> Self {
+        tile.cell
+    }
+}
+use crate::texture::TileRequest;
+impl From<TileRequest> for HEALPixCell {
+    fn from(tile_request: TileRequest) -> Self {
+        tile_request.cell
     }
 }
 

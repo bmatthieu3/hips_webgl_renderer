@@ -3,7 +3,7 @@ use web_sys::WebGlVertexArrayObject;
 use crate::renderable::buffers::array_buffer::ArrayBuffer;
 use crate::renderable::buffers::array_buffer_instanced::ArrayBufferInstanced;
 use crate::renderable::buffers::element_array_buffer::ElementArrayBuffer;
-use crate::renderable::buffers::buffer_data::{BufferData, BufferDataSlice};
+use crate::renderable::buffers::buffer_data::BufferData;
 
 use crate::WebGl2Context;
 
@@ -77,6 +77,7 @@ pub struct VertexArrayObjectBound<'a> {
     vao: &'a mut VertexArrayObject,
 }
 
+use crate::renderable::buffers::array_buffer::VertexAttribPointerType;
 impl<'a> VertexArrayObjectBound<'a> {
     pub fn new(vao: &'a mut VertexArrayObject) -> VertexArrayObjectBound<'a> {
         VertexArrayObjectBound {
@@ -85,7 +86,7 @@ impl<'a> VertexArrayObjectBound<'a> {
     }
 
     /// Precondition: self must be bound
-    pub fn add_array_buffer(&mut self, stride: usize, sizes: &[usize], offsets: &[usize], usage: u32, data: BufferData<'a, f32>) ->  &mut Self {
+    pub fn add_array_buffer<T: VertexAttribPointerType>(&mut self, stride: usize, sizes: &[usize], offsets: &[usize], usage: u32, data: BufferData<'a, T>) ->  &mut Self {
         let array_buffer = ArrayBuffer::new(
             &self.vao.gl,
             self.vao.idx,
@@ -149,10 +150,6 @@ impl<'a> VertexArrayObjectBound<'a> {
     }
     pub fn update_instanced_array(&mut self, idx: usize, array_data: BufferData<'a, f32>) -> &mut Self {
         self.vao.array_buffer_instanced[idx].update(array_data);
-        self
-    }
-    pub fn update_instanced_array_slice(&mut self, idx: usize, array_data: BufferDataSlice<'a, f32>) -> &mut Self {
-        self.vao.array_buffer_instanced[idx].update_slice(array_data);
         self
     }
 

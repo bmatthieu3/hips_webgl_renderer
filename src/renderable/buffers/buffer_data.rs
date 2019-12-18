@@ -1,102 +1,96 @@
 use std::convert::TryFrom;
-pub struct BufferData<'a, T> {
-    pub data: &'a Vec<T>,
-    pub offset: usize,
-}
-impl<'a, T> BufferData<'a, T> {
-    pub fn new(data: &'a Vec<T>) -> BufferData<'a, T> {
-        let offset = 0;
-        BufferData {
-            data,
-            offset
-        }
-    }
-}
 
-pub struct BufferDataSlice<'a, T> {
-    pub data: &'a [T],
-    pub offset: usize,
-}
-impl<'a, T> BufferDataSlice<'a, T> {
-    pub fn new(data: &'a [T]) -> BufferDataSlice<'a, T> {
-        let offset = 0;
-        BufferDataSlice {
-            data,
-            offset
-        }
-    }
+use crate::renderable::buffers::array_buffer::VertexAttribPointerType;
+
+pub enum BufferData<'a, T>
+where T: VertexAttribPointerType {
+    VecData(&'a Vec<T>),
+    SliceData(&'a [T]),
 }
 
 use js_sys::WebAssembly;
 use wasm_bindgen::JsCast;
-impl<'a> TryFrom<BufferData<'a, f32>> for js_sys::Float32Array {
+
+use js_sys::Float32Array;
+impl<'a> TryFrom<BufferData<'a, f32>> for Float32Array {
     type Error = &'static str;
 
-    fn try_from(buf: BufferData<'a, f32>) -> Result<Self, Self::Error> {
+    fn try_from(buffer: BufferData<'a, f32>) -> Result<Self, Self::Error> {
         let memory_buffer = wasm_bindgen::memory()
             .dyn_into::<WebAssembly::Memory>()
             .map_err(|_| "Unable to get the WASM memory buffer for storing the vertices data!")?
             .buffer();
-        let location = buf.data.as_ptr() as u32 / 4;
-        let data = js_sys::Float32Array::new(&memory_buffer)
-            .subarray(location, location + buf.data.len() as u32);
-        Ok(data)
-    }
-}
-impl<'a> TryFrom<BufferDataSlice<'a, f32>> for js_sys::Float32Array {
-    type Error = &'static str;
-
-    fn try_from(buf: BufferDataSlice<'a, f32>) -> Result<Self, Self::Error> {
-        let memory_buffer = wasm_bindgen::memory()
-            .dyn_into::<WebAssembly::Memory>()
-            .map_err(|_| "Unable to get the WASM memory buffer for storing the vertices data!")?
-            .buffer();
-        let location = buf.data.as_ptr() as u32 / 4;
-        let data = js_sys::Float32Array::new(&memory_buffer)
-            .subarray(location, location + buf.data.len() as u32);
+        
+        let (ptr, len) = match buffer {
+            BufferData::VecData(data) => (data.as_ptr(), data.len()),
+            BufferData::SliceData(data) => (data.as_ptr(), data.len())
+        };
+        let location = ptr as u32 / 4;
+        let data = Float32Array::new(&memory_buffer)
+            .subarray(location, location + len as u32);
         Ok(data)
     }
 }
 
-impl<'a> TryFrom<BufferData<'a, u32>> for js_sys::Uint32Array {
+use js_sys::Uint32Array;
+impl<'a> TryFrom<BufferData<'a, u32>> for Uint32Array {
     type Error = &'static str;
 
-    fn try_from(buf: BufferData<'a, u32>) -> Result<Self, Self::Error> {
+    fn try_from(buffer: BufferData<'a, u32>) -> Result<Self, Self::Error> {
         let memory_buffer = wasm_bindgen::memory()
             .dyn_into::<WebAssembly::Memory>()
             .map_err(|_| "Unable to get the WASM memory buffer for storing the vertices data!")?
             .buffer();
-        let location = buf.data.as_ptr() as u32 / 4;
-        let data = js_sys::Uint32Array::new(&memory_buffer)
-            .subarray(location, location + buf.data.len() as u32);
+        
+        let (ptr, len) = match buffer {
+            BufferData::VecData(data) => (data.as_ptr(), data.len()),
+            BufferData::SliceData(data) => (data.as_ptr(), data.len())
+        };
+        let location = ptr as u32 / 4;
+        let data = Uint32Array::new(&memory_buffer)
+            .subarray(location, location + len as u32);
         Ok(data)
     }
 }
-impl<'a> TryFrom<BufferData<'a, u16>> for js_sys::Uint16Array {
+
+use js_sys::Uint16Array;
+impl<'a> TryFrom<BufferData<'a, u16>> for Uint16Array {
     type Error = &'static str;
 
-    fn try_from(buf: BufferData<'a, u16>) -> Result<Self, Self::Error> {
+    fn try_from(buffer: BufferData<'a, u16>) -> Result<Self, Self::Error> {
         let memory_buffer = wasm_bindgen::memory()
             .dyn_into::<WebAssembly::Memory>()
             .map_err(|_| "Unable to get the WASM memory buffer for storing the vertices data!")?
             .buffer();
-        let location = buf.data.as_ptr() as u32 / 2;
-        let data = js_sys::Uint16Array::new(&memory_buffer)
-            .subarray(location, location + buf.data.len() as u32);
+        
+        let (ptr, len) = match buffer {
+            BufferData::VecData(data) => (data.as_ptr(), data.len()),
+            BufferData::SliceData(data) => (data.as_ptr(), data.len())
+        };
+        let location = ptr as u32 / 2;
+        let data = Uint16Array::new(&memory_buffer)
+            .subarray(location, location + len as u32);
         Ok(data)
     }
 }
-impl<'a> TryFrom<BufferData<'a, u8>> for js_sys::Uint8Array {
+
+use js_sys::Uint8Array;
+impl<'a> TryFrom<BufferData<'a, u8>> for Uint8Array {
     type Error = &'static str;
 
-    fn try_from(buf: BufferData<'a, u8>) -> Result<Self, Self::Error> {
+    fn try_from(buffer: BufferData<'a, u8>) -> Result<Self, Self::Error> {
         let memory_buffer = wasm_bindgen::memory()
             .dyn_into::<WebAssembly::Memory>()
             .map_err(|_| "Unable to get the WASM memory buffer for storing the vertices data!")?
             .buffer();
-        let location = buf.data.as_ptr() as u32;
-        let data = js_sys::Uint8Array::new(&memory_buffer)
-            .subarray(location, location + buf.data.len() as u32);
+        
+        let (ptr, len) = match buffer {
+            BufferData::VecData(data) => (data.as_ptr(), data.len()),
+            BufferData::SliceData(data) => (data.as_ptr(), data.len())
+        };
+        let location = ptr as u32;
+        let data = Uint8Array::new(&memory_buffer)
+            .subarray(location, location + len as u32);
         Ok(data)
     }
 }

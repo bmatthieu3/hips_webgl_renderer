@@ -50,38 +50,50 @@ trait RenderingMode {
 
 struct SmallFieldOfViewRenderingMode {
     pub vertices: Vec<f32>,
+    pub idx_textures: [u8; 192 * 6], // contains the texture indices
+
     vertex_array_object: VertexArrayObject,
 }
 
+use crate::renderable::buffers::buffer_data::BufferData;
 use cgmath::Rad;
 use crate::math;
+use std::mem;
 impl SmallFieldOfViewRenderingMode {
     fn new(gl: &WebGl2Context, projection: &ProjectionType) -> SmallFieldOfViewRenderingMode {
         let vertices = Self::create_vertices_array(gl, projection);
+        let idx_textures = [0; 192 * 6];
+
         let mut vertex_array_object = VertexArrayObject::new(gl);
 
         // VAO for the orthographic projection and small fovs on 2D projections
         vertex_array_object.bind()
             // Store the projeted and 3D vertex positions in a VBO
             .add_array_buffer(
-                7 * std::mem::size_of::<f32>(),
+                7 * mem::size_of::<f32>(),
                 &[2, 3, 2],
-                &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>(), 5 * std::mem::size_of::<f32>()],
+                &[
+                    0 * mem::size_of::<f32>(),
+                    2 * mem::size_of::<f32>(),
+                    5 * mem::size_of::<f32>()
+                ],
                 WebGl2RenderingContext::STATIC_DRAW,
-                BufferData::new(vertices.as_ref()),
+                BufferData::VecData(vertices.as_ref()),
             )
             .add_array_buffer(
-                1 * std::mem::size_of::<u8>(),
+                1 * mem::size_of::<u8>(),
                 &[1],
-                &[0 * std::mem::size_of::<f32>()],
+                &[0 * mem::size_of::<u8>()],
                 WebGl2RenderingContext::DYNAMIC_DRAW,
-                BufferData::new(vertices.as_ref()),
+                BufferData::SliceData(&idx_textures),
             )
             // Unbind the buffer
             .unbind();
 
         SmallFieldOfViewRenderingMode {
             vertices,
+            idx_textures,
+
             vertex_array_object,
         }
     }
@@ -103,6 +115,10 @@ impl SmallFieldOfViewRenderingMode {
             uv.y
         ]);
     }
+
+    /*fn update(&mut self, ) {
+
+    }*/
 }
 
 impl RenderingMode for SmallFieldOfViewRenderingMode {
@@ -161,12 +177,12 @@ impl PerPixelRenderingMode {
                 &[2, 3],
                 &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
                 WebGl2RenderingContext::STATIC_DRAW,
-                BufferData::new(vertices.as_ref()),
+                BufferData::VecData(vertices.as_ref()),
             )
             // Set the element buffer
             .add_element_buffer(
                 WebGl2RenderingContext::STATIC_DRAW,
-                BufferData::new(idx.as_ref()),
+                BufferData::VecData(idx.as_ref()),
             )
             // Unbind the buffer
             .unbind();
@@ -300,8 +316,6 @@ impl<'a> HiPSSphere {
     }
 }
 
-use crate::renderable::buffers::buffer_data::BufferData;
-
 use std::collections::HashMap;
 use crate::renderable::Renderable;
 use cgmath::Matrix4;
@@ -341,7 +355,7 @@ impl Mesh for HiPSSphere {
         shaders: &HashMap<&'static str, Shader>,
         viewport: &ViewPort
     ) {
-        let shader = &shaders["hips_sphere"];
+        /*let shader = &shaders["hips_sphere"];
         shader.bind(gl);
 
         self.per_pixel_rendering_mode.vertex_array_object.bind_ref();
@@ -364,8 +378,7 @@ impl Mesh for HiPSSphere {
             self.per_pixel_rendering_mode.vertex_array_object.num_elements() as i32,
             WebGl2RenderingContext::UNSIGNED_SHORT,
             0,
-        );
-        /*
+        );*/
         let shader = &shaders["hips_sphere_small_fov"];
         shader.bind(gl);
 
@@ -389,7 +402,6 @@ impl Mesh for HiPSSphere {
             0,
             (self.fov_rendering_mode.vertices.len() as i32) / 7,
         );
-        */
     }
 }
 

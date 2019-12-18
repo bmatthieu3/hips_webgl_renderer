@@ -157,7 +157,7 @@ impl Catalog {
                 &[2, 2],
                 &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
                 WebGl2RenderingContext::STATIC_DRAW,
-                BufferData::new(
+                BufferData::VecData(
                     &vec![
                         -1.0, -1.0, 0.0, 0.0,
                         1.0, -1.0, 1.0, 0.0,
@@ -169,7 +169,7 @@ impl Catalog {
             // Set the element buffer
             .add_element_buffer(
                 WebGl2RenderingContext::STATIC_DRAW,
-                BufferData::new(indices.as_ref()),
+                BufferData::VecData(indices.as_ref()),
             )
             // Unbind the buffer
             .unbind();
@@ -244,7 +244,6 @@ use std::collections::BinaryHeap;
 use crate::window_size_u32;
 
 use crate::math;
-use crate::renderable::buffers::buffer_data::BufferDataSlice;
 impl Mesh for Catalog {
     fn create_buffers(&mut self, gl: &WebGl2Context) {
         self.vertex_array_object.bind()
@@ -254,7 +253,7 @@ impl Mesh for Catalog {
                 &[2, 2],
                 &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
                 WebGl2RenderingContext::STATIC_DRAW,
-                BufferData::new(self.vertices.as_ref()),
+                BufferData::VecData(self.vertices.as_ref()),
             )
             // Store the cartesian position of the center of the source in the a instanced VBO
             .add_instanced_array_buffer(
@@ -262,12 +261,12 @@ impl Mesh for Catalog {
                 &[3, 2, 1],
                 &[0 * mem::size_of::<f32>(), 3 * mem::size_of::<f32>(), 5 * mem::size_of::<f32>()],
                 WebGl2RenderingContext::DYNAMIC_DRAW,
-                BufferData::new(self.data.sources.as_ref()),
+                BufferData::VecData(self.data.sources.as_ref()),
             )
             // Set the element buffer
             .add_element_buffer(
                 WebGl2RenderingContext::STATIC_DRAW,
-                BufferData::new(self.indices.as_ref()),
+                BufferData::VecData(self.indices.as_ref()),
             )
             // Unbind the buffer
             .unbind();
@@ -381,7 +380,7 @@ impl Mesh for Catalog {
         
         // Update the VAO
         self.vertex_array_object.bind()
-            .update_instanced_array(0, BufferData::new(&sources));
+            .update_instanced_array(0, BufferData::VecData(&sources));
 
         console::log_1(&format!("num sources: {:?}", self.num_instances).into());
     }

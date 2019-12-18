@@ -19,9 +19,8 @@ use crate::RENDER_FRAME;
 static mut NUM_TEXTURE_UNIT: u32 = WebGl2RenderingContext::TEXTURE0;
 
 #[derive(Clone)]
-struct Tile {
-    idx: u64,
-    depth: u8,
+pub struct Tile {
+    pub cell: HEALPixCell,
 
     texture_idx: usize,
 
@@ -33,7 +32,7 @@ struct Tile {
 // tiles in a set
 impl PartialEq for Tile {
     fn eq(&self, other: &Self) -> bool {
-        self.idx == other.idx && self.depth == other.depth
+        self.cell == other.cell
     }
 }
 impl Eq for Tile {}
@@ -41,8 +40,7 @@ impl Eq for Tile {}
 use std::hash::{Hash, Hasher};
 impl Hash for Tile {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.idx.hash(state);
-        self.depth.hash(state);
+        self.cell.hash(state);
     }
 }
 
@@ -90,8 +88,9 @@ impl Ord for TileGPU {
 
 impl From<Tile> for TileGPU {
     fn from(tile: Tile) -> Self {
-        let idx = tile.idx;
-        let depth = tile.depth;
+        let depth = tile.cell.0;
+        let idx = tile.cell.1;
+
         let uniq = (1 << (2*((depth as u64) + 1))) + idx;
         let uniq = uniq as u32;
 
@@ -114,8 +113,7 @@ impl From<Tile> for TileGPU {
 #[derive(Clone)]
 #[derive(Debug)]
 pub struct TileRequest {
-    idx: u64,
-    depth: u8,
+    pub cell: HEALPixCell,
     
     time_request: f32,
 
@@ -123,10 +121,9 @@ pub struct TileRequest {
 }
 
 impl TileRequest {
-    fn new(idx: u64, depth: u8, time_request: f32, image: Rc<RefCell<HtmlImageElement>>) -> TileRequest {
+    fn new(cell: HEALPixCell, time_request: f32, image: Rc<RefCell<HtmlImageElement>>) -> TileRequest {
         TileRequest {
-            idx,
-            depth,
+            cell,
             time_request,
             image
         }
@@ -135,7 +132,7 @@ impl TileRequest {
 
 impl PartialEq for TileRequest {
     fn eq(&self, other: &Self) -> bool {
-        self.idx == other.idx && self.depth == other.depth
+        self.cell == other.cell
     }
 }
 impl Eq for TileRequest {}
@@ -146,8 +143,8 @@ impl PartialOrd for TileRequest {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         let depth = DEPTH.load(atomic::Ordering::Relaxed) as i8;
 
-        let delta_depth = (depth - (self.depth as i8)).abs();
-        let delta_depth_other = (depth - (other.depth as i8)).abs();
+        let delta_depth = (depth - (self.cell.0 as i8)).abs();
+        let delta_depth_other = (depth - (other.cell.1 as i8)).abs();
 
         delta_depth.partial_cmp(&delta_depth_other)
     }
@@ -163,7 +160,7 @@ pub struct BufferTiles {
     gl: WebGl2Context,
 
     buffer: BinaryHeap<Tile>,
-    loaded_tiles: HashSet<(u8, u64)>,
+    loaded_tiles: HashSet<HEALPixCell>,
     // This binary heap contains the requests that must be canceled
     // This must be rebuilt whenever we change of order
     pub requested_tiles: BinaryHeap<TileRequest>,
@@ -204,25 +201,25 @@ impl BufferTiles {
     }
 
     // Add a new tile to the buffer
-    pub fn add(&mut self, depth: u8, idx: u64, time_request: f32) -> usize {
+    pub fn add(&mut self, cell: HEALPixCell, time_request: f32) -> usize {
         let texture_idx = if self.buffer.len() == self.size {
             // Remove the oldest tile from the buffer and from the
             // hashset
             let oldest_requested_tile = self.buffer.pop().unwrap();
-            self.remove_from_loaded_tiles(
-                oldest_requested_tile.depth,
-                oldest_requested_tile.idx
-            );
 
-            oldest_requested_tile.texture_idx
+            let vacant_texture_idx = oldest_requested_tile.texture_idx;
+
+            let tile = oldest_requested_tile.into();
+            self.remove_from_loaded_tiles(&tile);
+
+            vacant_texture_idx
         } else {
             self.buffer.len()
         };
 
         let time_received = Some(utils::get_current_time());
         let tile = Tile {
-            idx,
-            depth,
+            cell,
 
             texture_idx,
 
@@ -249,13 +246,11 @@ impl BufferTiles {
         RENDER_FRAME.lock().unwrap().set_for_duration_seconds(500_f32);
     }
 
-    pub fn add_to_loaded_tiles(&mut self, depth: u8, idx: u64) {
-        let tile = (depth, idx);
+    pub fn add_to_loaded_tiles(&mut self, tile: HEALPixCell) {
         self.loaded_tiles.insert(tile);
     }
 
-    pub fn remove_from_loaded_tiles(&mut self, depth: u8, idx: u64) {
-        let tile = (depth, idx);
+    pub fn remove_from_loaded_tiles(&mut self, tile: &HEALPixCell) {
         self.loaded_tiles.remove(&tile);
     }
 
@@ -277,7 +272,7 @@ impl BufferTiles {
         if !self.requested_tiles.is_empty() {
             let mut peek = self.requested_tiles.peek().unwrap();
 
-            while (peek.depth as i8 - (depth as i8)).abs() > 1 {
+            while (peek.cell.0 as i8 - (depth as i8)).abs() > 1 {
                 peek.image.borrow_mut().set_src("");
 
                 self.requested_tiles.pop();
@@ -290,15 +285,14 @@ impl BufferTiles {
         }
     }
 
-    pub fn replace_tile(&mut self, depth: u8, idx: u64, time_request: f32, tile_request: &TileRequest, reset_time_received: bool) -> bool {
-        let tile_loaded = (depth, idx);
+    pub fn replace_tile(&mut self, tile_loaded: HEALPixCell, time_request: f32, tile_request: &TileRequest, reset_time_received: bool) -> bool {
         // Check whether the buffer already contains the requested tile
         if self.loaded_tiles.contains(&tile_loaded) {
             // Change its priority in the buffer (if it is present!).
             let tile = self.buffer
                 .iter()
                 .find(|&tile| {
-                    tile.depth == depth && tile.idx == idx
+                    tile.cell == tile_loaded
                 });
 
             if let Some(tile) = tile {
@@ -313,7 +307,7 @@ impl BufferTiles {
                 // Push it to the buffer again
                 self.buffer = self.buffer.iter()
                     .filter(|&tile| {
-                        tile.depth != depth || tile.idx != idx
+                        tile.cell != tile_loaded
                     })
                     .cloned()
                     .collect();
@@ -455,19 +449,16 @@ pub fn load_tiles(
     // > current_depth + 1 and < current_depth - 1
     buffer_tiles.borrow_mut().cancel_obsolete_tile_requests(depth);
     for tile in tiles {
-        load_healpix_tile(buffer_tiles.clone(), tile, reset_time_received);
+        load_healpix_tile(buffer_tiles.clone(), tile.clone(), reset_time_received);
     }
 }
-fn load_healpix_tile(buffer: Rc<RefCell<BufferTiles>>, tile: &HEALPixCell, reset_time_received: bool) {
+fn load_healpix_tile(buffer: Rc<RefCell<BufferTiles>>, tile: HEALPixCell, reset_time_received: bool) {
     let time_request = utils::get_current_time();
-    
-    let depth = tile.0;
-    let idx = tile.1;
 
     let image = Rc::new(RefCell::new(HtmlImageElement::new().unwrap()));
-    let tile_request = TileRequest::new(idx, depth, time_request, image.clone());
+    let tile_request = TileRequest::new(tile, time_request, image.clone());
     // Check whether the tile is already in the buffer or requested
-    if buffer.borrow_mut().replace_tile(depth, idx, time_request, &tile_request, reset_time_received) {
+    if buffer.borrow_mut().replace_tile(tile, time_request, &tile_request, reset_time_received) {
         return;
     }
 
@@ -475,6 +466,9 @@ fn load_healpix_tile(buffer: Rc<RefCell<BufferTiles>>, tile: &HEALPixCell, reset
     buffer.borrow_mut().add_to_requested_tiles(tile_request);
 
     let url = {
+        let depth = tile.0;
+        let idx = tile.1;
+        
         let dir_idx = (idx / 10000) * 10000;
 
         let mut url = HIPS_NAME.lock().unwrap().clone() + "/";
@@ -492,7 +486,7 @@ fn load_healpix_tile(buffer: Rc<RefCell<BufferTiles>>, tile: &HEALPixCell, reset
             console::log_1(&format!("ERROR tile").into());
             //buffer.borrow_mut().remove_from_loaded_tiles(depth, idx);
             // Remove from the currently requested tiles
-            let tile_request = TileRequest::new(idx, depth, time_request, image.clone());
+            let tile_request = TileRequest::new(tile, time_request, image.clone());
             buffer.borrow_mut().remove_from_requested_tiles(tile_request);
         }) as Box<dyn Fn()>)
     };
@@ -503,13 +497,13 @@ fn load_healpix_tile(buffer: Rc<RefCell<BufferTiles>>, tile: &HEALPixCell, reset
         Closure::wrap(Box::new(move || {
             console::log_1(&format!("load new tile").into());
             // Remove from the currently requested tiles
-            let tile_request = TileRequest::new(idx, depth, time_request, image.clone());
+            let tile_request = TileRequest::new(tile, time_request, image.clone());
             buffer.borrow_mut().remove_from_requested_tiles(tile_request);
 
             // Add it to the loaded cells hashset
-            buffer.borrow_mut().add_to_loaded_tiles(depth, idx);
+            buffer.borrow_mut().add_to_loaded_tiles(tile);
             // Add the received tile to the buffer
-            let idx_texture = buffer.borrow_mut().add(depth, idx, time_request);
+            let idx_texture = buffer.borrow_mut().add(tile, time_request);
             //buffer.borrow().replace_texture_sampler_3d(idx_texture as i32, &image.borrow());
             buffer.borrow().replace_texture_sampler_2d(idx_texture as i32, &image.borrow());
 

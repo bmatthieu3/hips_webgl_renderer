@@ -414,12 +414,12 @@ impl Mesh for ProjetedGrid {
                 &[2],
                 &[0 * std::mem::size_of::<f32>()],
                 WebGl2RenderingContext::DYNAMIC_DRAW,
-                BufferData::new(&vertices_data),
+                BufferData::VecData(&vertices_data),
             )
             // Set the element buffer
             .add_element_buffer(
                 WebGl2RenderingContext::DYNAMIC_DRAW,
-                BufferData::new(&idx_data),
+                BufferData::VecData(&idx_data),
             )
             // Unbind the buffer
             .unbind();
@@ -443,8 +443,8 @@ impl Mesh for ProjetedGrid {
 
         // Update the VAO
         self.vertex_array_object.bind()
-            .update_array(0, BufferData::new(&self.pos_screen_space))
-            .update_element_array(BufferData::new(&self.idx_vertices));
+            .update_array(0, BufferData::VecData(&self.pos_screen_space))
+            .update_element_array(BufferData::VecData(&self.idx_vertices));
     }
 
     fn draw<T: Mesh + DisableDrawing>(
