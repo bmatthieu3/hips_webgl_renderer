@@ -58,7 +58,7 @@ impl Ord for Tile {
 }
 
 #[derive(Debug)]
-pub struct TileGPU {
+pub struct TilePerPixelGPU {
     pub uniq: u32,
 
     pub texture_idx: i32,
@@ -67,26 +67,26 @@ pub struct TileGPU {
     pub time_received: f32,
 }
 
-impl PartialEq for TileGPU {
+impl PartialEq for TilePerPixelGPU {
     fn eq(&self, other: &Self) -> bool {
         self.uniq == other.uniq
     }
 }
-impl Eq for TileGPU {}
+impl Eq for TilePerPixelGPU {}
 
-impl PartialOrd for TileGPU {
+impl PartialOrd for TilePerPixelGPU {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         // Order by UNIQ notation
         self.uniq.partial_cmp(&other.uniq)
     }
 }
-impl Ord for TileGPU {
+impl Ord for TilePerPixelGPU {
     fn cmp(&self, other: &Self) -> Ordering {
         self.partial_cmp(&other).unwrap()
     }
 }
 
-impl From<Tile> for TileGPU {
+impl From<Tile> for TilePerPixelGPU {
     fn from(tile: Tile) -> Self {
         let depth = tile.cell.0;
         let idx = tile.cell.1;
@@ -99,7 +99,7 @@ impl From<Tile> for TileGPU {
         let time_request = tile.time_request;
         let time_received = tile.time_received.unwrap();
 
-        TileGPU {
+        TilePerPixelGPU {
             uniq,
 
             texture_idx,
@@ -376,8 +376,8 @@ impl BufferTiles {
         .expect("Sub texture 2d");
     }
 
-    fn tiles(&self) -> Vec<TileGPU> {
-        let mut tiles: Vec<TileGPU> = self.buffer
+    fn tiles(&self) -> Vec<TilePerPixelGPU> {
+        let mut tiles = self.buffer
             .clone()
             .into_iter()
             .map(|tile| {
@@ -390,7 +390,7 @@ impl BufferTiles {
         tiles
     }
 
-    fn send_sampler_uniform(&self, shader: &Shader) {
+    fn send_texture(&self, shader: &Shader) {
         let location_sampler_3d = shader.get_uniform_location(self.texture_name);
         self.gl.active_texture(self.idx_texture_unit);
         //self.gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, self.texture.as_ref());
@@ -401,7 +401,7 @@ impl BufferTiles {
     }
 
     pub fn send_to_shader(&self, shader: &Shader) {
-        self.send_sampler_uniform(shader);
+        self.send_texture(shader);
         let tiles = self.tiles();
 
         for (i, tile) in tiles.iter().enumerate() {

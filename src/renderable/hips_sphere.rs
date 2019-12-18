@@ -33,6 +33,8 @@ pub struct HiPSSphere {
     fov_rendering_mode: SmallFieldOfViewRenderingMode,
     per_pixel_rendering_mode: PerPixelRenderingMode,
 
+    fov_mode: bool,
+
     gl: WebGl2Context,
 }
 
@@ -46,6 +48,14 @@ use crate::field_of_view::ALLSKY;
 trait RenderingMode {
     fn create_vertices_array(gl: &WebGl2Context, projection: &ProjectionType) -> Vec<f32>;
     fn create_index_array() -> Option<Vec<u16>>;
+    fn send_uniforms(gl: &WebGl2Context, shader: &Shader);
+    fn draw<T: Mesh + DisableDrawing>(
+        &self,
+        gl: &WebGl2Context,
+        renderable: &Renderable<T>,
+        shaders: &HashMap<&'static str, Shader>,
+        viewport: &ViewPort
+    );
 }
 
 struct SmallFieldOfViewRenderingMode {
@@ -115,10 +125,6 @@ impl SmallFieldOfViewRenderingMode {
             uv.y
         ]);
     }
-
-    /*fn update(&mut self, ) {
-
-    }*/
 }
 
 impl RenderingMode for SmallFieldOfViewRenderingMode {
@@ -153,6 +159,24 @@ impl RenderingMode for SmallFieldOfViewRenderingMode {
 
     fn create_index_array() -> Option<Vec<u16>> {
         None
+    }
+
+    fn send_uniforms(gl: &WebGl2Context, shader: &Shader) {
+    }
+
+    fn draw<T: Mesh + DisableDrawing>(
+        &self,
+        gl: &WebGl2Context,
+        renderable: &Renderable<T>,
+        shaders: &HashMap<&'static str, Shader>,
+        viewport: &ViewPort
+    ) {
+        self.vertex_array_object.bind_ref();
+        gl.draw_arrays(
+            WebGl2RenderingContext::TRIANGLES,
+            0,
+            (self.vertices.len() as i32) / 7,
+        );
     }
 }
 
@@ -259,6 +283,31 @@ impl RenderingMode for PerPixelRenderingMode {
 
         Some(indices)
     }
+
+    fn send_uniforms(gl: &WebGl2Context, shader: &Shader) {
+        // Send current depth
+        let location_current_depth = shader.get_uniform_location("current_depth");
+        gl.uniform1i(location_current_depth, DEPTH.load(Ordering::Relaxed) as i32);
+        // Send max depth of the current HiPS
+        let location_max_depth = shader.get_uniform_location("max_depth");
+        gl.uniform1i(location_max_depth, MAX_DEPTH.load(Ordering::Relaxed) as i32);
+    }
+
+    fn draw<T: Mesh + DisableDrawing>(
+        &self,
+        gl: &WebGl2Context,
+        renderable: &Renderable<T>,
+        shaders: &HashMap<&'static str, Shader>,
+        viewport: &ViewPort
+    ) {
+        self.vertex_array_object.bind_ref();
+        gl.draw_elements_with_i32(
+            WebGl2RenderingContext::TRIANGLES,
+            self.vertex_array_object.num_elements() as i32,
+            WebGl2RenderingContext::UNSIGNED_SHORT,
+            0,
+        );
+    }
 }
 
 impl<'a> HiPSSphere {
@@ -275,6 +324,7 @@ impl<'a> HiPSSphere {
         let per_pixel_rendering_mode = PerPixelRenderingMode::new(gl, projection);
 
         let gl = gl.clone();
+        let fov_mode = false;
         HiPSSphere {
             buffer_tiles,
             buffer_depth_zero_tiles,
@@ -285,24 +335,31 @@ impl<'a> HiPSSphere {
             // - The other for the orthographic projection and small FOVs on 2D projections
             fov_rendering_mode,
 
+            fov_mode,
+
             gl,
         }
     }
 
-    fn send_uniforms(&self, gl: &WebGl2Context, shader: &Shader) {
+    fn send_uniforms<T: Mesh + DisableDrawing>(&self, gl: &WebGl2Context, shader: &Shader, viewport: &ViewPort, renderable: &Renderable<T>) {
         // TEXTURES DEPTH 0 TILES BUFFER
         self.buffer_depth_zero_tiles.borrow().send_to_shader(shader);
         // TEXTURES TILES BUFFER
         self.buffer_tiles.borrow().send_to_shader(shader);
 
-        // Send current depth
-        let location_current_depth = shader.get_uniform_location("current_depth");
-        gl.uniform1i(location_current_depth, DEPTH.load(Ordering::Relaxed) as i32);
-        // Send max depth of the current HiPS
-        let location_max_depth = shader.get_uniform_location("max_depth");
-        gl.uniform1i(location_max_depth, MAX_DEPTH.load(Ordering::Relaxed) as i32);
-    }
+        // Send viewport uniforms
+        viewport.send_to_vertex_shader(gl, shader);
+        
+        // Send model matrix
+        let model_mat_location = shader.get_uniform_location("model");
+        let model_mat_f32_slice: &[f32; 16] = renderable.model_mat.as_ref();
+        gl.uniform_matrix4fv_with_f32_array(model_mat_location, false, model_mat_f32_slice);
 
+        // Send current time
+        let location_time = shader.get_uniform_location("current_time");
+        gl.uniform1f(location_time, utils::get_current_time());
+    }
+    
     /// Called when the HiPS has been changed
     pub fn refresh_buffer_tiles(&mut self) {
         console::log_1(&format!("refresh buffers").into());
@@ -355,53 +412,23 @@ impl Mesh for HiPSSphere {
         shaders: &HashMap<&'static str, Shader>,
         viewport: &ViewPort
     ) {
-        /*let shader = &shaders["hips_sphere"];
-        shader.bind(gl);
+        if self.fov_mode {
+            let shader = &shaders["hips_sphere_small_fov"];
+            shader.bind(gl);
 
-        self.per_pixel_rendering_mode.vertex_array_object.bind_ref();
+            self.send_uniforms(gl, shader, viewport, renderable);
 
-        // Send Uniforms
-        viewport.send_to_vertex_shader(gl, shader);
-        self.send_uniforms(gl, shader);
+            SmallFieldOfViewRenderingMode::send_uniforms(gl, shader);
+            self.fov_rendering_mode.draw(gl, renderable, shaders, viewport);
+        } else {
+            let shader = &shaders["hips_sphere"];
+            shader.bind(gl);
 
-        // Send model matrix
-        let model_mat_location = shader.get_uniform_location("model");
-        let model_mat_f32_slice: &[f32; 16] = renderable.model_mat.as_ref();
-        gl.uniform_matrix4fv_with_f32_array(model_mat_location, false, model_mat_f32_slice);
+            self.send_uniforms(gl, shader, viewport, renderable);
 
-        // Send current time
-        let location_time = shader.get_uniform_location("current_time");
-        gl.uniform1f(location_time, utils::get_current_time());
-
-        gl.draw_elements_with_i32(
-            WebGl2RenderingContext::TRIANGLES,
-            self.per_pixel_rendering_mode.vertex_array_object.num_elements() as i32,
-            WebGl2RenderingContext::UNSIGNED_SHORT,
-            0,
-        );*/
-        let shader = &shaders["hips_sphere_small_fov"];
-        shader.bind(gl);
-
-        self.fov_rendering_mode.vertex_array_object.bind_ref();
-
-        // Send Uniforms
-        viewport.send_to_vertex_shader(gl, shader);
-        self.send_uniforms(gl, shader);
-
-        // Send model matrix
-        let model_mat_location = shader.get_uniform_location("model");
-        let model_mat_f32_slice: &[f32; 16] = renderable.model_mat.as_ref();
-        gl.uniform_matrix4fv_with_f32_array(model_mat_location, false, model_mat_f32_slice);
-
-        // Send current time
-        let location_time = shader.get_uniform_location("current_time");
-        gl.uniform1f(location_time, utils::get_current_time());
-
-        gl.draw_arrays(
-            WebGl2RenderingContext::TRIANGLES,
-            0,
-            (self.fov_rendering_mode.vertices.len() as i32) / 7,
-        );
+            PerPixelRenderingMode::send_uniforms(gl, shader);
+            self.per_pixel_rendering_mode.draw(gl, renderable, shaders, viewport);
+        }
     }
 }
 
