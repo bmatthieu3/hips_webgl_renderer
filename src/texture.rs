@@ -22,10 +22,28 @@ static mut NUM_TEXTURE_UNIT: u32 = WebGl2RenderingContext::TEXTURE0;
 pub struct Tile {
     pub cell: HEALPixCell,
 
-    texture_idx: usize,
+    pub texture_idx: u8,
 
     time_request: f32,
     time_received: Option<f32>,
+}
+
+impl Tile {
+    pub fn new(cell: HEALPixCell) -> Tile {
+        let texture_idx = 0;
+
+        let time_request = 0_f32;
+        let time_received = None;
+
+        Tile {
+            cell,
+
+            texture_idx,
+
+            time_request,
+            time_received
+        }
+    }
 }
 
 // Equality impl allowing to store
@@ -101,6 +119,56 @@ impl From<Tile> for TilePerPixelGPU {
 
         TilePerPixelGPU {
             uniq,
+
+            texture_idx,
+
+            time_request,
+            time_received,
+        }
+    }
+}
+
+struct TileSmallFOVGPU {
+    cell: HEALPixCell,
+
+    pub texture_idx: i32,
+
+    pub time_request: f32,
+    pub time_received: f32,
+}
+
+impl PartialEq for TileSmallFOVGPU {
+    fn eq(&self, other: &Self) -> bool {
+        self.cell == other.cell
+    }
+}
+
+impl Eq for TileSmallFOVGPU {}
+
+impl PartialOrd for TileSmallFOVGPU {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        // Order by UNIQ notation
+        self.cell.partial_cmp(&other.cell)
+    }
+}
+
+impl Ord for TileSmallFOVGPU {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_cmp(&other).unwrap()
+    }
+}
+
+impl From<Tile> for TileSmallFOVGPU {
+    fn from(tile: Tile) -> Self {
+        let cell = tile.cell;
+
+        let texture_idx = tile.texture_idx as i32;
+
+        let time_request = tile.time_request;
+        let time_received = tile.time_received.unwrap();
+
+        TileSmallFOVGPU {
+            cell,
 
             texture_idx,
 
@@ -201,7 +269,7 @@ impl BufferTiles {
     }
 
     // Add a new tile to the buffer
-    pub fn add(&mut self, cell: HEALPixCell, time_request: f32) -> usize {
+    pub fn add(&mut self, cell: HEALPixCell, time_request: f32) -> u8 {
         let texture_idx = if self.buffer.len() == self.size {
             // Remove the oldest tile from the buffer and from the
             // hashset
@@ -214,7 +282,7 @@ impl BufferTiles {
 
             vacant_texture_idx
         } else {
-            self.buffer.len()
+            self.buffer.len() as u8
         };
 
         let time_received = Some(utils::get_current_time());
@@ -376,7 +444,13 @@ impl BufferTiles {
         .expect("Sub texture 2d");
     }
 
-    fn tiles(&self) -> Vec<TilePerPixelGPU> {
+    pub fn tiles(&self) -> BTreeSet<&Tile> {
+        self.buffer
+            .iter()
+            .collect::<BTreeSet<_>>()
+    }
+
+    fn uniq_ordered_tiles(&self) -> Vec<TilePerPixelGPU> {
         let mut tiles = self.buffer
             .clone()
             .into_iter()
@@ -402,7 +476,7 @@ impl BufferTiles {
 
     pub fn send_to_shader(&self, shader: &Shader) {
         self.send_texture(shader);
-        let tiles = self.tiles();
+        let tiles = self.uniq_ordered_tiles();
 
         for (i, tile) in tiles.iter().enumerate() {
             let mut name = String::from(self.texture_name);
@@ -429,7 +503,35 @@ impl BufferTiles {
         self.size
     }
 }
+/*
+pub struct BufferTilesSmallFOV<'a> {
+    tiles: &'a BTreeSet<TileSmallFOVGPU>
+}
 
+impl<'a> BufferTilesSmallFOV<'a> {
+    fn new(tiles: &'a BTreeSet<TileSmallFOVGPU>) -> BufferTilesSmallFOV<'a> {
+        BufferTilesSmallFOV {
+            tiles
+        }
+    }
+
+    fn get(&self, cell: HEALPixCell) -> Option<&TileSmallFOVGPU> {
+        let time_request = 0_f32;
+        let time_received = 0_f32;
+
+        let texture_idx = 0;
+        let tile = TileSmallFOVGPU {
+            cell,
+
+            texture_idx,
+
+            time_request,
+            time_received,
+        };
+        self.tiles.get(&tile)
+    }
+}
+*/
 use crate::HIPS_NAME;
 use crate::field_of_view::HEALPixCell;
 use std::collections::BTreeSet;

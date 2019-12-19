@@ -123,6 +123,32 @@ impl VertexAttribPointerType for u32 {
     }
 }
 
+impl VertexAttribPointerType for i32 {
+    fn update<'a>(gl: &WebGl2Context, data: BufferData<'a, Self>) {
+        let data: js_sys::Int32Array = data.try_into().unwrap();
+        
+        gl.buffer_sub_data_with_i32_and_array_buffer_view(
+            WebGl2RenderingContext::ARRAY_BUFFER,
+            0,
+            &data,
+        );
+    }
+
+    fn buffer_data_with_array_buffer_view<'a>(gl: &WebGl2Context, data: BufferData<'a, Self>, usage: u32) {
+        let data: js_sys::Int32Array = data.try_into().unwrap();
+        gl.buffer_data_with_array_buffer_view(
+            WebGl2RenderingContext::ARRAY_BUFFER,
+            &data,
+            usage,
+        );
+    }
+
+    fn vertex_attrib_pointer_with_i32(gl: &WebGl2Context, idx: u32, size: i32, stride: i32, offset: i32) {
+        gl.vertex_attrib_i_pointer_with_i32(idx, size, WebGl2RenderingContext::INT, stride, offset);
+        gl.enable_vertex_attrib_array(idx);
+    }
+}
+
 impl VertexAttribPointerType for f32 {
     fn update<'a>(gl: &WebGl2Context, data: BufferData<'a, Self>) {
         let data: js_sys::Float32Array = data.try_into().unwrap();

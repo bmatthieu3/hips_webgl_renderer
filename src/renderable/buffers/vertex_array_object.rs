@@ -138,7 +138,7 @@ impl<'a> VertexArrayObjectBound<'a> {
         self
     }
 
-    pub fn update_array(&mut self, idx: usize, array_data: BufferData<'a, f32>) -> &mut Self {
+    pub fn update_array<T: VertexAttribPointerType>(&mut self, idx: usize, array_data: BufferData<'a, T>) -> &mut Self {
         self.vao.array_buffer[idx].update(array_data);
         self
     }

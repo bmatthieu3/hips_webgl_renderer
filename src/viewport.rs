@@ -211,6 +211,7 @@ impl ViewPort {
             }
 
             // We update the zoom factor
+            //self.current_zoom += (self.final_zoom - self.current_zoom) * 0.005_f32 * dt;
             self.current_zoom = self.final_zoom;
 
             self.update_scissor();

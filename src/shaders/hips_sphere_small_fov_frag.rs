@@ -5,6 +5,10 @@ pub static CONTENT: &'static str = r#"#version 300 es
     precision highp int;
 
     in vec2 frag_uv;
+    in float aaa;
+
+    //in int frag_idx_texture;
+
     out vec4 out_frag_color;
 
     const float PI = 3.141592653589793f;
@@ -16,18 +20,21 @@ pub static CONTENT: &'static str = r#"#version 300 es
         float time_request;
     };
 
-    uniform sampler2D textures_0;
-    uniform Tile textures_0_tiles[12];
+    /*uniform sampler2D textures_0;
+    uniform Tile textures_0_tiles[12];*/
+
+    uniform sampler2D textures;
+    uniform Tile textures_tiles[64];
 
     uniform float current_time; // current time in ms
 
     void main() {
-        Tile tile = textures_0_tiles[0];
-        float idx_row = float(tile.texture_idx / 8); // in [0; 7]
-        float idx_col = float(tile.texture_idx % 8); // in [0; 7]
+        int idx_texture = int(aaa);
+        float idx_row = float(idx_texture / 8); // in [0; 7]
+        float idx_col = float(idx_texture % 8); // in [0; 7]
 
         vec2 offset = (vec2(idx_col, idx_row) + frag_uv)/8.f;
+        vec3 color = texture(textures, offset).rgb;
 
-        vec3 color = texture(textures_0, offset).rgb;
         out_frag_color = vec4(color, 1.f);
     }"#;

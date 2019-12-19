@@ -474,7 +474,7 @@ impl<'a> DisableDrawing for Catalog {
     }
 }
 
-const MAX_SOURCES: usize = 10000;
+const MAX_SOURCES: usize = 20000;
 
 use std::ops::Range;
 struct Storage {
@@ -525,7 +525,7 @@ impl Storage {
             unsafe { Vec::from_raw_parts(ptr as *mut f32, len, cap) }
         };
 
-        let mut healpix_idx = healpix_idx.into_boxed_slice();
+        let healpix_idx = healpix_idx.into_boxed_slice();
         Storage {
             sources,
 
