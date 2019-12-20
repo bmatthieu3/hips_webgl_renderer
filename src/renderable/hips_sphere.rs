@@ -432,7 +432,7 @@ impl Mesh for HiPSSphere {
             let idx_texture = healpix_cells.iter()
                 .map(|cell| {
                     let tile: TilePerPixelGPU = Tile::new(*cell).into();
-                    console::log_1(&format!("idx: {:?}", tile).into());
+                    //console::log_1(&format!("idx: {:?}", tile).into());
 
                     let idx = if let Some(tile_gpu) = buffer_tiles.get(&tile) {
                         tile_gpu.texture_idx as i32
@@ -445,7 +445,7 @@ impl Mesh for HiPSSphere {
                 .flatten()
                 .collect::<Vec<_>>();
 
-            console::log_1(&format!("UPDATE FOV: {:?}", idx_texture).into());
+            //console::log_1(&format!("UPDATE FOV: {:?}", idx_texture).into());
 
             self.fov_rendering_mode.vertex_array_object.bind()
                 .update_array(0, BufferData::VecData(&vertices))
