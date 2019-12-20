@@ -233,6 +233,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
 
                 vec3 color = texture(textures, offset).rgb;
 
+                //return TileColor(tile, vec3(float(tile.texture_idx)/64.f), true);
                 return TileColor(tile, color, true);
             } else if (uniq < textures_tiles[i].uniq) {
                 // go to left
@@ -296,9 +297,32 @@ pub static CONTENT: &'static str = r#"#version 300 es
         vec3 frag_pos = normalize(out_vert_pos);
         // Get the HEALPix cell idx and the uv in the texture
 
-        //out_frag_color = vec4(1.0f);
-        //return;
         TileColor current_tile = get_tile_color(frag_pos, 64.f, current_depth);
+        if (!current_tile.found) {
+            vec3 out_color = vec3(0.f);
+            int depth = 0;
+            if (last_zoom_action == 1) {
+                // zoom
+                depth = max(0, current_depth - 1);
+            } else {
+                // unzoom
+                depth = min(max_depth, current_depth + 1);
+            }
+
+            TileColor prev_tile = get_tile_color(frag_pos, 64.f, depth);
+            float alpha = clamp((current_time - prev_tile.tile.time_received) / duration, 0.f, 1.f);
+            if (alpha == 1.f) {
+                out_frag_color = vec4(prev_tile.color, 1.f);
+                return;
+            }
+
+            TileColor base_tile = get_depth_0_tile(frag_pos);
+
+            out_color = mix(base_tile.color, prev_tile.color, alpha);
+            out_frag_color = vec4(out_color, 1.f);
+
+            return;
+        }
 
         float alpha = clamp((current_time - current_tile.tile.time_received) / duration, 0.f, 1.f);
 

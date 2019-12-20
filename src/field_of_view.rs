@@ -13,23 +13,80 @@ pub struct FieldOfView {
     vertices_world_space: Vec<Vector4<f32>>,
 
     value: Option<Rad<f32>>, // fov can be None if the camera is out of the projection
+
+    cells: BTreeSet<HEALPixCell>,
+    current_depth: u8,
 }
 
 use itertools_num;
 use std::iter;
-
 use crate::projection::ProjectionType;
 use crate::math;
 use crate::MAX_DEPTH;
 use crate::window_size_f32;
 
-use std::sync::atomic::Ordering;
+use std::sync::atomic;
+use std::cmp;
 
-use web_sys::console;
+#[derive(Clone, Copy)]
+#[derive(Debug)]
+#[derive(PartialEq, Eq, Hash)]
+pub struct HEALPixCell(pub u8, pub u64);
+
+impl PartialOrd for HEALPixCell {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        let uniq = (1 << (2*((self.0 as u64) + 1))) + self.1;
+        let uniq_other = (1 << (2*((other.0 as u64) + 1))) + other.1;
+
+        uniq.partial_cmp(&uniq_other)
+    }
+}
+impl Ord for HEALPixCell {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.partial_cmp(&other).unwrap()
+    }
+}
+
+use crate::texture::Tile;
+impl From<Tile> for HEALPixCell {
+    fn from(tile: Tile) -> Self {
+        tile.cell
+    }
+}
+use crate::texture::TileRequest;
+impl From<TileRequest> for HEALPixCell {
+    fn from(tile_request: TileRequest) -> Self {
+        tile_request.cell
+    }
+}
+
+use std::collections::BTreeSet;
+use std::sync::Arc;
+use std::sync::Mutex;
+lazy_static! {
+    pub static ref ALLSKY: Arc<Mutex<BTreeSet<HEALPixCell>>> = {
+        let mut allsky = BTreeSet::new();
+        allsky.insert(HEALPixCell(0, 0));
+        allsky.insert(HEALPixCell(0, 1));
+        allsky.insert(HEALPixCell(0, 2));
+        allsky.insert(HEALPixCell(0, 3));
+        allsky.insert(HEALPixCell(0, 4));
+        allsky.insert(HEALPixCell(0, 5));
+        allsky.insert(HEALPixCell(0, 6));
+        allsky.insert(HEALPixCell(0, 7));
+        allsky.insert(HEALPixCell(0, 8));
+        allsky.insert(HEALPixCell(0, 9));
+        allsky.insert(HEALPixCell(0, 10));
+        allsky.insert(HEALPixCell(0, 11));
+
+        Arc::new(Mutex::new(allsky))
+    };
+}
+
 impl FieldOfView {
     pub fn new() -> FieldOfView {
-        let num_vertices_width = 5;
-        let num_vertices_height = 5;
+        let num_vertices_width = 3;
+        let num_vertices_height = 3;
         let num_vertices = 4 + 2*num_vertices_width + 2*num_vertices_height;
 
         let mut x_screen_space = itertools_num::linspace::<f32>(-1., 1., num_vertices_width + 2)
@@ -53,6 +110,8 @@ impl FieldOfView {
         let vertices_world_space = vec![Vector4::new(0_f32, 0_f32, 0_f32, 1_f32); vertices_screen_space.len()];
         let value = None;
 
+        let cells = ALLSKY.lock().unwrap().clone();
+        let current_depth = 0;
         FieldOfView {
             num_vertices,
             num_vertices_width,
@@ -61,11 +120,14 @@ impl FieldOfView {
             vertices_screen_space,
             vertices_world_space,
 
-            value
+            value,
+
+            cells,
+            current_depth,
         }
     }
 
-    pub fn update(&mut self, zoom: f32, projection: &ProjectionType) {
+    pub fn update(&mut self, model: &Matrix4<f32>, zoom: f32, projection: &ProjectionType) {
         self.vertices_world_space = self.vertices_screen_space.iter()
             .filter_map(|vertex_screen_space| {
                 let vertex_homogeneous_space = vertex_screen_space / zoom;
@@ -94,25 +156,24 @@ impl FieldOfView {
         } else {
             None
         };
-    }
 
-    // Returns the HEALPix cells located in the
-    // field of view
-    pub fn get_healpix_cells(&self, model: &Matrix4<f32>, max_num_tiles: usize) -> (u8, Vec<u64>) {
-        if let Some(fov) = self.value {
+        
+        let allsky = ALLSKY.lock().unwrap();
+        self.cells = if let Some(fov) = self.value {
             // The fov does not cross the border of the projection
             if fov >= Deg(150_f32).into() {
                 // The fov is >= 150°
-                (0, (0..12).collect::<Vec<_>>())
+                self.current_depth = 0;
+                allsky.clone()
             } else {
                 let (width, _) = window_size_f32();
                 let l = width;
                 // Compute the depth corresponding to the angular resolution of a pixel
                 // along the width of the screen
-                let mut depth = std::cmp::min(math::ang_per_pixel_to_depth(fov.0 / l), MAX_DEPTH.load(Ordering::Relaxed));
+                let mut depth = std::cmp::min(math::ang_per_pixel_to_depth(fov.0 / l), MAX_DEPTH.load(atomic::Ordering::Relaxed));
                 //console::log_1(&format!("depth {:?}", depth).into());
-                let idx = if depth == 0 {
-                    (0..12).collect::<Vec<_>>()
+                let cells = if depth == 0 {
+                    allsky.clone()
                 } else {
                     // The fov is not too big so we can get the HEALPix cells
                     // being in the fov
@@ -128,14 +189,18 @@ impl FieldOfView {
                         .collect::<Vec<_>>();
 
                     //console::log_1(&format!("LONLAT, {:?}", lon_lat_world_space).into());
-                    let mut idx = vec![];
+                    let mut cells = BTreeSet::new();
                     while depth > 0 {
                         let moc = healpix::nested::polygon_coverage(depth, &lon_lat_world_space, true);
                         let num_tiles = moc.entries.len();
                         // Stop when the number of tiles for this depth
                         // can be contained in the tile buffer
-                        if num_tiles <= max_num_tiles {
-                            idx = moc.flat_iter().collect::<Vec<_>>();
+                        if num_tiles <= 64 {
+                            cells = moc.flat_iter()
+                                .map(|idx| {
+                                    HEALPixCell(depth, idx)
+                                })
+                                .collect::<BTreeSet<_>>();
                             break;
                         }
     
@@ -143,18 +208,29 @@ impl FieldOfView {
                     }
 
                     if depth == 0 {
-                        idx = (0..12).collect::<Vec<_>>();
+                        cells = allsky.clone();
                     }
-
-                    idx
+                    
+                    cells
                 };
-
-                (depth, idx)
+                self.current_depth = depth;
+                cells
             }
         } else {
             // The fov is out the projection
-            (0, (0..12).collect::<Vec<_>>())
-        }
+            self.current_depth = 0;
+            allsky.clone()
+        };
+    }
+
+    // Returns the HEALPix cells located in the
+    // field of view
+    pub fn cells(&self) -> &BTreeSet<HEALPixCell> {
+        &self.cells
+    }
+
+    pub fn get_current_depth(&self) -> u8 {
+        self.current_depth
     }
 
     pub fn value(&self) -> &Option<Rad<f32>> {

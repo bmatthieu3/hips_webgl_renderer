@@ -70,9 +70,9 @@
                     <br />
                     <label for="proj-select">Projection:</label>
                     <select name="projections" id="proj-select">
-                        <option value="orthographic">Orthographic</option>
-                        <option value="aitoff" selected>Aitoff</option>
-                        <option value="mollweide">MollWeide</option>
+                        <option value="orthographic" selected>Orthographic</option>
+                        <option value="aitoff">Aitoff</option>
+                        <option value="mollweide">Mollweide</option>
                     </select>
                 </div>
 
@@ -86,6 +86,14 @@
                     <br />
                     <label for="grid-alpha">Opacity:</label>
                     <input id="grid-alpha" type="range" value="0.2" min="0" max="1.0" step="any"></input>
+                </div>
+
+                <p>Catalog:</p>
+                <div class="container">
+                    <label for="catalog-alpha">Opacity:</label>
+                    <input id="catalog-alpha" type="range" value="0.2" min="0" max="1.0" step="any"></input>
+                    <label for="kernel-strength">Strength kernel:</label>
+                    <input id="kernel-strength" type="range" value="1.0" min="0" max="1.0" step="any"></input>
                 </div>
 
                 <label for="enable-inertia">Mouse inertia:</label>

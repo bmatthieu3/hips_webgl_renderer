@@ -1,4 +1,5 @@
 const autoComplete = require('./js/auto-complete.js');
+
 window.addEventListener('load', function () {
     import('./pkg/webgl')
         .then((webgl) => {
@@ -47,6 +48,9 @@ window.addEventListener('load', function () {
                     }
                     console.log(hipsesArray);
                 });
+            
+            // Load a source catalog from vizier
+            // Do the Ajax query
 
             // Add the UI event listeners
 
@@ -58,9 +62,14 @@ window.addEventListener('load', function () {
             let fps_counter = document.getElementById("fps-counter");
             let grid_color_picker = document.getElementById("grid-color");
             let grid_opacity = document.getElementById("grid-alpha");
+            let catalog_opacity = document.getElementById("catalog-alpha");
+            let kernel_strength = document.getElementById("kernel-strength");
+            let canvas = document.getElementById("canvas");
+            canvas.focus();
 
             // Start our Rust application. You can find `WebClient` in `src/lib.rs`
             const webClient = new webgl.WebClient();
+            retrieveCatalogSources(webClient);
 
             let time = Date.now();
             let time_last_fps = time;
@@ -136,9 +145,22 @@ window.addEventListener('load', function () {
             // Alpha grid
             grid_opacity.addEventListener("input", (event) => {
                 let opacity = event.target.value;
-                console.log(opacity);
 
                 webClient.change_grid_opacity(opacity);
+            }, false);
+
+            // Alpha catalog
+            catalog_opacity.addEventListener("input", (event) => {
+                let opacity = event.target.value;
+
+                webClient.set_catalog_opacity(opacity);
+            }, false);
+
+            // Alpha catalog
+            kernel_strength.addEventListener("input", (event) => {
+                let strength = event.target.value;
+
+                webClient.set_kernel_strength(strength);
             }, false);
 
             // Change HiPS
@@ -284,4 +306,21 @@ function touchpad_events(webClient) {
             // zoom event
         }
     }, false);
+}
+
+function retrieveCatalogSources(webClient) {
+    let url = 'http://tapvizier.u-strasbg.fr/TAPVizieR/tap/sync?phase=RUN&lang=adql&format=json&request=doQuery&query=SELECT%22J%2FA%2BA%2F566%2FA43%2Ftable2%22.RAJ2000%2C%20%20%22J%2FA%2BA%2F566%2FA43%2Ftable2%22.DEJ2000%2C%20%22J%2FA%2BA%2F566%2FA43%2Ftable2%22.Bmag%20FROM%20%22J%2FA%2BA%2F566%2FA43%2Ftable2%22%20ORDER%20BY%20Bmag';
+
+    var request = {
+        method: 'GET',
+        headers: new Headers(),
+        mode: 'cors',
+        cache: 'default'
+    };
+    fetch(url, request)
+        .then(response => response.json())
+        .then((votable) => {
+            let sources = votable.data;
+            webClient.add_catalog(sources);
+        });
 }

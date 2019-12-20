@@ -12,6 +12,9 @@
     "webpack-dev-server": "^3.8.1"
   },
   "dependencies": {
+    "jquery": "^3.4.1",
+    "jsvotable": "^2.0.2",
+    "opencadc-votable": "^1.1.7",
     "wasm-opt": "^1.1.0"
   }
 }

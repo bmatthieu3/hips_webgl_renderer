@@ -66,7 +66,13 @@ use crate::math;
 use std::sync::atomic::Ordering;
 use crate::MAX_DEPTH;
 use crate::print_to_console;
+<<<<<<< HEAD
 use crate::utils;
+=======
+use cgmath::Matrix4;
+
+use crate::renderable::catalog::Catalog;
+>>>>>>> features/instancing
 impl ViewPort {
     pub fn new(gl: &WebGl2Context, size_pixels: &Vector2<f32>) -> ViewPort {
         let current_zoom = 1_f32;
@@ -160,8 +166,8 @@ impl ViewPort {
         self.last_zoom_action = LastZoomAction::Unzoom;
 
         self.final_zoom /= (1_f32 + 0.01_f32 * amount);
-        if self.final_zoom < 0.75_f32 {
-            self.final_zoom = 0.75_f32;
+        if self.final_zoom < 0.5_f32 {
+            self.final_zoom = 0.5_f32;
         }
     }
 
@@ -204,12 +210,12 @@ impl ViewPort {
         }
     }
 
-    pub fn update(&mut self, projection: &ProjectionType, dt: f32) {
+    pub fn update(&mut self, model: &Matrix4<f32>, projection: &ProjectionType, dt: f32) {
         // If there is an action whether it is a zoom or a displacement
         // then we update the fov
         if self.is_action {
             console::log_1(&format!("update FOV").into());
-            self.fov.update(self.current_zoom, projection);
+            self.fov.update(model, self.current_zoom, projection);
         }
 
         if self.is_zooming {
@@ -219,6 +225,7 @@ impl ViewPort {
                 // Zooming
                 if self.fov_max > *fov && self.current_zoom < self.final_zoom {
                     self.stop_zooming();
+                    //catalog.update(projection, self);
                     return;
                 }
             }
@@ -235,11 +242,24 @@ impl ViewPort {
             // Here we are currently zooming
             if (self.current_zoom - self.final_zoom).abs() < 1e-3 {
                 self.stop_zooming();
+                //catalog.update(projection, self);
                 return;
             }
+<<<<<<< HEAD
             self.current_zoom += (self.final_zoom - self.current_zoom) * 0.005_f32 * dt;
+=======
+
+            // We update the zoom factor
+            //self.current_zoom += (self.final_zoom - self.current_zoom) * 0.005_f32 * dt;
+            self.current_zoom = self.final_zoom;
+
+>>>>>>> features/instancing
             self.update_scissor();
         }
+
+        /*if self.is_moving {
+            catalog.update(projection, self);
+        }*/
     }
 
     fn compute_speed(&self, mut t: f32) -> f32 {

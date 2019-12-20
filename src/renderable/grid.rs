@@ -98,16 +98,20 @@ pub struct ProjetedGrid {
 
     text_canvas: web_sys::CanvasRenderingContext2d,
     color: Color,
+
+    vertex_array_object: VertexArrayObject,
 }
 
 use cgmath::{SquareMatrix, InnerSpace};
 use wasm_bindgen::JsCast;
 use crate::math::radec_to_xyz;
-use crate::{window_size_f32, window_size_f64, window_size_u32};
+use crate::{window_size_f32, window_size_f64};
 use crate::DEGRADE_CANVAS_RATIO;
 
 impl ProjetedGrid {
-    pub fn new(step_lat: cgmath::Rad<f32>,
+    pub fn new(
+        gl: &WebGl2Context,
+        step_lat: cgmath::Rad<f32>,
         step_lon: cgmath::Rad<f32>,
         lat_bound: Option<Vector2<Rad<f32>>>,
         lon_bound: Option<Vector2<Rad<f32>>>,
@@ -224,6 +228,8 @@ impl ProjetedGrid {
 
         let label_pos_screen_space = Vec::new();
 
+        let vertex_array_object = VertexArrayObject::new(&gl);
+
         let mut grid = ProjetedGrid {
             lat,
             lon,
@@ -241,12 +247,82 @@ impl ProjetedGrid {
 
             text_canvas,
             color,
+
+            vertex_array_object
         };
 
-        grid.update(projection, &cgmath::Matrix4::identity(), viewport);
+        grid.update_grid_positions(&cgmath::Matrix4::identity(), projection);
         grid.update_label_positions(&cgmath::Matrix4::identity(), &projection, Some(viewport));
 
         grid
+    }
+
+    pub fn update_grid_positions(&mut self, local_to_world_mat: &Matrix4<f32>, projection: &ProjectionType) {
+        let (mut width_screen, _) = window_size_f32();
+        width_screen *= DEGRADE_CANVAS_RATIO;
+
+        self.pos_screen_space.clear();
+        // UPDATE GRID VERTICES POSITIONS
+        for pos_local_space in self.pos_local_space.iter() {
+            let pos_world_space = local_to_world_mat * pos_local_space;
+
+            let pos_screen_space = projection.world_to_screen_space(pos_world_space.clone()).unwrap();
+
+            self.pos_screen_space.push(pos_screen_space.x);
+            self.pos_screen_space.push(pos_screen_space.y);
+        }
+
+        // UPDATE IDX VERTICES
+        let num_vertices = (self.lat.len() * (self.num_points_lon - 1) + self.lon.len() * (self.num_points_lat - 1)) * 2;
+        //let num_vertices = self.lat.len() * (self.num_points_lon - 1) * 2;
+        self.idx_vertices = vec![0; num_vertices];
+
+        let mut threshold_px = 2_f32 * (100_f32 / width_screen);
+        threshold_px = threshold_px * threshold_px;
+
+        let mut i = 0;
+        let mut idx_start = 0;
+        while idx_start < self.lat.len() * self.num_points_lon {
+            let num_points_step = self.num_points_lon;
+
+            for j in 0..(num_points_step - 1) {
+                let idx = idx_start + j;
+                let next_idx = idx + 1;
+
+                let cur_to_next_screen_pos = cgmath::Vector2::new(
+                    self.pos_screen_space[2*next_idx] - self.pos_screen_space[2*idx],
+                    self.pos_screen_space[2*next_idx + 1] - self.pos_screen_space[2*idx + 1]
+                );
+
+                if cur_to_next_screen_pos.magnitude2() < threshold_px {
+                    self.idx_vertices[i] = idx as u16;
+                    self.idx_vertices[i + 1] = next_idx as u16;
+                    i += 2;
+                }
+            }
+            idx_start += num_points_step;
+        }
+
+        while idx_start < (self.lat.len() * self.num_points_lon + self.lon.len() * self.num_points_lat) {
+            let num_points_step = self.num_points_lat;
+
+            for j in 0..(num_points_step - 1) {
+                let idx = idx_start + j;
+                let next_idx = idx + 1;
+
+                let cur_to_next_screen_pos = cgmath::Vector2::new(
+                    self.pos_screen_space[2*next_idx] - self.pos_screen_space[2*idx],
+                    self.pos_screen_space[2*next_idx + 1] - self.pos_screen_space[2*idx + 1]
+                );
+
+                if cur_to_next_screen_pos.magnitude2() < threshold_px {
+                    self.idx_vertices[i] = idx as u16;
+                    self.idx_vertices[i + 1] = next_idx as u16;
+                    i += 2;
+                }
+            }
+            idx_start += num_points_step;
+        }
     }
 
     pub fn update_label_positions(&mut self, local_to_world_mat: &Matrix4<f32>, projection: &ProjectionType, viewport: Option<&ViewPort>) {
@@ -313,120 +389,95 @@ impl ProjetedGrid {
     pub fn set_alpha(&mut self, alpha: f32) {
         self.color.alpha = alpha;
     }
-}
-
-use crate::WebGl2Context;
-use cgmath::Matrix4;
-impl Mesh for ProjetedGrid {
-    fn create_buffers(&self, gl: &WebGl2Context) -> VertexArrayObject {
-        let mut vertex_array_object = VertexArrayObject::new(gl);
-        vertex_array_object.bind();
-
-        let ref vertices_data = self.pos_screen_space;
-        let ref idx_data = self.idx_vertices;
-        // ARRAY buffer creation
-        let array_buffer = ArrayBuffer::new(
-            gl,
-            2 * std::mem::size_of::<f32>(),
-            &[2],
-            &[0 * std::mem::size_of::<f32>()],
-            BufferData(&vertices_data),
-            WebGl2RenderingContext::DYNAMIC_DRAW,
-        );
-
-        // ELEMENT ARRAY buffer creation
-        //console::log_1(&format!("indexes: {:?} {:?}", idx_data.len(), idx_data).into());
-        //console::log_1(&format!("indexes: {:?}, len {:?}", indexes_data.0, indexes_data.0.len()).into());
-        let indexes_buffer = ElementArrayBuffer::new(
-            gl,
-            BufferData(&idx_data),
-            WebGl2RenderingContext::DYNAMIC_DRAW,
-        );
-
-        vertex_array_object.set_array_buffer(array_buffer);
-        vertex_array_object.set_element_array_buffer(indexes_buffer);
-        console::log_1(&format!("grid init").into());
-        vertex_array_object.unbind();
-        // Unbind the buffer
-        //gl.bind_buffer(WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER, None);
-        vertex_array_object
-    }
 
     fn send_uniforms(&self, gl: &WebGl2Context, shader: &Shader) {
         let location_color = shader.get_uniform_location("location_color");
         gl.uniform4f(location_color, self.color.red, self.color.green, self.color.blue, self.color.alpha);
     }
+}
 
-    fn get_vertices<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>) {
-        (BufferData(&self.pos_screen_space), BufferData(&self.idx_vertices))
+use crate::WebGl2Context;
+use cgmath::Matrix4;
+
+use crate::renderable::Renderable;
+use crate::utils;
+use std::collections::HashMap;
+impl Mesh for ProjetedGrid {
+    fn create_buffers(&mut self, gl: &WebGl2Context) {
+        let ref vertices_data = self.pos_screen_space;
+        let ref idx_data = self.idx_vertices;
+
+        self.vertex_array_object.bind()
+            // Store the vertex positions
+            .add_array_buffer(
+                2 * std::mem::size_of::<f32>(),
+                &[2],
+                &[0 * std::mem::size_of::<f32>()],
+                WebGl2RenderingContext::DYNAMIC_DRAW,
+                BufferData::VecData(&vertices_data),
+            )
+            // Set the element buffer
+            .add_element_buffer(
+                WebGl2RenderingContext::DYNAMIC_DRAW,
+                BufferData::VecData(&idx_data),
+            )
+            // Unbind the buffer
+            .unbind();
     }
 
-    fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: &ViewPort) {
-        let (mut width_screen, _) = window_size_f32();
-        width_screen *= DEGRADE_CANVAS_RATIO;
+    fn update<T: Mesh + DisableDrawing>(
+        &mut self,
+        local_to_world: &Matrix4<f32>,
+        projection: &ProjectionType,
+        viewport: &ViewPort
+    ) {
+        self.update_grid_positions(
+            local_to_world,
+            projection,
+        );
+        self.update_label_positions(
+            local_to_world,
+            projection,
+            Some(viewport)
+        );
 
-        self.pos_screen_space.clear();
-        // UPDATE GRID VERTICES POSITIONS
-        for pos_local_space in self.pos_local_space.iter() {
-            let pos_world_space = local_to_world_mat * pos_local_space;
+        // Update the VAO
+        self.vertex_array_object.bind()
+            .update_array(0, BufferData::VecData(&self.pos_screen_space))
+            .update_element_array(BufferData::VecData(&self.idx_vertices));
+    }
 
-            let pos_screen_space = projection.world_to_screen_space(pos_world_space.clone()).unwrap();
+    fn draw<T: Mesh + DisableDrawing>(
+        &self,
+        gl: &WebGl2Context,
+        renderable: &Renderable<T>,
+        shaders: &HashMap<&'static str, Shader>,
+        viewport: &ViewPort
+    ) {
+        let shader = &shaders["grid"];
+        shader.bind(gl);
 
-            self.pos_screen_space.push(pos_screen_space.x);
-            self.pos_screen_space.push(pos_screen_space.y);
-        }
+        self.vertex_array_object.bind_ref();
 
-        // UPDATE IDX VERTICES
-        let num_vertices = (self.lat.len() * (self.num_points_lon - 1) + self.lon.len() * (self.num_points_lat - 1)) * 2;
-        //let num_vertices = self.lat.len() * (self.num_points_lon - 1) * 2;
-        self.idx_vertices = vec![0; num_vertices];
+        // Send Uniforms
+        viewport.send_to_vertex_shader(gl, shader);
+        self.send_uniforms(gl, shader);
 
-        let mut threshold_px = 2_f32 * (100_f32 / width_screen);
-        threshold_px = threshold_px * threshold_px;
+        // Send model matrix
+        let model_mat_location = shader.get_uniform_location("model");
+        let model_mat_f32_slice: &[f32; 16] = renderable.model_mat.as_ref();
+        gl.uniform_matrix4fv_with_f32_array(model_mat_location, false, model_mat_f32_slice);
 
-        let mut i = 0;
-        let mut idx_start = 0;
-        while idx_start < self.lat.len() * self.num_points_lon {
-            let num_points_step = self.num_points_lon;
+        // Send current time
+        let location_time = shader.get_uniform_location("current_time");
+        gl.uniform1f(location_time, utils::get_current_time());
 
-            for j in 0..(num_points_step - 1) {
-                let idx = idx_start + j;
-                let next_idx = idx + 1;
-
-                let cur_to_next_screen_pos = cgmath::Vector2::new(
-                    self.pos_screen_space[2*next_idx] - self.pos_screen_space[2*idx],
-                    self.pos_screen_space[2*next_idx + 1] - self.pos_screen_space[2*idx + 1]
-                );
-
-                if cur_to_next_screen_pos.magnitude2() < threshold_px {
-                    self.idx_vertices[i] = idx as u16;
-                    self.idx_vertices[i + 1] = next_idx as u16;
-                    i += 2;
-                }
-            }
-            idx_start += num_points_step;
-        }
-
-        while idx_start < (self.lat.len() * self.num_points_lon + self.lon.len() * self.num_points_lat) {
-            let num_points_step = self.num_points_lat;
-
-            for j in 0..(num_points_step - 1) {
-                let idx = idx_start + j;
-                let next_idx = idx + 1;
-
-                let cur_to_next_screen_pos = cgmath::Vector2::new(
-                    self.pos_screen_space[2*next_idx] - self.pos_screen_space[2*idx],
-                    self.pos_screen_space[2*next_idx + 1] - self.pos_screen_space[2*idx + 1]
-                );
-
-                if cur_to_next_screen_pos.magnitude2() < threshold_px {
-                    self.idx_vertices[i] = idx as u16;
-                    self.idx_vertices[i + 1] = next_idx as u16;
-                    i += 2;
-                }
-            }
-            idx_start += num_points_step;
-        }
+        gl.draw_elements_with_i32(
+            WebGl2RenderingContext::LINES,
+            self.vertex_array_object.num_elements() as i32,
+            WebGl2RenderingContext::UNSIGNED_SHORT,
+            0,
+        );
     }
 }
 

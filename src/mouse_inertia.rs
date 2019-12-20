@@ -9,6 +9,7 @@ pub struct MouseInertia {
 use crate::renderable::Renderable;
 use crate::renderable::hips_sphere::HiPSSphere;
 use crate::renderable::grid::ProjetedGrid;
+use crate::renderable::catalog::Catalog;
 
 use crate::viewport::ViewPort;
 
@@ -43,6 +44,7 @@ impl MouseInertia {
     pub fn update(&mut self,
         hips_sphere: &mut Renderable<HiPSSphere>,
         grid: &mut Renderable<ProjetedGrid>,
+        catalog: &mut Renderable<Catalog>,
         viewport: &mut ViewPort,
         dt: f32,
     ) -> bool {
@@ -61,6 +63,7 @@ impl MouseInertia {
         hips_sphere.apply_rotation(-self.axis, cgmath::Rad(dx));
         let inv_model_mat = hips_sphere.get_inverted_model_mat();
         grid.set_model_mat(inv_model_mat);
+        catalog.set_model_mat(inv_model_mat);
 
         self.x = dx;
 

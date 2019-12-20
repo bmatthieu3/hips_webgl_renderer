@@ -1,35 +1,40 @@
-use web_sys::WebGl2RenderingContext;
-use web_sys::WebGlVertexArrayObject;
 use crate::shader::Shader;
 
 use crate::viewport::ViewPort;
 use crate::renderable::projection::ProjectionType;
 
-use std::rc::Rc;
-use std::borrow::Borrow;
-
 pub mod buffers;
 pub mod hips_sphere;
 pub mod projection;
 pub mod grid;
+pub mod catalog;
 
 trait VertexBufferObject {
     fn bind(&self);
     fn unbind(&self);
 }
 
-use buffers::vertex_array_object::VertexArrayObject;
-use buffers::buffer_data::BufferData;
 use crate::WebGl2Context;
 use cgmath::Matrix4;
 
+use std::collections::HashMap;
 pub trait Mesh {
-    fn create_buffers(&self, gl: &WebGl2Context) -> VertexArrayObject;
+    fn create_buffers(&mut self, gl: &WebGl2Context);
 
-    fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: &ViewPort);
-    fn get_vertices<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>);
+    fn update<T: Mesh + DisableDrawing>(
+        &mut self,
+        local_to_world: &Matrix4<f32>,
+        projection: &ProjectionType,
+        viewport: &ViewPort
+    );
 
-    fn send_uniforms(&self, gl: &WebGl2Context, shader: &Shader);
+    fn draw<T: Mesh + DisableDrawing>(
+        &self,
+        gl: &WebGl2Context,
+        model: &Renderable<T>,
+        shaders: &HashMap<&'static str, Shader>,
+        viewport: &ViewPort
+    );
 }
 
 pub trait DisableDrawing {
@@ -45,25 +50,19 @@ where T: Mesh + DisableDrawing {
     rotation_mat: cgmath::Matrix4::<f32>,
     translation_mat: cgmath::Matrix4::<f32>,
 
-    // VAO index
-    vertex_array_object: VertexArrayObject,
-
     mesh: T,
 
     gl: WebGl2Context,
 }
 
-
 use cgmath;
 use cgmath::SquareMatrix;
 
-use crate::utils;
-
 impl<T> Renderable<T>
 where T: Mesh + DisableDrawing {
-    pub fn new(gl: &WebGl2Context, shader: &Shader, mesh: T) -> Renderable<T> {
+    pub fn new(gl: &WebGl2Context, shader: &Shader, mut mesh: T) -> Renderable<T> {
         shader.bind(gl);
-        let vertex_array_object = mesh.create_buffers(gl);
+        mesh.create_buffers(gl);
 
         let model_mat = cgmath::Matrix4::identity();
         let inverted_model_mat = model_mat;
@@ -81,16 +80,15 @@ where T: Mesh + DisableDrawing {
             scale_mat,
             rotation_mat,
             translation_mat,
-            // Vertex-Array Object index
-            vertex_array_object,
+
             mesh,
             gl,
         }
     }
 
-    pub fn update_mesh(&mut self, shader: &Shader, mesh: T) {
+    pub fn update_mesh(&mut self, shader: &Shader, mut mesh: T) {
         shader.bind(&self.gl);
-        self.vertex_array_object = mesh.create_buffers(&self.gl);
+        mesh.create_buffers(&self.gl);
 
         self.mesh = mesh;
     }
@@ -136,45 +134,19 @@ where T: Mesh + DisableDrawing {
     }
 
     pub fn update(&mut self, projection: &ProjectionType, viewport: &ViewPort) {
-        // Update the mesh vertices/indexes
-        self.mesh.update(
+        let ref mut mesh = self.mesh;
+
+        let ref local_to_world = self.model_mat;
+
+        mesh.update::<T>(
+            local_to_world,
             projection,
-            &self.model_mat,
             viewport
         );
     }
 
-    pub fn update_vertex_array(&mut self) {
-        // Get the new buffer data
-        let (vertices, idx_vertices) = self.mesh.get_vertices();
-        // Update the VAO with the new data
-        self.vertex_array_object.update_array_and_element_buffer(vertices, idx_vertices);
-    }
-
-    pub fn draw(&self, shader: &Shader, mode: u32, viewport: &ViewPort) {
-        shader.bind(&self.gl);
-
-        self.vertex_array_object.bind();
-
-        // Send Uniforms
-        viewport.send_to_vertex_shader(&self.gl, shader);
-        self.mesh.send_uniforms(&self.gl, shader);
-
-        // Send model matrix
-        let model_mat_location = shader.get_uniform_location("model");
-        let model_mat_f32_slice: &[f32; 16] = self.model_mat.as_ref();
-        self.gl.uniform_matrix4fv_with_f32_array(model_mat_location, false, model_mat_f32_slice);
-
-        // Send current time
-        let location_time = shader.get_uniform_location("current_time");
-        self.gl.uniform1f(location_time, utils::get_current_time());
-
-        self.gl.draw_elements_with_i32(
-            mode,
-            self.vertex_array_object.num_vertices() as i32,
-            WebGl2RenderingContext::UNSIGNED_SHORT,
-            0,
-        );
-        //self.vertex_array_object.unbind();
+    pub fn draw(&self, shaders: &HashMap<&'static str, Shader>, viewport: &ViewPort) {
+        let ref gl = self.gl;
+        self.mesh.draw(gl, &self, shaders, viewport);
     }
 }

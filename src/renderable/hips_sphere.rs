@@ -24,81 +24,193 @@ lazy_static! {
     pub static ref DEPTH: Arc<AtomicU8> = Arc::new(AtomicU8::new(0));
 }
 
-#[derive(Clone)]
-pub struct HiPSSphere {
-    buffer_tiles: Rc<RefCell<BufferTiles>>,
-    buffer_depth_zero_tiles: Rc<RefCell<BufferTiles>>,
-    //pub current_depth: u8,
+use crate::renderable::buffers::vertex_array_object::VertexArrayObject;
+use crate::viewport::ViewPort;
+use cgmath::Vector2;
+use crate::WebGl2Context;
+use crate::field_of_view::ALLSKY;
 
-    vertices: Vec<f32>,
-    idx_vertices: Vec<u16>,
-
-    size_in_pixels: cgmath::Vector2<f32>,
-
-    // ang2pix textures
-    //ang2pix_textures: [Texture2D; 1],
-
-    gl: WebGl2Context,
+trait RenderingMode {
+    fn create_vertices_array(gl: &WebGl2Context, projection: &ProjectionType) -> Vec<f32>;
+    fn create_index_array() -> Option<Vec<u16>>;
+    fn send_uniforms(gl: &WebGl2Context, shader: &Shader);
+    fn draw<T: Mesh + DisableDrawing>(
+        &self,
+        gl: &WebGl2Context,
+        renderable: &Renderable<T>,
+        shaders: &HashMap<&'static str, Shader>,
+        viewport: &ViewPort
+    );
 }
 
-use crate::viewport::ViewPort;
+struct SmallFieldOfViewRenderingMode {
+    pub vertices: Vec<f32>,
+    pub idx_textures: Vec<i32>, // contains the texture indices
 
-use cgmath::Vector2;
+    vertex_array_object: VertexArrayObject,
+}
 
-use crate::WebGl2Context;
+use crate::renderable::buffers::buffer_data::BufferData;
+use cgmath::Rad;
+use crate::math;
+use std::mem;
+impl SmallFieldOfViewRenderingMode {
+    fn new(gl: &WebGl2Context, projection: &ProjectionType) -> SmallFieldOfViewRenderingMode {
+        let vertices = Self::create_vertices_array(gl, projection);
+        let idx_textures = vec![0; 192 * 6];
 
-impl<'a> HiPSSphere {
-    pub fn new(gl: &WebGl2Context, projection: &ProjectionType) -> HiPSSphere {
-        let buffer_tiles = Rc::new(RefCell::new(BufferTiles::new(gl, 64, "textures")));
-        let base_tiles = (0..12).collect::<Vec<u64>>();
-        load_tiles(buffer_tiles.clone(), &base_tiles, 0, false);
+        console::log_1(&format!("VERTICES LENGTH: {:?}", vertices.len()).into());
+        console::log_1(&format!("IDX TEXTURES LENGTH: {:?}", idx_textures.len()).into());
 
-        let buffer_depth_zero_tiles = Rc::new(RefCell::new(BufferTiles::new(gl, 12, "textures_0")));
-        load_tiles(buffer_depth_zero_tiles.clone(), &base_tiles, 0, false);
+        let mut vertex_array_object = VertexArrayObject::new(gl);
 
-        let (vertices, size_in_pixels) = HiPSSphere::create_vertices_array(gl, projection);
-        let idx_vertices = HiPSSphere::create_index_array();
+        // VAO for the orthographic projection and small fovs on 2D projections
+        vertex_array_object.bind()
+            // Store the projeted and 3D vertex positions in a VBO
+            .add_array_buffer(
+                7 * mem::size_of::<f32>(),
+                &[2, 3, 2],
+                &[
+                    0 * mem::size_of::<f32>(),
+                    2 * mem::size_of::<f32>(),
+                    5 * mem::size_of::<f32>()
+                ],
+                WebGl2RenderingContext::DYNAMIC_DRAW,
+                BufferData::VecData(vertices.as_ref()),
+            )
+            .add_array_buffer(
+                1 * mem::size_of::<i32>(),
+                &[1],
+                &[0 * mem::size_of::<i32>()],
+                WebGl2RenderingContext::DYNAMIC_DRAW,
+                BufferData::VecData(&idx_textures),
+            )
+            // Unbind the buffer
+            .unbind();
 
-        // Load the ang2pix values
-        /*let ang2pix_textures = [
-            //create_texture_2d(gl, "./textures/ang2pix_depth0.png"),
-            //create_texture_2d(gl, "./textures/ang2pix_depth1.jpg"),
-            //create_texture_2d(gl, "./textures/ang2pix_depth2.jpg"),
-        ];*/
-
-        let gl = gl.clone();
-        HiPSSphere {
-            buffer_tiles,
-            buffer_depth_zero_tiles,
-
+        SmallFieldOfViewRenderingMode {
             vertices,
-            idx_vertices,
+            idx_textures,
 
-            size_in_pixels,
-            //ang2pix_textures,
-
-            gl,
+            vertex_array_object,
         }
     }
 
-    /// Called when the HiPS has been changed
-    pub fn refresh_buffer_tiles(&mut self) {
-        console::log_1(&format!("refresh buffers").into());
-        let base_tiles = (0..12).collect::<Vec<u64>>();
+    fn add_vertex(vertex_array: &mut Vec<f32>, lonlat: &[(f64, f64)], idx: usize, uv: Vector2<f32>) {
+        let vertex = lonlat[idx];
+        let (theta, delta) = (Rad(vertex.0 as f32), Rad(vertex.1 as f32));
 
-        self.buffer_tiles.replace(BufferTiles::new(&self.gl, 64, "textures"));
-        load_tiles(self.buffer_tiles.clone(), &base_tiles, 0, false);
+        let pos_world_space = math::radec_to_xyz(theta, delta);
+        vertex_array.extend(vec![
+            theta.0,
+            delta.0,
+            
+            pos_world_space.x,
+            pos_world_space.y,
+            pos_world_space.z,
 
-        self.buffer_depth_zero_tiles.replace(BufferTiles::new(&self.gl, 12, "textures_0"));
-        load_tiles(self.buffer_depth_zero_tiles.clone(), &base_tiles, 0, false);
+            uv.x,
+            uv.y
+        ]);
+    }
+}
+
+impl RenderingMode for SmallFieldOfViewRenderingMode {
+    fn create_vertices_array(gl: &WebGl2Context, projection: &ProjectionType) -> Vec<f32> {
+        let depth = 2;
+        let step = 0.25_f32;
+        let vertices_data = (0..192)
+            .map(|idx| {
+                let lonlat = healpix::nested::grid(depth, idx, 1);
+                /*let off = (idx - 16*(idx >> 4)) as f32;
+                console::log_1(&format!("off: {:?}", off).into());*/
+
+                //let uv = step*off..(step*off + step);
+                let uv = 0_f32..1_f32;
+
+                let mut vertex_array = Vec::with_capacity(7 * 6);
+                Self::add_vertex(&mut vertex_array, &lonlat, 0, Vector2::new(uv.end, uv.start));
+                Self::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(uv.start, uv.start));
+                Self::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(uv.end, uv.end));
+
+                Self::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(uv.end, uv.end));
+                Self::add_vertex(&mut vertex_array, &lonlat, 3, Vector2::new(uv.start, uv.end));
+                Self::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(uv.start, uv.start));
+
+                vertex_array
+            })
+            .flatten()
+            .collect::<Vec<_>>();
+
+        vertices_data
     }
 
-    pub fn get_default_pixel_size(&self) -> &Vector2<f32> {
-        &self.size_in_pixels
+    fn create_index_array() -> Option<Vec<u16>> {
+        None
     }
 
-    fn create_vertices_array(gl: &WebGl2Context, projection: &ProjectionType) -> (Vec<f32>, Vector2<f32>) {
-        let (vertex_screen_space_positions, size_px) = projection.build_screen_map();
+    fn send_uniforms(gl: &WebGl2Context, shader: &Shader) {
+    }
+
+    fn draw<T: Mesh + DisableDrawing>(
+        &self,
+        gl: &WebGl2Context,
+        renderable: &Renderable<T>,
+        shaders: &HashMap<&'static str, Shader>,
+        viewport: &ViewPort
+    ) {
+        self.vertex_array_object.bind_ref();
+        gl.draw_arrays(
+            WebGl2RenderingContext::TRIANGLES,
+            0,
+            (self.vertices.len() as i32) / 7,
+        );
+    }
+}
+
+struct PerPixelRenderingMode {
+    pub vertices: Vec<f32>,
+    pub idx: Vec<u16>,
+
+    vertex_array_object: VertexArrayObject,
+}
+
+impl PerPixelRenderingMode {
+    fn new(gl: &WebGl2Context, projection: &ProjectionType) -> PerPixelRenderingMode {
+        let vertices = Self::create_vertices_array(gl, projection);
+        let idx = Self::create_index_array().unwrap();
+
+        let mut vertex_array_object = VertexArrayObject::new(gl);
+        // VAO for per-pixel computation mode (only in case of large fovs and 2D projections)
+        vertex_array_object.bind()
+            // Store the projeted and 3D vertex positions in a VBO
+            .add_array_buffer(
+                5 * std::mem::size_of::<f32>(),
+                &[2, 3],
+                &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
+                WebGl2RenderingContext::STATIC_DRAW,
+                BufferData::VecData(vertices.as_ref()),
+            )
+            // Set the element buffer
+            .add_element_buffer(
+                WebGl2RenderingContext::STATIC_DRAW,
+                BufferData::VecData(idx.as_ref()),
+            )
+            // Unbind the buffer
+            .unbind();
+
+        PerPixelRenderingMode {
+            vertices,
+            idx,
+
+            vertex_array_object
+        }
+    }
+}
+
+impl RenderingMode for PerPixelRenderingMode {
+    fn create_vertices_array(gl: &WebGl2Context, projection: &ProjectionType) -> Vec<f32> {
+        let vertex_screen_space_positions = projection.build_screen_map();
 
         let vertices_data = vertex_screen_space_positions
             .into_iter()
@@ -112,10 +224,10 @@ impl<'a> HiPSSphere {
             .flatten()
             .collect::<Vec<_>>();
 
-        (vertices_data, size_px)
+        vertices_data
     }
 
-    fn create_index_array() -> Vec<u16> {
+    fn create_index_array() -> Option<Vec<u16>> {
         let mut indices = Vec::with_capacity(3 * NUM_VERTICES_PER_STEP * NUM_STEPS);
 
         for j in 0..NUM_STEPS {
@@ -157,57 +269,10 @@ impl<'a> HiPSSphere {
             }
         }
 
-        indices
-    }
-}
-
-use crate::renderable::VertexArrayObject;
-use crate::renderable::buffers::array_buffer::ArrayBuffer;
-use crate::renderable::buffers::buffer_data::BufferData;
-use crate::renderable::buffers::element_array_buffer::ElementArrayBuffer;
-
-use cgmath::Matrix4;
-
-impl Mesh for HiPSSphere {
-    fn create_buffers(&self, gl: &WebGl2Context) -> VertexArrayObject {
-        let mut vertex_array_object = VertexArrayObject::new(gl);
-        vertex_array_object.bind();
-
-        // ARRAY buffer creation
-        let array_buffer = ArrayBuffer::new(
-            gl,
-            5 * std::mem::size_of::<f32>(),
-            &[2, 3],
-            &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
-            BufferData(self.vertices.as_ref()),
-            WebGl2RenderingContext::STATIC_DRAW,
-        );
-
-        // ELEMENT ARRAY buffer creation
-        let indexes_buffer = ElementArrayBuffer::new(
-            gl,
-            BufferData(self.idx_vertices.as_ref()),
-            WebGl2RenderingContext::STATIC_DRAW,
-        );
-
-        vertex_array_object.set_array_buffer(array_buffer);
-        vertex_array_object.set_element_array_buffer(indexes_buffer);
-
-        vertex_array_object.unbind();
-        // Unbind the buffer
-        //gl.bind_buffer(WebGl2RenderingContext::ELEMENT_ARRAY_BUFFER, None);
-        vertex_array_object
+        Some(indices)
     }
 
-    fn send_uniforms(&self, gl: &WebGl2Context, shader: &Shader) {
-        // TEXTURES DEPTH 0 TILES BUFFER
-        self.buffer_depth_zero_tiles.borrow().send_to_shader(shader);
-        // TEXTURES TILES BUFFER
-        self.buffer_tiles.borrow().send_to_shader(shader);
-
-        // ANG2PIX TEXTURES
-        //self.ang2pix_textures[0].send_to_shader(gl, shader, "ang2pix_0_texture");
-
+    fn send_uniforms(gl: &WebGl2Context, shader: &Shader) {
         // Send current depth
         let location_current_depth = shader.get_uniform_location("current_depth");
         gl.uniform1i(location_current_depth, DEPTH.load(Ordering::Relaxed) as i32);
@@ -216,29 +281,208 @@ impl Mesh for HiPSSphere {
         gl.uniform1i(location_max_depth, MAX_DEPTH.load(Ordering::Relaxed) as i32);
     }
 
-    fn get_vertices<'a>(&'a self) -> (BufferData<'a, f32>, BufferData<'a, u16>) {
-        unreachable!();
+    fn draw<T: Mesh + DisableDrawing>(
+        &self,
+        gl: &WebGl2Context,
+        renderable: &Renderable<T>,
+        shaders: &HashMap<&'static str, Shader>,
+        viewport: &ViewPort
+    ) {
+        self.vertex_array_object.bind_ref();
+        gl.draw_elements_with_i32(
+            WebGl2RenderingContext::TRIANGLES,
+            self.vertex_array_object.num_elements() as i32,
+            WebGl2RenderingContext::UNSIGNED_SHORT,
+            0,
+        );
+    }
+}
+
+pub struct HiPSSphere {
+    buffer_tiles: Rc<RefCell<BufferTiles>>,
+    buffer_depth_zero_tiles: Rc<RefCell<BufferTiles>>,
+
+    fov_rendering_mode: SmallFieldOfViewRenderingMode,
+    per_pixel_rendering_mode: PerPixelRenderingMode,
+
+    fov_mode: bool,
+
+    gl: WebGl2Context,
+}
+
+impl<'a> HiPSSphere {
+    pub fn new(gl: &WebGl2Context, projection: &ProjectionType) -> HiPSSphere {
+        let buffer_tiles = Rc::new(RefCell::new(BufferTiles::new(gl, 64, "textures")));
+
+        let ref allsky = ALLSKY.lock().unwrap();
+        load_tiles(buffer_tiles.clone(), allsky, 0, false);
+
+        let buffer_depth_zero_tiles = Rc::new(RefCell::new(BufferTiles::new(gl, 12, "textures_0")));
+        load_tiles(buffer_depth_zero_tiles.clone(), allsky, 0, false);
+
+        let fov_rendering_mode = SmallFieldOfViewRenderingMode::new(gl, projection);
+        let per_pixel_rendering_mode = PerPixelRenderingMode::new(gl, projection);
+
+        let gl = gl.clone();
+        let fov_mode = false;
+
+        HiPSSphere {
+            buffer_tiles,
+            buffer_depth_zero_tiles,
+
+            // Two modes:
+            // - One for large FOVs on 2D projections
+            per_pixel_rendering_mode,
+            // - The other for the orthographic projection and small FOVs on 2D projections
+            fov_rendering_mode,
+
+            fov_mode,
+
+            gl,
+        }
     }
 
-    fn update(&mut self, projection: &ProjectionType, local_to_world_mat: &Matrix4<f32>, viewport: &ViewPort) {
+    fn send_uniforms<T: Mesh + DisableDrawing>(&self, gl: &WebGl2Context, shader: &Shader, viewport: &ViewPort, renderable: &Renderable<T>) {
+        // TEXTURES DEPTH 0 TILES BUFFER
+        self.buffer_depth_zero_tiles.borrow().send_to_shader(shader);
+        // TEXTURES TILES BUFFER
+        self.buffer_tiles.borrow().send_to_shader(shader);
+
+        // Send viewport uniforms
+        viewport.send_to_vertex_shader(gl, shader);
+        
+        // Send model matrix
+        let model_mat_location = shader.get_uniform_location("model");
+        let model_mat_f32_slice: &[f32; 16] = renderable.model_mat.as_ref();
+        gl.uniform_matrix4fv_with_f32_array(model_mat_location, false, model_mat_f32_slice);
+
+        // Send current time
+        let location_time = shader.get_uniform_location("current_time");
+        gl.uniform1f(location_time, utils::get_current_time());
+    }
+    
+    /// Called when the HiPS has been changed
+    pub fn refresh_buffer_tiles(&mut self) {
+        console::log_1(&format!("refresh buffers").into());
+
+        let ref allsky = ALLSKY.lock().unwrap();
+        self.buffer_tiles.replace(BufferTiles::new(&self.gl, 64, "textures"));
+        load_tiles(self.buffer_tiles.clone(), &allsky, 0, false);
+
+        self.buffer_depth_zero_tiles.replace(BufferTiles::new(&self.gl, 12, "textures_0"));
+        load_tiles(self.buffer_depth_zero_tiles.clone(), &allsky, 0, false);
+    }
+}
+
+use std::collections::HashMap;
+use crate::renderable::Renderable;
+use cgmath::Matrix4;
+
+use crate::utils;
+use crate::texture::Tile;
+impl Mesh for HiPSSphere {
+    fn create_buffers(&mut self, gl: &WebGl2Context) {}
+
+    fn update<T: Mesh + DisableDrawing>(
+        &mut self,
+        _local_to_world: &Matrix4<f32>,
+        _projection: &ProjectionType,
+        viewport: &ViewPort
+    ) {
         let field_of_view = viewport.field_of_view();
 
-        let buffer_size = self.buffer_tiles.borrow().len();
-        let (depth, hpx_idx) = field_of_view.get_healpix_cells(local_to_world_mat, buffer_size);
+        let healpix_cells = field_of_view.cells();
+        let current_depth = field_of_view.get_current_depth();
 
-        let current_depth = DEPTH.load(Ordering::Relaxed);
-        let reset_time_received = if current_depth != depth {
+        let prev_depth = DEPTH.load(Ordering::Relaxed);
+        let reset_time_received = if prev_depth != current_depth {
             true
         } else {
             false
         };
-        
-        //console::log_1(&format!("{:?}", self.buffer_tiles.borrow().requested_tiles).into());
-        DEPTH.store(depth, Ordering::Relaxed);
+
+        DEPTH.store(current_depth, Ordering::Relaxed);
 
         // TODO: wrap that into a method load_healpix_tiles of BufferTiles
-        load_tiles(self.buffer_tiles.clone(), &hpx_idx, depth, reset_time_received);
-        //console::log_1(&format!("{:?}", self.buffer_tiles.borrow().requested_tiles).into());
+        load_tiles(self.buffer_tiles.clone(), healpix_cells, current_depth, reset_time_received);
+
+        // For Small FOV rendering mode
+        if self.fov_mode {
+            // Update the buffers
+            let vertices = healpix_cells.iter()
+                .map(|cell| {
+                    let depth = cell.0;
+                    let idx = cell.1;
+
+                    let lonlat = healpix::nested::grid(depth, idx, 1);
+
+                    let mut vertex_array = Vec::with_capacity(7 * 6);
+                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 0, Vector2::new(1_f32, 0_f32));
+                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(0_f32, 0_f32));
+                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(1_f32, 1_f32));
+
+                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(1_f32, 1_f32));
+                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 3, Vector2::new(0_f32, 1_f32));
+                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(0_f32, 0_f32));
+
+                    vertex_array
+                })
+                .flatten()
+                .collect::<Vec<_>>();
+
+            let buffer = self.buffer_tiles.borrow();
+            let buffer_tiles = buffer.tiles();
+
+            let idx_texture = healpix_cells.iter()
+                .map(|cell| {
+                    let tile = Tile::new(*cell);
+
+                    let idx = if let Some(&tile) = buffer_tiles.get(&tile) {
+                        tile.texture_idx as i32
+                    } else {
+                        0
+                    };
+
+                    vec![idx; 6]
+                })
+                .flatten()
+                .collect::<Vec<_>>();
+
+            console::log_1(&format!("UPDATE FOV").into());
+
+            self.fov_rendering_mode.vertex_array_object.bind()
+                .update_array(0, BufferData::VecData(&vertices))
+                .update_array(1, BufferData::VecData(&idx_texture));
+
+            self.fov_rendering_mode.vertices = vertices;
+            self.fov_rendering_mode.idx_textures = idx_texture;
+        }
+    }
+
+    fn draw<T: Mesh + DisableDrawing>(
+        &self,
+        gl: &WebGl2Context,
+        renderable: &Renderable<T>,
+        shaders: &HashMap<&'static str, Shader>,
+        viewport: &ViewPort
+    ) {
+        if self.fov_mode {
+            let shader = &shaders["hips_sphere_small_fov"];
+            shader.bind(gl);
+
+            self.send_uniforms(gl, shader, viewport, renderable);
+
+            SmallFieldOfViewRenderingMode::send_uniforms(gl, shader);
+            self.fov_rendering_mode.draw(gl, renderable, shaders, viewport);
+        } else {
+            let shader = &shaders["hips_sphere"];
+            shader.bind(gl);
+
+            self.send_uniforms(gl, shader, viewport, renderable);
+
+            PerPixelRenderingMode::send_uniforms(gl, shader);
+            self.per_pixel_rendering_mode.draw(gl, renderable, shaders, viewport);
+        }
     }
 }
 

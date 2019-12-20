@@ -1,6 +1,8 @@
 #[macro_use]
 extern crate lazy_static;
 extern crate itertools_num;
+extern crate rand;
+extern crate serde_derive;
 
 use web_sys::console;
 #[macro_export]
@@ -17,7 +19,6 @@ use wasm_bindgen::JsCast;
 use web_sys::WebGl2RenderingContext;
 
 use cgmath;
-use cgmath::{InnerSpace, Vector3, Vector4, Rad};
 
 mod shader;
 mod shaders;
@@ -34,14 +35,17 @@ mod mouse_inertia;
 mod color;
 
 use shader::Shader;
+
 use renderable::Renderable;
 use renderable::hips_sphere::HiPSSphere;
+use renderable::grid::ProjetedGrid;
+use renderable::catalog::{Catalog, Source};
+
 use renderable::projection;
 use renderable::projection::ProjectionType;
 use renderable::projection::{Aitoff, Orthographic, MollWeide};
-use viewport::ViewPort;
 
-use crate::renderable::grid::ProjetedGrid;
+use viewport::ViewPort;
 
 use std::sync::Mutex;
 use std::sync::Arc;
@@ -72,6 +76,8 @@ struct App {
     hips_sphere: Renderable<HiPSSphere>,
     // The grid renderable
     grid: Renderable<ProjetedGrid>,
+    // The catalogs
+    catalog: Renderable<Catalog>,
 
     // Move event
     move_event: Option<Move>,
@@ -108,6 +114,7 @@ use crate::event::screen_to_world_space;
 impl App {
     fn new(gl: &WebGl2Context) -> Result<App, JsValue> {
         // Shader definition
+        // HiPS sphere shader
         // uniforms definition
         let mut uniforms_2d_proj = vec![
             // General uniforms
@@ -132,6 +139,8 @@ impl App {
             uniforms_2d_proj
         );
 
+        // Grid shader
+        // uniforms definition
         let uniforms_grid = vec![
             // General uniforms
             String::from("current_time"),
@@ -148,22 +157,89 @@ impl App {
             shaders::grid_frag::CONTENT,
             uniforms_grid
         );
+
+        // Catalog shader
+        // uniforms definition
+        let uniforms_catalog = vec![
+            // General uniforms
+            String::from("current_time"),
+            String::from("model"),
+            // Viewport uniforms
+            String::from("zoom_factor"),
+            String::from("aspect"),
+            String::from("last_zoom_action"),
+            // Catalog-specific uniforms
+            String::from("kernel_texture"),
+            String::from("strength"),
+        ];
+        let shader_catalog = Shader::new(&gl,
+            shaders::catalog_vert::CONTENT,
+            shaders::catalog_frag::CONTENT,
+            uniforms_catalog
+        );
+
+        // Heatmap shader
+        // uniforms definition
+        let uniforms_heatmap = vec![
+            // General uniforms
+            String::from("current_time"),
+            String::from("model"),
+            // Viewport uniforms
+            String::from("zoom_factor"),
+            String::from("aspect"),
+            String::from("last_zoom_action"),
+            // Heatmap-specific uniforms
+            String::from("texture_fbo"),
+            String::from("colormap"),
+            String::from("alpha"),
+        ];
+        let shader_heatmap = Shader::new(&gl,
+            shaders::heatmap_vert::CONTENT,
+            shaders::heatmap_frag::CONTENT,
+            uniforms_heatmap
+        );
+
+        // HiPS Ortho shader
+        // uniforms definition
+        let mut uniforms_ortho_hips = vec![
+            // General uniforms
+            String::from("current_time"),
+            String::from("model"),
+            // Viewport uniforms
+            String::from("zoom_factor"),
+            String::from("aspect"),
+            String::from("last_zoom_action"),
+            // HiPS Ortho specific uniforms
+            String::from("current_depth"),
+            String::from("max_depth"),
+        ];
+
+        add_tile_buffer_uniforms("textures", 64, &mut uniforms_ortho_hips);
+        add_tile_buffer_uniforms("textures_0", 12, &mut uniforms_ortho_hips);
+        //add_tile_buffer_uniforms("textures_0", 12, &mut uniforms_ortho_hips);
+
+        let shader_ortho_hips = Shader::new(&gl,
+            shaders::hips_sphere_small_fov_vert::CONTENT,
+            shaders::hips_sphere_small_fov_frag::CONTENT,
+            uniforms_ortho_hips
+        );
+
         let mut shaders = HashMap::new();
         shaders.insert("hips_sphere", shader_2d_proj);
         shaders.insert("grid", shader_grid);
+        shaders.insert("catalog", shader_catalog);
+        shaders.insert("heatmap", shader_heatmap);
+        shaders.insert("hips_sphere_small_fov", shader_ortho_hips);
 
         gl.enable(WebGl2RenderingContext::BLEND);
         gl.blend_func(WebGl2RenderingContext::SRC_ALPHA, WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA);
         gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
         gl.disable(WebGl2RenderingContext::DEPTH_TEST);
 
-        gl.clear_color(0.08, 0.08, 0.08, 1.0);
-
         // Projection definition
-        let projection = ProjectionType::Aitoff(Aitoff {});
+        let projection = ProjectionType::Orthographic(Orthographic {});
         // HiPS Sphere definition
         let hips_sphere_mesh = HiPSSphere::new(&gl, &projection);
-        let size_pixels = *hips_sphere_mesh.get_default_pixel_size();
         let hips_sphere = Renderable::<HiPSSphere>::new(
             &gl,
             &shaders["hips_sphere"],
@@ -171,17 +247,25 @@ impl App {
         );
 
         // Viewport definition
-        let viewport = ViewPort::new(&gl, &size_pixels);
+        let viewport = ViewPort::new(&gl, &projection.size());
 
         // Grid definition
         let lon_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-30_f32).into(), cgmath::Deg(30_f32).into());
         let lat_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-90_f32).into(), cgmath::Deg(90_f32).into());
         //let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(10_f32).into(), cgmath::Deg(10_f32).into(), Some(lat_bound), Some(lon_bound), &projection.get(), &viewport.borrow());
-        let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, &projection, &viewport);
+        let projeted_grid_mesh = ProjetedGrid::new(&gl, cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, &projection, &viewport);
         let grid = Renderable::<ProjetedGrid>::new(
             &gl,
             &shaders["grid"],
             projeted_grid_mesh,
+        );
+
+        // Catalog definition
+        let catalog_mesh = Catalog::new(&gl, vec![]);
+        let catalog = Renderable::<Catalog>::new(
+            &gl,
+            &shaders["catalog"],
+            catalog_mesh
         );
 
         // Resize event
@@ -217,6 +301,8 @@ impl App {
             hips_sphere,
             // The grid renderable
             grid,
+            // The catalog renderable
+            catalog,
 
             move_event,
 
@@ -229,7 +315,7 @@ impl App {
     fn update(&mut self, dt: f32) {
         // Update the camera. When the camera has reached its final position
         // then we stop rendering the next frames!
-        self.viewport.update(&self.projection, dt);
+        self.viewport.update(&self.hips_sphere.get_model_mat(), &self.projection, dt);
 
         // Updating
         if UPDATE_FRAME.lock().unwrap().get() {
@@ -238,6 +324,7 @@ impl App {
                 if inertia.update(
                     &mut self.hips_sphere,
                     &mut self.grid,
+                    &mut self.catalog,
                     &mut self.viewport,
                     dt
                 ) {
@@ -252,33 +339,23 @@ impl App {
                     &self.viewport,
                 );
 
+            // Update the catalog vizualization
+            self.catalog.update(&self.projection, &self.viewport);
+
             // The grid buffers and labels
             if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
                 self.grid.update(
                     &self.projection,
                     &self.viewport
                 );
-                self.grid.update_vertex_array();
-                
-                self.grid.mesh_mut().update_label_positions(
-                    self.hips_sphere.get_inverted_model_mat(),
-                    &self.projection,
-                    Some(&self.viewport),
-                );
             }
-        }
-
-        if !UPDATE_USER_INTERFACE.load(Ordering::Relaxed) {
-            RENDER_FRAME.lock().unwrap().update(&self.viewport);
-            UPDATE_FRAME.lock().unwrap().update(&self.viewport);
-        } else {
-            UPDATE_USER_INTERFACE.store(false, Ordering::Relaxed);
         }
     }
 
     fn render(&self) {
         if RENDER_FRAME.lock().unwrap().get() {
             // Render the scene
+            self.gl.clear_color(0.08, 0.08, 0.08, 1.0);
             self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
 
             // Draw renderables here
@@ -287,8 +364,17 @@ impl App {
 
             // Draw the HiPS sphere
             self.hips_sphere.draw(
-                &shaders["hips_sphere"],
-                WebGl2RenderingContext::TRIANGLES,
+                shaders,
+                viewport
+            );
+            /*self.ortho_hips_sphere.draw(
+                shaders,
+                viewport
+            );*/
+
+            // Draw the catalogs
+            self.catalog.draw(
+                shaders,
                 viewport
             );
 
@@ -296,13 +382,21 @@ impl App {
             if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
                 // The grid lines
                 self.grid.draw(
-                    &shaders["grid"],
-                    WebGl2RenderingContext::LINES,
+                    shaders,
                     viewport
                 );
                 // The labels
                 self.grid.mesh().draw_labels();
             }
+        } else {
+            console::log_1(&format!("stop render").into());
+        }
+
+        if !UPDATE_USER_INTERFACE.load(Ordering::Relaxed) {
+            RENDER_FRAME.lock().unwrap().update(&self.viewport);
+            UPDATE_FRAME.lock().unwrap().update(&self.viewport);
+        } else {
+            UPDATE_USER_INTERFACE.store(false, Ordering::Relaxed);
         }
     }
 
@@ -314,7 +408,7 @@ impl App {
         let hips_sphere_mesh = HiPSSphere::new(&self.gl, &projection);
 
         // Update the scissor for the new projection
-        self.viewport.resize(hips_sphere_mesh.get_default_pixel_size());
+        self.viewport.resize(&projection.size());
 
         self.hips_sphere.update_mesh(&self.shaders["hips_sphere"], hips_sphere_mesh);
     }
@@ -349,6 +443,7 @@ impl App {
                 
                 &mut self.hips_sphere,
                 &mut self.grid,
+                &mut self.catalog,
                 
                 &self.projection,
                 
@@ -386,6 +481,11 @@ impl App {
         } else {
             self.viewport.unzoom(delta_y);
         }
+    }
+
+    fn add_catalog(&mut self, sources: Vec<Source>) {
+        let catalog_mesh = Catalog::new(&self.gl, sources);
+        self.catalog.update_mesh(&self.shaders["catalog"], catalog_mesh);
     }
 }
 
@@ -479,13 +579,6 @@ impl WebGl2Context {
                 .dyn_into::<WebGl2RenderingContext>()
                 .unwrap()
         );
-        /*let inner = Rc::new(
-            canvas.get_context("webgl2")
-                .unwrap()
-                .unwrap()
-                .dyn_into::<WebGl2RenderingContext>()
-                .unwrap()
-        );*/
 
         WebGl2Context {
             inner
@@ -625,6 +718,28 @@ impl WebClient {
 
         Ok(())
     }
+    /// Change grid opacity
+    pub fn set_catalog_opacity(&mut self, alpha: f32) -> Result<(), JsValue> {
+        self.app.catalog
+            .mesh_mut()
+            .set_alpha(alpha);
+
+        RENDER_FRAME.lock().unwrap().set(true);
+        UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
+
+        Ok(())
+    }
+    /// Change grid opacity
+    pub fn set_kernel_strength(&mut self, strength: f32) -> Result<(), JsValue> {
+        self.app.catalog
+            .mesh_mut()
+            .set_kernel_strength(strength);
+
+        RENDER_FRAME.lock().unwrap().set(true);
+        UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
+
+        Ok(())
+    }
 
     /// Change HiPS
     pub fn change_hips(&mut self, hips_url: String, hips_depth: i32) -> Result<(), JsValue> {
@@ -657,9 +772,24 @@ impl WebClient {
         Ok(())
     }
 
-    // Wheel event
+    /// Wheel event
     pub fn zoom(&mut self, delta_y: f32) -> Result<(), JsValue> {
         self.app.zoom(delta_y);
+
+        Ok(())
+    }
+
+    /// Add new catalog
+    pub fn add_catalog(&mut self, data: &JsValue) -> Result<(), JsValue> {
+        let data: Vec<[f32; 3]> = data.into_serde().unwrap();
+
+        let sources: Vec<Source> = data.into_iter()
+            .map(|ref source| {
+                (source as &[f32]).into()
+            })
+            .collect::<Vec<_>>();
+
+        self.app.add_catalog(sources);
 
         Ok(())
     }
