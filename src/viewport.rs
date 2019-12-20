@@ -66,13 +66,9 @@ use crate::math;
 use std::sync::atomic::Ordering;
 use crate::MAX_DEPTH;
 use crate::print_to_console;
-<<<<<<< HEAD
-use crate::utils;
-=======
 use cgmath::Matrix4;
-
+use crate::utils;
 use crate::renderable::catalog::Catalog;
->>>>>>> features/instancing
 impl ViewPort {
     pub fn new(gl: &WebGl2Context, size_pixels: &Vector2<f32>) -> ViewPort {
         let current_zoom = 1_f32;
@@ -245,21 +241,13 @@ impl ViewPort {
                 //catalog.update(projection, self);
                 return;
             }
-<<<<<<< HEAD
-            self.current_zoom += (self.final_zoom - self.current_zoom) * 0.005_f32 * dt;
-=======
 
             // We update the zoom factor
-            //self.current_zoom += (self.final_zoom - self.current_zoom) * 0.005_f32 * dt;
-            self.current_zoom = self.final_zoom;
+            self.current_zoom += (self.final_zoom - self.current_zoom) * 0.005_f32 * dt;
+            //self.current_zoom = self.final_zoom;
 
->>>>>>> features/instancing
             self.update_scissor();
         }
-
-        /*if self.is_moving {
-            catalog.update(projection, self);
-        }*/
     }
 
     fn compute_speed(&self, mut t: f32) -> f32 {

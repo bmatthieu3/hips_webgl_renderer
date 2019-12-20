@@ -118,24 +118,20 @@ impl SmallFieldOfViewRenderingMode {
 impl RenderingMode for SmallFieldOfViewRenderingMode {
     fn create_vertices_array(gl: &WebGl2Context, projection: &ProjectionType) -> Vec<f32> {
         let depth = 2;
-        let step = 0.25_f32;
         let vertices_data = (0..192)
             .map(|idx| {
                 let lonlat = healpix::nested::grid(depth, idx, 1);
                 /*let off = (idx - 16*(idx >> 4)) as f32;
                 console::log_1(&format!("off: {:?}", off).into());*/
 
-                //let uv = step*off..(step*off + step);
-                let uv = 0_f32..1_f32;
-
                 let mut vertex_array = Vec::with_capacity(7 * 6);
-                Self::add_vertex(&mut vertex_array, &lonlat, 0, Vector2::new(uv.end, uv.start));
-                Self::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(uv.start, uv.start));
-                Self::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(uv.end, uv.end));
+                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 0, Vector2::new(0_f32, 0_f32));
+                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(0_f32, 1_f32));
+                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(1_f32, 0_f32));
 
-                Self::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(uv.end, uv.end));
-                Self::add_vertex(&mut vertex_array, &lonlat, 3, Vector2::new(uv.start, uv.end));
-                Self::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(uv.start, uv.start));
+                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(1_f32, 0_f32));
+                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(0_f32, 1_f32));
+                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 3, Vector2::new(1_f32, 1_f32));
 
                 vertex_array
             })
@@ -324,7 +320,7 @@ impl<'a> HiPSSphere {
         let per_pixel_rendering_mode = PerPixelRenderingMode::new(gl, projection);
 
         let gl = gl.clone();
-        let fov_mode = false;
+        let fov_mode = true;
 
         HiPSSphere {
             buffer_tiles,
@@ -379,7 +375,7 @@ use crate::renderable::Renderable;
 use cgmath::Matrix4;
 
 use crate::utils;
-use crate::texture::Tile;
+use crate::texture::{Tile, TilePerPixelGPU};
 impl Mesh for HiPSSphere {
     fn create_buffers(&mut self, gl: &WebGl2Context) {}
 
@@ -417,13 +413,13 @@ impl Mesh for HiPSSphere {
                     let lonlat = healpix::nested::grid(depth, idx, 1);
 
                     let mut vertex_array = Vec::with_capacity(7 * 6);
-                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 0, Vector2::new(1_f32, 0_f32));
-                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(0_f32, 0_f32));
-                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(1_f32, 1_f32));
+                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 0, Vector2::new(0_f32, 0_f32));
+                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(0_f32, 1_f32));
+                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(1_f32, 0_f32));
 
-                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(1_f32, 1_f32));
-                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 3, Vector2::new(0_f32, 1_f32));
-                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(0_f32, 0_f32));
+                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(1_f32, 0_f32));
+                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(0_f32, 1_f32));
+                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 3, Vector2::new(1_f32, 1_f32));
 
                     vertex_array
                 })
@@ -435,10 +431,11 @@ impl Mesh for HiPSSphere {
 
             let idx_texture = healpix_cells.iter()
                 .map(|cell| {
-                    let tile = Tile::new(*cell);
+                    let tile: TilePerPixelGPU = Tile::new(*cell).into();
+                    console::log_1(&format!("idx: {:?}", tile).into());
 
-                    let idx = if let Some(&tile) = buffer_tiles.get(&tile) {
-                        tile.texture_idx as i32
+                    let idx = if let Some(tile_gpu) = buffer_tiles.get(&tile) {
+                        tile_gpu.texture_idx as i32
                     } else {
                         0
                     };
@@ -448,7 +445,7 @@ impl Mesh for HiPSSphere {
                 .flatten()
                 .collect::<Vec<_>>();
 
-            console::log_1(&format!("UPDATE FOV").into());
+            console::log_1(&format!("UPDATE FOV: {:?}", idx_texture).into());
 
             self.fov_rendering_mode.vertex_array_object.bind()
                 .update_array(0, BufferData::VecData(&vertices))

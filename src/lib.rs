@@ -316,9 +316,16 @@ impl App {
         // Update the camera. When the camera has reached its final position
         // then we stop rendering the next frames!
         self.viewport.update(&self.hips_sphere.get_model_mat(), &self.projection, dt);
-
+        
+        if !UPDATE_USER_INTERFACE.load(Ordering::Relaxed) {
+            RENDER_FRAME.lock().unwrap().update(&self.viewport);
+            //UPDATE_FRAME.lock().unwrap().update(&self.viewport);
+        } else {
+            UPDATE_USER_INTERFACE.store(false, Ordering::Relaxed);
+        }
         // Updating
-        if UPDATE_FRAME.lock().unwrap().get() {
+        if RENDER_FRAME.lock().unwrap().get() {
+            console::log_1(&format!("update").into());
             // Look for inertia
             if let Some(ref mut inertia) = &mut self.inertia {
                 if inertia.update(
@@ -339,6 +346,7 @@ impl App {
                     &self.viewport,
                 );
 
+
             // Update the catalog vizualization
             self.catalog.update(&self.projection, &self.viewport);
 
@@ -354,6 +362,8 @@ impl App {
 
     fn render(&self) {
         if RENDER_FRAME.lock().unwrap().get() {
+            console::log_1(&format!("render").into());
+
             // Render the scene
             self.gl.clear_color(0.08, 0.08, 0.08, 1.0);
             self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
@@ -390,13 +400,6 @@ impl App {
             }
         } else {
             console::log_1(&format!("stop render").into());
-        }
-
-        if !UPDATE_USER_INTERFACE.load(Ordering::Relaxed) {
-            RENDER_FRAME.lock().unwrap().update(&self.viewport);
-            UPDATE_FRAME.lock().unwrap().update(&self.viewport);
-        } else {
-            UPDATE_USER_INTERFACE.store(false, Ordering::Relaxed);
         }
     }
 
@@ -646,7 +649,7 @@ impl WebClient {
         }
 
         RENDER_FRAME.lock().unwrap().set(true);
-        UPDATE_FRAME.lock().unwrap().set(true);
+        //UPDATE_FRAME.lock().unwrap().set(true);
 
         // This is a UI update so we tell the rendering loop
         // we do not want to update the update and render frame
@@ -746,7 +749,7 @@ impl WebClient {
         self.app.reload_hips_sphere(hips_url, hips_depth as u8);
 
         RENDER_FRAME.lock().unwrap().set(true);
-        UPDATE_FRAME.lock().unwrap().set(true);
+        //UPDATE_FRAME.lock().unwrap().set(true);
 
         UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
 

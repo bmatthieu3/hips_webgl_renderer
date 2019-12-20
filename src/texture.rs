@@ -115,6 +115,34 @@ impl From<Tile> for TilePerPixelGPU {
         let texture_idx = tile.texture_idx as i32;
 
         let time_request = tile.time_request;
+        let time_received = if let Some(time_received) = tile.time_received {
+            time_received
+        } else {
+            time_request
+        };
+
+        TilePerPixelGPU {
+            uniq,
+
+            texture_idx,
+
+            time_request,
+            time_received,
+        }
+    }
+}
+
+impl From<&Tile> for TilePerPixelGPU {
+    fn from(tile: &Tile) -> Self {
+        let depth = tile.cell.0;
+        let idx = tile.cell.1;
+
+        let uniq = (1 << (2*((depth as u64) + 1))) + idx;
+        let uniq = uniq as u32;
+
+        let texture_idx = tile.texture_idx as i32;
+
+        let time_request = tile.time_request;
         let time_received = tile.time_received.unwrap();
 
         TilePerPixelGPU {
@@ -444,9 +472,13 @@ impl BufferTiles {
         .expect("Sub texture 2d");
     }
 
-    pub fn tiles(&self) -> BTreeSet<&Tile> {
+    pub fn tiles(&self) -> BTreeSet<TilePerPixelGPU> {
         self.buffer
-            .iter()
+            .clone()
+            .into_iter()
+            .map(|tile| {
+                tile.into()
+            })
             .collect::<BTreeSet<_>>()
     }
 
@@ -541,7 +573,6 @@ pub fn load_tiles(
     depth: u8,
     reset_time_received: bool
 ) {
-    //buffer_tiles.borrow_mut().prepare_for_loading(tiles_idx.len() as u8);
     // If the depth has just changed, we must rebuild the
     // requested tiles binary heap
     if reset_time_received {
@@ -666,7 +697,7 @@ fn create_texture_tile_buffer(gl: &WebGl2Context) -> (Option<web_sys::WebGlTextu
     (webgl_texture, idx_texture_unit)
 }
 
-fn create_sampler_3d(gl: &WebGl2Context, size_buffer: u32) -> (Option<web_sys::WebGlTexture>, u32) {
+/*fn create_sampler_3d(gl: &WebGl2Context, size_buffer: u32) -> (Option<web_sys::WebGlTexture>, u32) {
     let window = web_sys::window().unwrap();
     let document = window.document().unwrap();
     let canvas = document.create_element("canvas").unwrap();
@@ -709,7 +740,7 @@ fn create_sampler_3d(gl: &WebGl2Context, size_buffer: u32) -> (Option<web_sys::W
     gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_3D);
 
     (webgl_texture, idx_texture_unit)
-}
+}*/
 
 use web_sys::WebGlTexture;
 #[derive(Clone)]

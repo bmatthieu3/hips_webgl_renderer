@@ -4,7 +4,7 @@ pub struct RenderNextFrame {
     render: bool,
     next_time: f32,
 }
-
+use web_sys::console;
 use crate::viewport::ViewPort;
 impl RenderNextFrame {
     pub fn new() -> RenderNextFrame {
@@ -40,8 +40,11 @@ impl RenderNextFrame {
             let current_time = utils::get_current_time();
             if current_time >= self.next_time {
                 // If not, we stop rendering the next frame
+                console::log_1(&format!("stop rendering next frame").into());
                 self.set(false);
             }
+            //console::log_1(&format!("stop rendering next frame2").into());
+            //self.set(false);
         } else {
             self.set(true);
         }

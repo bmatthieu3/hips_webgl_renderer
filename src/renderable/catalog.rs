@@ -474,7 +474,7 @@ impl<'a> DisableDrawing for Catalog {
     }
 }
 
-const MAX_SOURCES: usize = 20000;
+const MAX_SOURCES: usize = 100000;
 
 use std::ops::Range;
 struct Storage {

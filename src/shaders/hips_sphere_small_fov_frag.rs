@@ -5,9 +5,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
     precision highp int;
 
     in vec2 frag_uv;
-    in float aaa;
-
-    //in int frag_idx_texture;
+    in float frag_idx_texture;
 
     out vec4 out_frag_color;
 
@@ -29,12 +27,13 @@ pub static CONTENT: &'static str = r#"#version 300 es
     uniform float current_time; // current time in ms
 
     void main() {
-        int idx_texture = int(aaa);
+        int idx_texture = int(frag_idx_texture);
         float idx_row = float(idx_texture / 8); // in [0; 7]
         float idx_col = float(idx_texture % 8); // in [0; 7]
 
         vec2 offset = (vec2(idx_col, idx_row) + frag_uv)/8.f;
         vec3 color = texture(textures, offset).rgb;
+        //vec3 color = vec3(frag_uv.x, 0.f, 0.f);
 
         out_frag_color = vec4(color, 1.f);
     }"#;

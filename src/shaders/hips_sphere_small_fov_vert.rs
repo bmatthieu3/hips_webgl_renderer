@@ -10,8 +10,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
     layout (location = 3) in int idx_texture;
 
     out vec2 frag_uv;
-    out float aaa;
-    //layout (location = 1) out int frag_idx_texture;
+    out float frag_idx_texture;
 
     uniform mat4 model;
     uniform float zoom_factor;
@@ -22,10 +21,10 @@ pub static CONTENT: &'static str = r#"#version 300 es
     }
 
     void main() {
-        vec3 world_pos = vec3(model * vec4(position, 1.f));
+        vec3 world_pos = vec3(inverse(model) * vec4(position, 1.f));
         gl_Position = vec4((world2screen_orthographic(world_pos) * zoom_factor), 0.0, 1.0);
 
         frag_uv = uv;
-        aaa = float(idx_texture);
+        frag_idx_texture = float(idx_texture);
     }
 "#;
