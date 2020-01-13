@@ -12,6 +12,7 @@ pub struct Move {
     start_world_pos: Vector4<f32>,
     axis: Vector3<f32>,
     x: Rad<f32>, // amount of displacement
+    last_time: f32,
 }
 
 use cgmath::Vector2;
@@ -32,6 +33,8 @@ pub fn screen_to_world_space(screen_pos: &Vector2<f32>, projection: &ProjectionT
 }
 
 use crate::math;
+use crate::utils;
+
 impl Move {
     pub fn new(
         start_screen_pos: Vector2<f32>,
@@ -42,10 +45,12 @@ impl Move {
         let result = if let Some(start_world_pos) = start_world_pos {
             let axis = Vector3::new(0_f32, 0_f32, 0_f32);
             let x = Rad(0_f32);
+            let last_time = utils::get_current_time();
             let event = Move {
                 start_world_pos,
                 axis,
-                x
+                x,
+                last_time,
             };
             Some(event)
         } else {
@@ -86,6 +91,9 @@ impl Move {
 
                 self.start_world_pos = world_pos;
                 viewport.displacement();
+
+                // Update the time to the current move
+                self.last_time = utils::get_current_time();
             }
         }
     }
@@ -96,6 +104,10 @@ impl Move {
 
     pub fn get_last_displacement_amount(&self) -> f32 {
         self.x.0
+    }
+
+    pub fn get_last_time(&self) -> f32 {
+        self.last_time
     }
 }
 

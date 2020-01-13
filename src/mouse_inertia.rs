@@ -14,14 +14,23 @@ use crate::renderable::catalog::Catalog;
 use crate::viewport::ViewPort;
 
 use crate::event::Move;
+use crate::utils;
 
+const DURATION: f32 = 10_f32;
 impl MouseInertia {
     pub fn new(
         event: &Move,
         viewport: &mut ViewPort,
     ) -> Option<MouseInertia> {
         let x0 = event.get_last_displacement_amount();
-        if x0 < 1e-5 {
+        let t0 = event.get_last_time();
+
+        // If the user has not moved in the last **duration** ms then the inertia
+        // is disabled
+        // TODO: maybe that would be good for the value of duration to be dependant of the
+        // framerate of the user machine. For the moment the value is a constant.
+
+        if x0 < 1e-5 || (utils::get_current_time() - t0) > DURATION {
             None
         } else {
             // Tell the viewport we enter in the inertia
