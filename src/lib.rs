@@ -463,7 +463,7 @@ impl App {
                 // position of the mouse is outside the projection
                 let ref projection = self.projection;
                 let mouse_pos_world = screen_to_world_space(&screen_pos, projection, &self.viewport);
-                if mouse_pos_world.is_some(){
+                if mouse_pos_world.is_some() {
                     self.inertia = MouseInertia::new(
                         move_event,
                         &mut self.viewport

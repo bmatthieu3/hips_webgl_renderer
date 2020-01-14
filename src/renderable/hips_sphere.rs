@@ -16,7 +16,7 @@ use crate::MAX_DEPTH;
 use std::sync::atomic::Ordering;
 
 use crate::texture::BufferTiles;
-use crate::texture::load_tiles;
+use crate::texture::{load_tiles, load_base_tiles};
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicU8;
@@ -295,8 +295,7 @@ impl RenderingMode for PerPixelRenderingMode {
 }
 
 pub struct HiPSSphere {
-    buffer_tiles: Rc<RefCell<BufferTiles>>,
-    buffer_depth_zero_tiles: Rc<RefCell<BufferTiles>>,
+    buffer: Rc<RefCell<BufferTiles>>,
 
     fov_rendering_mode: SmallFieldOfViewRenderingMode,
     per_pixel_rendering_mode: PerPixelRenderingMode,
@@ -308,13 +307,8 @@ pub struct HiPSSphere {
 
 impl<'a> HiPSSphere {
     pub fn new(gl: &WebGl2Context, projection: &ProjectionType) -> HiPSSphere {
-        let buffer_tiles = Rc::new(RefCell::new(BufferTiles::new(gl, 64, "textures")));
-
-        let ref allsky = ALLSKY.lock().unwrap();
-        load_tiles(buffer_tiles.clone(), allsky, 0, false);
-
-        let buffer_depth_zero_tiles = Rc::new(RefCell::new(BufferTiles::new(gl, 12, "textures_0")));
-        load_tiles(buffer_depth_zero_tiles.clone(), allsky, 0, false);
+        let buffer = Rc::new(RefCell::new(BufferTiles::new(gl)));
+        load_base_tiles(gl, buffer.clone());
 
         let fov_rendering_mode = SmallFieldOfViewRenderingMode::new(gl, projection);
         let per_pixel_rendering_mode = PerPixelRenderingMode::new(gl, projection);
@@ -323,8 +317,7 @@ impl<'a> HiPSSphere {
         let fov_mode = true;
 
         HiPSSphere {
-            buffer_tiles,
-            buffer_depth_zero_tiles,
+            buffer,
 
             // Two modes:
             // - One for large FOVs on 2D projections
@@ -339,10 +332,8 @@ impl<'a> HiPSSphere {
     }
 
     fn send_uniforms<T: Mesh + DisableDrawing>(&self, gl: &WebGl2Context, shader: &Shader, viewport: &ViewPort, renderable: &Renderable<T>) {
-        // TEXTURES DEPTH 0 TILES BUFFER
-        self.buffer_depth_zero_tiles.borrow().send_to_shader(shader);
         // TEXTURES TILES BUFFER
-        self.buffer_tiles.borrow().send_to_shader(shader);
+        self.buffer.borrow().send_to_shader(shader);
 
         // Send viewport uniforms
         viewport.send_to_vertex_shader(gl, shader);
@@ -361,12 +352,14 @@ impl<'a> HiPSSphere {
     pub fn refresh_buffer_tiles(&mut self) {
         console::log_1(&format!("refresh buffers").into());
 
-        let ref allsky = ALLSKY.lock().unwrap();
+        /*let ref allsky = ALLSKY.lock().unwrap();
         self.buffer_tiles.replace(BufferTiles::new(&self.gl, 64, "textures"));
         load_tiles(self.buffer_tiles.clone(), &allsky, 0, false);
 
         self.buffer_depth_zero_tiles.replace(BufferTiles::new(&self.gl, 12, "textures_0"));
-        load_tiles(self.buffer_depth_zero_tiles.clone(), &allsky, 0, false);
+        load_tiles(self.buffer_depth_zero_tiles.clone(), &allsky, 0, false);*/
+        self.buffer.borrow_mut()
+            .clear();
     }
 }
 
@@ -400,53 +393,80 @@ impl Mesh for HiPSSphere {
         DEPTH.store(current_depth, Ordering::Relaxed);
 
         // TODO: wrap that into a method load_healpix_tiles of BufferTiles
-        load_tiles(self.buffer_tiles.clone(), healpix_cells, current_depth, reset_time_received);
+        load_tiles(&self.gl, self.buffer.clone(), healpix_cells, current_depth, reset_time_received);
 
         // For Small FOV rendering mode
         if self.fov_mode {
+            let num_tiles = healpix_cells.len();
+
+            let mut vertices = Vec::with_capacity(7 * 6 * num_tiles);
+            let mut idx_texture = Vec::with_capacity(6 * num_tiles);
+
+            let tiles = self.buffer.borrow()
+                .tiles();
+
+            for tile_in_fov in healpix_cells.iter() {
+                let d1 = tile_in_fov.0;
+                let idx1 = tile_in_fov.1;
+
+                let lonlat = healpix::nested::grid(d1, idx1, 1);
+
+                let mut tile_in_fov = tile_in_fov.clone();
+                let mut tile: TilePerPixelGPU = Tile::new(tile_in_fov).into();
+
+                while tiles.get(&tile).is_none() && tile_in_fov.0 > 0 {
+                    tile_in_fov.0 -= 1;
+                    tile_in_fov.1 = tile_in_fov.1 >> 2;
+
+                    tile = Tile::new(tile_in_fov).into();
+                    //console::log_1(&format!("Seek for parents").into());
+                }
+
+                let idx = if let Some(tile_gpu) = tiles.get(&tile) {
+                    //console::log_1(&format!("Found {:?}", tile_in_fov).into());
+                    tile_gpu.texture_idx as i32
+                } else {
+                    //console::log_1(&format!("Not found {:?}", tile_in_fov).into());
+                    unreachable!();
+                };
+
+                let d2 = tile_in_fov.0;
+                let idx2 = tile_in_fov.1 << (2*(d1 - d2));
+                //console::log_1(&format!("tile_fov {:?}", tile_in_fov.1).into());
+
+                assert!(idx1 >= idx2);
+
+                let nside = 1 << (d1 - d2);
+                //console::log_1(&format!("NSIDE {:?}", nside).into());
+                //console::log_1(&format!("delta nside {:?} {:?}", idx1, idx2).into());
+
+                let (x, y) = utils::unmortonize(idx1 - idx2);
+                //console::log_1(&format!("x {:?}, y {:?}", x, y).into());
+                assert!(x < nside);
+                assert!(y < nside);
+
+                //let y = nside - 1 - y;
+                //let x = nside - 1 - x;
+
+                let u = (x as f32) / (nside as f32);
+                let v = (y as f32) / (nside as f32);
+
+                let ds = 1_f32 / (nside as f32);
+
+                let mut vertex_array = Vec::with_capacity(7 * 6);
+                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 0, Vector2::new(u, v));
+                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(u, v + ds));
+                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(u + ds, v));
+
+                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(u + ds, v));
+                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(u, v + ds));
+                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 3, Vector2::new(u + ds, v + ds));
+
+                idx_texture.extend(&[idx; 6]);
+                vertices.extend(vertex_array.iter());
+            }
+
             // Update the buffers
-            let vertices = healpix_cells.iter()
-                .map(|cell| {
-                    let depth = cell.0;
-                    let idx = cell.1;
-
-                    let lonlat = healpix::nested::grid(depth, idx, 1);
-
-                    let mut vertex_array = Vec::with_capacity(7 * 6);
-                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 0, Vector2::new(0_f32, 0_f32));
-                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(0_f32, 1_f32));
-                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(1_f32, 0_f32));
-
-                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(1_f32, 0_f32));
-                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(0_f32, 1_f32));
-                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 3, Vector2::new(1_f32, 1_f32));
-
-                    vertex_array
-                })
-                .flatten()
-                .collect::<Vec<_>>();
-
-            let buffer = self.buffer_tiles.borrow();
-            let buffer_tiles = buffer.tiles();
-
-            let idx_texture = healpix_cells.iter()
-                .map(|cell| {
-                    let tile: TilePerPixelGPU = Tile::new(*cell).into();
-                    //console::log_1(&format!("idx: {:?}", tile).into());
-
-                    let idx = if let Some(tile_gpu) = buffer_tiles.get(&tile) {
-                        tile_gpu.texture_idx as i32
-                    } else {
-                        0
-                    };
-
-                    vec![idx; 6]
-                })
-                .flatten()
-                .collect::<Vec<_>>();
-
-            //console::log_1(&format!("UPDATE FOV: {:?}", idx_texture).into());
-
             self.fov_rendering_mode.vertex_array_object.bind()
                 .update_array(0, BufferData::VecData(&vertices))
                 .update_array(1, BufferData::VecData(&idx_texture));

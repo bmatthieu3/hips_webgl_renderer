@@ -2,7 +2,7 @@ use cgmath::Vector3;
 
 pub struct MouseInertia {
     x: f32, // rotation angle amount
-    v0: f32, // initial velocity
+    //v0: f32, // initial velocity
     axis: Vector3<f32>,
 }
 
@@ -29,7 +29,6 @@ impl MouseInertia {
         // is disabled
         // TODO: maybe that would be good for the value of duration to be dependant of the
         // framerate of the user machine. For the moment the value is a constant.
-
         if x0 < 1e-5 || (utils::get_current_time() - t0) > DURATION {
             None
         } else {
@@ -37,11 +36,11 @@ impl MouseInertia {
             // mode
             viewport.start_inertia();
 
-            let v0 = 0.0003_f32;
+            //let v0 = 0.0003_f32;
             let axis = event.get_axis();
             let inertia = MouseInertia {
                 x: x0,
-                v0: v0,
+                //v0: v0,
                 axis: *axis,
             };
 

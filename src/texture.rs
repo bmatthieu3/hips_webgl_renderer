@@ -18,7 +18,7 @@ use crate::RENDER_FRAME;
 
 static mut NUM_TEXTURE_UNIT: u32 = WebGl2RenderingContext::TEXTURE0;
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Tile {
     pub cell: HEALPixCell,
 
@@ -76,6 +76,7 @@ impl Ord for Tile {
 }
 
 #[derive(Debug)]
+#[derive(Clone)]
 pub struct TilePerPixelGPU {
     pub uniq: u32,
 
@@ -255,50 +256,59 @@ impl Ord for TileRequest {
 pub struct BufferTiles {
     gl: WebGl2Context,
 
+    base_tiles: [Tile; 12],
+
     buffer: BinaryHeap<Tile>,
     loaded_tiles: HashSet<HEALPixCell>,
     // This binary heap contains the requests that must be canceled
     // This must be rebuilt whenever we change of order
     pub requested_tiles: BinaryHeap<TileRequest>,
 
-    size: usize,
-    idx_texture_unit: u32,
+    size_binary_heap: usize,
 
-    texture: Option<web_sys::WebGlTexture>,
-    texture_name: &'static str,
+    texture: Texture2D,
 }
 
 use crate::utils;
 use crate::shader::Shader;
 use std::convert::TryInto;
 impl BufferTiles {
-    pub fn new(gl: &WebGl2Context, size: usize, texture_name: &'static str) -> BufferTiles {
-        let buffer = BinaryHeap::with_capacity(size);
-        let loaded_tiles = HashSet::with_capacity(size);
-        let requested_tiles = BinaryHeap::with_capacity(size);
+    pub fn new(gl: &WebGl2Context) -> BufferTiles {
+        // The buffer will always contain the 12 base cells of depth 0
+        // Therefore there is size - 12 tiles to handle in the binary heap.
+        let size = 64;
+        let size_binary_heap = size - 12;
 
-        let (texture, idx_texture_unit) = create_texture_tile_buffer(gl);
+        let buffer = BinaryHeap::with_capacity(size_binary_heap);
+        let loaded_tiles = HashSet::with_capacity(size_binary_heap);
+        let requested_tiles = BinaryHeap::with_capacity(size_binary_heap);
+
+        let texture = Texture2D::create_empty(gl, WIDTH_TEXTURE * 8, HEIGHT_TEXTURE * 8);
+
+        // Load base tiles
+        let base_tiles = [Tile::new(HEALPixCell(0, 0)); 12];
 
         let gl = gl.clone();
-        BufferTiles {
+        let mut buffer_tiles = BufferTiles {
             gl,
 
+            base_tiles,
             buffer,
+
             loaded_tiles,
             requested_tiles,
 
-            size,
-
-            idx_texture_unit,
+            size_binary_heap,
 
             texture,
-            texture_name,
-        }
+        };
+
+        buffer_tiles
     }
 
     // Add a new tile to the buffer
     pub fn add(&mut self, cell: HEALPixCell, time_request: f32) -> u8 {
-        let texture_idx = if self.buffer.len() == self.size {
+        let texture_idx = if self.buffer.len() == self.size_binary_heap {
             // Remove the oldest tile from the buffer and from the
             // hashset
             let oldest_requested_tile = self.buffer.pop().unwrap();
@@ -310,7 +320,7 @@ impl BufferTiles {
 
             vacant_texture_idx
         } else {
-            self.buffer.len() as u8
+            (self.buffer.len() as u8) + 12
         };
 
         let time_received = Some(utils::get_current_time());
@@ -431,7 +441,7 @@ impl BufferTiles {
         false
     }
 
-    fn replace_texture_sampler_3d(&self, idx: i32, image: &HtmlImageElement) {
+    /*fn replace_texture_sampler_3d(&self, idx: i32, image: &HtmlImageElement) {
         self.gl.active_texture(self.idx_texture_unit);
         self.gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, self.texture.as_ref());
         self.gl.tex_sub_image_3d_with_html_image_element(
@@ -448,61 +458,57 @@ impl BufferTiles {
             image,
         )
         .expect("Texture 3d");
-    }
-
-    fn replace_texture_sampler_2d(&self, idx: i32, image: &HtmlImageElement) {
-        self.gl.active_texture(self.idx_texture_unit);
-        self.gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, self.texture.as_ref());
-
-        let idx_row = idx / 8;
-        let idx_col = idx % 8;
-
-        let xoffset = idx_col * WIDTH_TEXTURE;
-        let yoffset = idx_row * HEIGHT_TEXTURE;
-
-        self.gl.tex_sub_image_2d_with_u32_and_u32_and_html_image_element(
-            WebGl2RenderingContext::TEXTURE_2D,
-            0,
-            xoffset,
-            yoffset,
-            WebGl2RenderingContext::RGB,
-            WebGl2RenderingContext::UNSIGNED_BYTE,
-            image,
-        )
-        .expect("Sub texture 2d");
-    }
+    }*/
 
     pub fn tiles(&self) -> BTreeSet<TilePerPixelGPU> {
-        self.buffer
-            .clone()
-            .into_iter()
+        let refreshed_tiles: BTreeSet<TilePerPixelGPU> = self.buffer
+            .iter()
             .map(|tile| {
                 tile.into()
             })
+            .collect::<BTreeSet<_>>();
+
+        let base_tiles: BTreeSet<TilePerPixelGPU> = self.base_tiles
+            .iter()
+            .map(|tile| {
+                tile.into()
+            })
+            .collect::<BTreeSet<_>>();
+
+        refreshed_tiles.union(&base_tiles)
+            .cloned()
             .collect::<BTreeSet<_>>()
     }
 
     fn uniq_ordered_tiles(&self) -> Vec<TilePerPixelGPU> {
         let mut tiles = self.buffer
-            .clone()
-            .into_iter()
+            .iter()
             .map(|tile| {
                 tile.into()
             })
             .collect::<Vec<_>>();
 
+        let base_tiles = self.base_tiles
+            .iter()
+            .map(|tile| {
+                tile.into()
+            });
+        
+        tiles.extend(base_tiles);
         tiles.sort_unstable();
 
         tiles
     }
 
     fn send_texture(&self, shader: &Shader) {
-        let location_sampler_3d = shader.get_uniform_location(self.texture_name);
-        self.gl.active_texture(self.idx_texture_unit);
-        //self.gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, self.texture.as_ref());
-        self.gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, self.texture.as_ref());
+        let (texture_unit, webgl_texture) = (self.texture.idx_texture_unit, self.texture.texture.clone());
 
-        let idx_sampler: i32 = (self.idx_texture_unit - WebGl2RenderingContext::TEXTURE0).try_into().unwrap();
+        let location_sampler_3d = shader.get_uniform_location("textures");
+        self.gl.active_texture(texture_unit);
+        //self.gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, self.texture.as_ref());
+        self.gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, webgl_texture.borrow().as_ref());
+
+        let idx_sampler: i32 = (texture_unit - WebGl2RenderingContext::TEXTURE0).try_into().unwrap();
         self.gl.uniform1i(location_sampler_3d, idx_sampler);
     }
 
@@ -511,7 +517,7 @@ impl BufferTiles {
         let tiles = self.uniq_ordered_tiles();
 
         for (i, tile) in tiles.iter().enumerate() {
-            let mut name = String::from(self.texture_name);
+            let mut name = String::from("textures");
             name += "_tiles";
             name += "[";
             name += &i.to_string();
@@ -532,7 +538,13 @@ impl BufferTiles {
     }
 
     pub fn len(&self) -> usize {
-        self.size
+        self.size_binary_heap + 12
+    }
+
+    pub fn clear(&mut self) {
+        self.buffer.clear();
+        self.loaded_tiles.clear();
+        self.requested_tiles.clear();
     }
 }
 /*
@@ -566,32 +578,99 @@ impl<'a> BufferTilesSmallFOV<'a> {
 */
 use crate::HIPS_NAME;
 use crate::field_of_view::HEALPixCell;
-use std::collections::BTreeSet;
-pub fn load_tiles(
-    buffer_tiles: Rc<RefCell<BufferTiles>>,
-    tiles: &BTreeSet<HEALPixCell>,
-    depth: u8,
-    reset_time_received: bool
-) {
-    // If the depth has just changed, we must rebuild the
-    // requested tiles binary heap
-    if reset_time_received {
-        buffer_tiles.borrow_mut().refresh_requested_tiles_heap();
-    }
-    // And cancel the oldest async tile requests i.e. of depth
-    // > current_depth + 1 and < current_depth - 1
-    buffer_tiles.borrow_mut().cancel_obsolete_tile_requests(depth);
-    for tile in tiles {
-        load_healpix_tile(buffer_tiles.clone(), tile.clone(), reset_time_received);
+
+pub fn load_base_tiles(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>) {
+    for idx in 0..12 {
+        let image = Rc::new(RefCell::new(HtmlImageElement::new().unwrap()));
+        let time_request = utils::get_current_time();
+
+        let url = {
+            let depth = 0;
+            
+            let dir_idx = (idx / 10000) * 10000;
+
+            let mut url = HIPS_NAME.lock().unwrap().clone() + "/";
+            url = url + "Norder0/";
+            url = url + "Dir0/";
+            url = url + "Npix" + &idx.to_string() + ".jpg";
+
+            url
+        };
+        let onerror = {
+            let image = image.clone();
+
+            Closure::wrap(Box::new(move || {
+                console::log_1(&format!("ERROR base tile").into());
+            }) as Box<dyn Fn()>)
+        };
+
+        let onload = {
+            let buffer = buffer.clone();
+            let image = image.clone();
+            let gl = gl.clone();
+
+            Closure::wrap(Box::new(move || {
+                console::log_1(&format!("load new tile").into());
+                // Add it to the loaded cells hashset
+                // Add the received tile to the buffer
+                let texture_idx = idx as u8;
+                let cell = HEALPixCell(0, idx as u64);
+                let time_received = Some(utils::get_current_time());
+                let mut buffer = buffer.borrow_mut();
+                buffer.base_tiles[idx] = Tile {
+                    cell,
+
+                    texture_idx,
+
+                    time_request,
+                    time_received,
+                };
+
+                replace_texture_sampler_2d(&gl, &buffer.texture, texture_idx as i32, &image.borrow());
+            }) as Box<dyn Fn()>)
+        };
+
+        image.borrow_mut().set_onload(Some(onload.as_ref().unchecked_ref()));
+        image.borrow_mut().set_onerror(Some(onerror.as_ref().unchecked_ref()));
+
+        image.borrow_mut().set_cross_origin(Some(""));
+        image.borrow_mut().set_src(&url);
+
+        onload.forget();
+        onerror.forget();
     }
 }
-fn load_healpix_tile(buffer: Rc<RefCell<BufferTiles>>, tile: HEALPixCell, reset_time_received: bool) {
+
+use std::collections::BTreeSet;
+pub fn load_tiles(
+    gl: &WebGl2Context,
+    buffer: Rc<RefCell<BufferTiles>>,
+    tiles: &BTreeSet<HEALPixCell>,
+    depth: u8,
+    depth_changed: bool
+) {
+    {
+        let mut buffer = buffer.borrow_mut();
+        // If the depth has just changed, we must rebuild the
+        // requested tiles binary heap
+        if depth_changed {
+            buffer.refresh_requested_tiles_heap();
+        }
+        // And cancel the oldest async tile requests i.e. of depth
+        // > current_depth + 1 and < current_depth - 1
+        buffer.cancel_obsolete_tile_requests(depth);
+    }
+    for tile in tiles {
+        load_healpix_tile(gl, buffer.clone(), tile.clone(), depth_changed);
+    }
+}
+fn load_healpix_tile(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>, tile: HEALPixCell, depth_changed: bool) {
     let time_request = utils::get_current_time();
 
     let image = Rc::new(RefCell::new(HtmlImageElement::new().unwrap()));
     let tile_request = TileRequest::new(tile, time_request, image.clone());
     // Check whether the tile is already in the buffer or requested
-    if buffer.borrow_mut().replace_tile(tile, time_request, &tile_request, reset_time_received) {
+    if buffer.borrow_mut().replace_tile(tile, time_request, &tile_request, depth_changed) {
         return;
     }
 
@@ -620,25 +699,28 @@ fn load_healpix_tile(buffer: Rc<RefCell<BufferTiles>>, tile: HEALPixCell, reset_
             //buffer.borrow_mut().remove_from_loaded_tiles(depth, idx);
             // Remove from the currently requested tiles
             let tile_request = TileRequest::new(tile, time_request, image.clone());
-            buffer.borrow_mut().remove_from_requested_tiles(tile_request);
+            buffer.borrow_mut()
+                .remove_from_requested_tiles(tile_request);
         }) as Box<dyn Fn()>)
     };
 
     let onload = {
         let image = image.clone();
+        let gl = gl.clone();
 
         Closure::wrap(Box::new(move || {
             console::log_1(&format!("load new tile").into());
+            let mut buffer = buffer.borrow_mut();
             // Remove from the currently requested tiles
             let tile_request = TileRequest::new(tile, time_request, image.clone());
-            buffer.borrow_mut().remove_from_requested_tiles(tile_request);
+            buffer.remove_from_requested_tiles(tile_request);
 
             // Add it to the loaded cells hashset
-            buffer.borrow_mut().add_to_loaded_tiles(tile);
+            buffer.add_to_loaded_tiles(tile);
             // Add the received tile to the buffer
-            let idx_texture = buffer.borrow_mut().add(tile, time_request);
+            let texture_idx = buffer.add(tile, time_request);
             //buffer.borrow().replace_texture_sampler_3d(idx_texture as i32, &image.borrow());
-            buffer.borrow().replace_texture_sampler_2d(idx_texture as i32, &image.borrow());
+            replace_texture_sampler_2d(&gl, &buffer.texture, texture_idx as i32, &image.borrow());
 
             // Tell the app to render the next frame
             // because a a new has been received
@@ -656,14 +738,38 @@ fn load_healpix_tile(buffer: Rc<RefCell<BufferTiles>>, tile: HEALPixCell, reset_
     onerror.forget();
 }
 
-// Create a 4096x4096 texture that contains 8*8 tiles
+fn replace_texture_sampler_2d(gl: &WebGl2Context, texture: &Texture2D, idx: i32, image: &HtmlImageElement) {
+    let texture_unit = texture.idx_texture_unit;
+    let webgl_texture = texture.texture.borrow();
+    gl.active_texture(texture.idx_texture_unit);
+    gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, webgl_texture.as_ref());
+
+    let idx_row = idx / 8;
+    let idx_col = idx % 8;
+
+    let xoffset = idx_col * WIDTH_TEXTURE;
+    let yoffset = idx_row * HEIGHT_TEXTURE;
+
+    gl.tex_sub_image_2d_with_u32_and_u32_and_html_image_element(
+        WebGl2RenderingContext::TEXTURE_2D,
+        0,
+        xoffset,
+        yoffset,
+        WebGl2RenderingContext::RGB,
+        WebGl2RenderingContext::UNSIGNED_BYTE,
+        image,
+    )
+    .expect("Sub texture 2d");
+}
+
+/*// Create a 4096x4096 texture that contains 8*8 tiles
 fn create_texture_tile_buffer(gl: &WebGl2Context) -> (Option<web_sys::WebGlTexture>, u32) {
     let window = web_sys::window().unwrap();
     let document = window.document().unwrap();
     let canvas = document.create_element("canvas").unwrap();
     let canvas: web_sys::HtmlCanvasElement = canvas.dyn_into::<web_sys::HtmlCanvasElement>().unwrap();
 
-    canvas.set_width((WIDTH_TEXTURE as u32) * 8);
+    canvas.set_width();
     canvas.set_height((HEIGHT_TEXTURE as u32) * 8);
 
     let idx_texture_unit = unsafe { NUM_TEXTURE_UNIT };
@@ -693,51 +799,6 @@ fn create_texture_tile_buffer(gl: &WebGl2Context) -> (Option<web_sys::WebGlTextu
     )
     .expect("Texture 2d");
     //gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_2D);
-
-    (webgl_texture, idx_texture_unit)
-}
-
-/*fn create_sampler_3d(gl: &WebGl2Context, size_buffer: u32) -> (Option<web_sys::WebGlTexture>, u32) {
-    let window = web_sys::window().unwrap();
-    let document = window.document().unwrap();
-    let canvas = document.create_element("canvas").unwrap();
-    let canvas: web_sys::HtmlCanvasElement = canvas.dyn_into::<web_sys::HtmlCanvasElement>().unwrap();
-    canvas.set_width(WIDTH_TEXTURE as u32);
-    canvas.set_height((HEIGHT_TEXTURE as u32) * size_buffer);
-
-    let idx_texture_unit = unsafe { NUM_TEXTURE_UNIT };
-    unsafe {
-        NUM_TEXTURE_UNIT += 1;
-    }
-    let webgl_texture = gl.create_texture();
-    gl.active_texture(idx_texture_unit);
-
-    gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, webgl_texture.as_ref());
-
-    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::LINEAR as i32);
-    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::LINEAR as i32);
-
-    // Prevents s-coordinate wrapping (repeating)
-    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
-    // Prevents t-coordinate wrapping (repeating)
-    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_WRAP_T, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
-    // Prevents r-coordinate wrapping (repeating)
-    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_3D, WebGl2RenderingContext::TEXTURE_WRAP_R, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
-
-    gl.tex_image_3d_with_html_canvas_element(
-        WebGl2RenderingContext::TEXTURE_3D,
-        0,
-        WebGl2RenderingContext::RGB as i32,
-        WIDTH_TEXTURE,
-        HEIGHT_TEXTURE,
-        size_buffer as i32,
-        0,
-        WebGl2RenderingContext::RGB,
-        WebGl2RenderingContext::UNSIGNED_BYTE,
-        &canvas,
-    )
-    .expect("Texture 3d");
-    gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_3D);
 
     (webgl_texture, idx_texture_unit)
 }*/

@@ -1,6 +1,5 @@
 pub static CONTENT: &'static str = r#"#version 300 es
     precision highp float;
-    precision lowp sampler3D;
     precision lowp sampler2D;
     precision highp int;
 
