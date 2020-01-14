@@ -441,15 +441,11 @@ impl Mesh for HiPSSphere {
                 //console::log_1(&format!("delta nside {:?} {:?}", idx1, idx2).into());
 
                 let (x, y) = utils::unmortonize(idx1 - idx2);
-                //console::log_1(&format!("x {:?}, y {:?}", x, y).into());
                 assert!(x < nside);
                 assert!(y < nside);
 
-                //let y = nside - 1 - y;
-                //let x = nside - 1 - x;
-
-                let u = (x as f32) / (nside as f32);
-                let v = (y as f32) / (nside as f32);
+                let u = (y as f32) / (nside as f32);
+                let v = (x as f32) / (nside as f32);
 
                 let ds = 1_f32 / (nside as f32);
 

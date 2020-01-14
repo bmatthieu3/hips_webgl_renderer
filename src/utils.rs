@@ -7,6 +7,8 @@ pub fn get_current_time() -> f32 {
 }
 
 pub fn unmortonize(mut x: u64) -> (u32, u32) {
+    let mut y = x >> 1;
+
     x = x & 0x5555555555555555;
     x = (x | (x >> 1)) & 0x3333333333333333;
     x = (x | (x >> 2)) & 0x0f0f0f0f0f0f0f0f;
@@ -14,7 +16,6 @@ pub fn unmortonize(mut x: u64) -> (u32, u32) {
     x = (x | (x >> 8)) & 0x0000ffff0000ffff;
     x = (x | (x >> 16)) & 0x00000000ffffffff;
 
-    let mut y = x >> 1;
     y = y & 0x5555555555555555;
     y = (y | (y >> 1)) & 0x3333333333333333;
     y = (y | (y >> 2)) & 0x0f0f0f0f0f0f0f0f;
