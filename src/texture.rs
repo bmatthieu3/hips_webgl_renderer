@@ -547,35 +547,7 @@ impl BufferTiles {
         self.requested_tiles.clear();
     }
 }
-/*
-pub struct BufferTilesSmallFOV<'a> {
-    tiles: &'a BTreeSet<TileSmallFOVGPU>
-}
 
-impl<'a> BufferTilesSmallFOV<'a> {
-    fn new(tiles: &'a BTreeSet<TileSmallFOVGPU>) -> BufferTilesSmallFOV<'a> {
-        BufferTilesSmallFOV {
-            tiles
-        }
-    }
-
-    fn get(&self, cell: HEALPixCell) -> Option<&TileSmallFOVGPU> {
-        let time_request = 0_f32;
-        let time_received = 0_f32;
-
-        let texture_idx = 0;
-        let tile = TileSmallFOVGPU {
-            cell,
-
-            texture_idx,
-
-            time_request,
-            time_received,
-        };
-        self.tiles.get(&tile)
-    }
-}
-*/
 use crate::HIPS_NAME;
 use crate::field_of_view::HEALPixCell;
 
@@ -762,47 +734,6 @@ fn replace_texture_sampler_2d(gl: &WebGl2Context, texture: &Texture2D, idx: i32,
     .expect("Sub texture 2d");
 }
 
-/*// Create a 4096x4096 texture that contains 8*8 tiles
-fn create_texture_tile_buffer(gl: &WebGl2Context) -> (Option<web_sys::WebGlTexture>, u32) {
-    let window = web_sys::window().unwrap();
-    let document = window.document().unwrap();
-    let canvas = document.create_element("canvas").unwrap();
-    let canvas: web_sys::HtmlCanvasElement = canvas.dyn_into::<web_sys::HtmlCanvasElement>().unwrap();
-
-    canvas.set_width();
-    canvas.set_height((HEIGHT_TEXTURE as u32) * 8);
-
-    let idx_texture_unit = unsafe { NUM_TEXTURE_UNIT };
-    unsafe {
-        NUM_TEXTURE_UNIT += 1;
-    }
-    let webgl_texture = gl.create_texture();
-    gl.active_texture(idx_texture_unit);
-
-    gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, webgl_texture.as_ref());
-
-    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::NEAREST as i32);
-    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::NEAREST as i32);
-
-    // Prevents s-coordinate wrapping (repeating)
-    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
-    // Prevents t-coordinate wrapping (repeating)
-    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_WRAP_T, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
-
-    gl.tex_image_2d_with_u32_and_u32_and_html_canvas_element(
-        WebGl2RenderingContext::TEXTURE_2D,
-        0,
-        WebGl2RenderingContext::RGB as i32,
-        WebGl2RenderingContext::RGB,
-        WebGl2RenderingContext::UNSIGNED_BYTE,
-        &canvas,
-    )
-    .expect("Texture 2d");
-    //gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_2D);
-
-    (webgl_texture, idx_texture_unit)
-}*/
-
 use web_sys::WebGlTexture;
 #[derive(Clone)]
 pub struct Texture2D {
@@ -882,7 +813,8 @@ impl Texture2D {
 
         gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, webgl_texture.as_ref());
 
-        gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::LINEAR as i32);
+        gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::NEAREST as i32);
+        gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::NEAREST as i32);
 
         // Prevents s-coordinate wrapping (repeating)
         gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
@@ -900,6 +832,7 @@ impl Texture2D {
             WebGl2RenderingContext::UNSIGNED_BYTE,
             None
         ).expect("Texture 2D");
+        gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_2D);
 
         Texture2D::new(Rc::new(RefCell::new(webgl_texture)), idx_texture_unit)
     }

@@ -26,7 +26,7 @@ pub struct ViewPort {
     current_zoom: f32,
     final_zoom: f32,
 
-    last_zoom_action: LastZoomAction,
+    pub last_zoom_action: LastZoomAction,
     is_moving: bool,
     is_inertia: bool,
     is_zooming: bool,

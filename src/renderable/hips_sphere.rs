@@ -28,7 +28,6 @@ use crate::renderable::buffers::vertex_array_object::VertexArrayObject;
 use crate::viewport::ViewPort;
 use cgmath::Vector2;
 use crate::WebGl2Context;
-use crate::field_of_view::ALLSKY;
 
 trait RenderingMode {
     fn create_vertices_array(gl: &WebGl2Context, projection: &ProjectionType) -> Vec<f32>;
@@ -45,8 +44,6 @@ trait RenderingMode {
 
 struct SmallFieldOfViewRenderingMode {
     pub vertices: Vec<f32>,
-    pub idx_textures: Vec<i32>, // contains the texture indices
-
     vertex_array_object: VertexArrayObject,
 }
 
@@ -57,10 +54,9 @@ use std::mem;
 impl SmallFieldOfViewRenderingMode {
     fn new(gl: &WebGl2Context, projection: &ProjectionType) -> SmallFieldOfViewRenderingMode {
         let vertices = Self::create_vertices_array(gl, projection);
-        let idx_textures = vec![0; 192 * 6];
 
         console::log_1(&format!("VERTICES LENGTH: {:?}", vertices.len()).into());
-        console::log_1(&format!("IDX TEXTURES LENGTH: {:?}", idx_textures.len()).into());
+        //console::log_1(&format!("IDX TEXTURES LENGTH: {:?}", idx_textures.len()).into());
 
         let mut vertex_array_object = VertexArrayObject::new(gl);
 
@@ -78,19 +74,11 @@ impl SmallFieldOfViewRenderingMode {
                 WebGl2RenderingContext::DYNAMIC_DRAW,
                 BufferData::VecData(vertices.as_ref()),
             )
-            .add_array_buffer(
-                1 * mem::size_of::<i32>(),
-                &[1],
-                &[0 * mem::size_of::<i32>()],
-                WebGl2RenderingContext::DYNAMIC_DRAW,
-                BufferData::VecData(&idx_textures),
-            )
             // Unbind the buffer
             .unbind();
 
         SmallFieldOfViewRenderingMode {
             vertices,
-            idx_textures,
 
             vertex_array_object,
         }
@@ -121,17 +109,15 @@ impl RenderingMode for SmallFieldOfViewRenderingMode {
         let vertices_data = (0..192)
             .map(|idx| {
                 let lonlat = healpix::nested::grid(depth, idx, 1);
-                /*let off = (idx - 16*(idx >> 4)) as f32;
-                console::log_1(&format!("off: {:?}", off).into());*/
 
                 let mut vertex_array = Vec::with_capacity(7 * 6);
                 SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 0, Vector2::new(0_f32, 0_f32));
-                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(0_f32, 1_f32));
-                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(1_f32, 0_f32));
+                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(0_f32, 1_f32 / 8_f32));
+                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(1_f32 / 8_f32, 0_f32));
 
-                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(1_f32, 0_f32));
-                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(0_f32, 1_f32));
-                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 3, Vector2::new(1_f32, 1_f32));
+                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(1_f32 / 8_f32, 0_f32));
+                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(0_f32, 1_f32 / 8_f32));
+                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 3, Vector2::new(1_f32 / 8_f32, 1_f32 / 8_f32));
 
                 vertex_array
             })
@@ -358,6 +344,7 @@ impl<'a> HiPSSphere {
 
         self.buffer_depth_zero_tiles.replace(BufferTiles::new(&self.gl, 12, "textures_0"));
         load_tiles(self.buffer_depth_zero_tiles.clone(), &allsky, 0, false);*/
+        load_base_tiles(&self.gl, self.buffer.clone());
         self.buffer.borrow_mut()
             .clear();
     }
@@ -369,6 +356,11 @@ use cgmath::Matrix4;
 
 use crate::utils;
 use crate::texture::{Tile, TilePerPixelGPU};
+use std::collections::BTreeSet;
+use std::collections::VecDeque;
+
+use crate::field_of_view::HEALPixCell;
+use crate::viewport::LastZoomAction;
 impl Mesh for HiPSSphere {
     fn create_buffers(&mut self, gl: &WebGl2Context) {}
 
@@ -380,95 +372,181 @@ impl Mesh for HiPSSphere {
     ) {
         let field_of_view = viewport.field_of_view();
 
-        let healpix_cells = field_of_view.cells();
+        let tiles_fov = field_of_view.cells();
         let current_depth = field_of_view.get_current_depth();
 
         let prev_depth = DEPTH.load(Ordering::Relaxed);
-        let reset_time_received = if prev_depth != current_depth {
-            true
-        } else {
-            false
-        };
-
         DEPTH.store(current_depth, Ordering::Relaxed);
 
-        // TODO: wrap that into a method load_healpix_tiles of BufferTiles
-        load_tiles(&self.gl, self.buffer.clone(), healpix_cells, current_depth, reset_time_received);
+        let depth_changed = current_depth != prev_depth;
+
+        load_tiles(&self.gl, self.buffer.clone(), tiles_fov, current_depth, depth_changed);
 
         // For Small FOV rendering mode
         if self.fov_mode {
-            let num_tiles = healpix_cells.len();
+            let num_tiles = tiles_fov.len();
 
             let mut vertices = Vec::with_capacity(7 * 6 * num_tiles);
-            let mut idx_texture = Vec::with_capacity(6 * num_tiles);
 
-            let tiles = self.buffer.borrow()
+            let tiles_buffer = self.buffer.borrow()
                 .tiles();
 
-            for tile_in_fov in healpix_cells.iter() {
-                let d1 = tile_in_fov.0;
-                let idx1 = tile_in_fov.1;
+            let mut tiles_rendered = BTreeSet::new();
 
-                let lonlat = healpix::nested::grid(d1, idx1, 1);
+            if viewport.last_zoom_action == LastZoomAction::Zoom {
+                for tile_fov in tiles_fov.iter() {
+                    // If the tile is not already processed
+                    if !tiles_rendered.contains(tile_fov) {
+                        let d1 = tile_fov.0;
+                        let idx1 = tile_fov.1;
 
-                let mut tile_in_fov = tile_in_fov.clone();
-                let mut tile: TilePerPixelGPU = Tile::new(tile_in_fov).into();
+                        let mut tile_fov = tile_fov.clone();
+                        let mut tile: TilePerPixelGPU = Tile::new(tile_fov).into();
 
-                while tiles.get(&tile).is_none() && tile_in_fov.0 > 0 {
-                    tile_in_fov.0 -= 1;
-                    tile_in_fov.1 = tile_in_fov.1 >> 2;
+                        while !tiles_buffer.contains(&tile) && tile_fov.0 > 0 {
+                            tile_fov.0 -= 1;
+                            tile_fov.1 = tile_fov.1 >> 2;
 
-                    tile = Tile::new(tile_in_fov).into();
-                    //console::log_1(&format!("Seek for parents").into());
+                            tile = Tile::new(tile_fov).into();
+                        }
+
+                        let texture_idx = tiles_buffer.get(&tile)
+                            // The base tile are always contained in the buffer !
+                            .unwrap()
+                            .texture_idx as i32;
+                        // tile has been found in the buffer, we will
+                        // render it
+                        tiles_rendered.insert(tile_fov);
+                        
+                        let idx_row = (texture_idx / 8) as f32; // in [0; 7]
+                        let idx_col = (texture_idx % 8) as f32; // in [0; 7]
+
+                        let d2 = tile_fov.0;
+                        let idx2 = tile_fov.1 << (2*(d1 - d2));
+
+                        assert!(idx1 >= idx2);
+
+                        let nside = 1 << (d1 - d2);
+
+                        let (x, y) = utils::unmortonize(idx1 - idx2);
+                        assert!(x < nside);
+                        assert!(y < nside);
+
+                        let u = (idx_col + ((y as f32)/(nside as f32))) / 8_f32;
+                        let v = (idx_row + ((x as f32)/(nside as f32))) / 8_f32;
+
+                        let ds = 1_f32 / (8_f32 * (nside as f32));
+
+                        let mut vertex_array = Vec::with_capacity(7 * 6);
+                        let lonlat = healpix::nested::grid(d1, idx1, 1);
+
+                        SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 0, Vector2::new(u, v));
+                        SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(u, v + ds));
+                        SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(u + ds, v));
+
+                        SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(u + ds, v));
+                        SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(u, v + ds));
+                        SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 3, Vector2::new(u + ds, v + ds));
+
+                        vertices.extend(vertex_array.iter());
+                    }
                 }
+            } else {
+                let mut tiles_process = tiles_fov.iter().cloned().collect::<VecDeque<_>>();
 
-                let idx = if let Some(tile_gpu) = tiles.get(&tile) {
-                    //console::log_1(&format!("Found {:?}", tile_in_fov).into());
-                    tile_gpu.texture_idx as i32
-                } else {
-                    //console::log_1(&format!("Not found {:?}", tile_in_fov).into());
-                    unreachable!();
-                };
+                while !tiles_process.is_empty() {
+                    let tile = tiles_process.pop_front().unwrap();
+                    if tiles_rendered.contains(&tile) {
+                        continue;
+                    }
 
-                let d2 = tile_in_fov.0;
-                let idx2 = tile_in_fov.1 << (2*(d1 - d2));
-                //console::log_1(&format!("tile_fov {:?}", tile_in_fov.1).into());
+                    let tile_buffer: TilePerPixelGPU = Tile::new(tile).into();
 
-                assert!(idx1 >= idx2);
+                    let (depth, idx) = (tile.0, tile.1);
 
-                let nside = 1 << (d1 - d2);
-                //console::log_1(&format!("NSIDE {:?}", nside).into());
-                //console::log_1(&format!("delta nside {:?} {:?}", idx1, idx2).into());
+                    if let Some(tile_buffer) = tiles_buffer.get(&tile_buffer) {
+                        //console::log_1(&format!("found more deep TILEEEEEEEE").into());
 
-                let (x, y) = utils::unmortonize(idx1 - idx2);
-                assert!(x < nside);
-                assert!(y < nside);
+                        let texture_idx = tile_buffer.texture_idx;
+                        let idx_row = (texture_idx / 8) as f32; // in [0; 7]
+                        let idx_col = (texture_idx % 8) as f32; // in [0; 7]
+                        let u = idx_col / 8_f32;
+                        let v = idx_row / 8_f32;
 
-                let u = (y as f32) / (nside as f32);
-                let v = (x as f32) / (nside as f32);
+                        let ds = 1_f32 / 8_f32;
 
-                let ds = 1_f32 / (nside as f32);
+                        let mut vertex_array = Vec::with_capacity(7 * 6);
+                        let lonlat = healpix::nested::grid(depth, idx, 1);
+                        tiles_rendered.insert(tile);
 
-                let mut vertex_array = Vec::with_capacity(7 * 6);
-                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 0, Vector2::new(u, v));
-                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(u, v + ds));
-                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(u + ds, v));
+                        SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 0, Vector2::new(u, v));
+                        SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(u, v + ds));
+                        SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(u + ds, v));
 
-                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(u + ds, v));
-                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(u, v + ds));
-                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 3, Vector2::new(u + ds, v + ds));
+                        SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(u + ds, v));
+                        SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(u, v + ds));
+                        SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 3, Vector2::new(u + ds, v + ds));
 
-                idx_texture.extend(&[idx; 6]);
-                vertices.extend(vertex_array.iter());
+                        vertices.extend(vertex_array.iter());
+                    } else {
+                        if depth > current_depth + 2 {
+                            //let idx = idx >> 2*(depth - current_depth);
+                            //let depth = current_depth;
+
+                            // Find the zero depth tile
+                            let idx_depth_0 = idx >> (2*depth);
+                            let idx_off = idx_depth_0 << (2*depth);
+
+                            // Find the position of the cell in its base cell
+                            assert!(idx >= idx_off);
+                            let nside = 1 << depth;
+
+                            let (x, y) = utils::unmortonize(idx - idx_off);
+                            assert!(x < nside);
+                            assert!(y < nside);
+
+                            /*console::log_1(&format!("unzoom: {:?}", idx_depth_0).into());
+                            unreachable!();*/
+                            let texture_idx = tiles_buffer.get(&Tile::new(HEALPixCell(0, idx_depth_0)).into())
+                                // The base tile are always contained in the buffer !
+                                .unwrap()
+                                .texture_idx as i32;
+                            let idx_row = (texture_idx / 8) as f32; // in [0; 7]
+                            let idx_col = (texture_idx % 8) as f32; // in [0; 7]
+                            
+                            let u = (idx_col + ((y as f32)/(nside as f32))) / 8_f32;
+                            let v = (idx_row + ((x as f32)/(nside as f32))) / 8_f32;
+
+                            let ds = 1_f32 / (8_f32 * (nside as f32));
+
+                            let mut vertex_array = Vec::with_capacity(7 * 6);
+                            let lonlat = healpix::nested::grid(depth, idx, 1);
+                            tiles_rendered.insert(HEALPixCell(depth, idx));
+                            
+                            SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 0, Vector2::new(u, v));
+                            SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(u, v + ds));
+                            SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(u + ds, v));
+
+                            SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, Vector2::new(u + ds, v));
+                            SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, Vector2::new(u, v + ds));
+                            SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 3, Vector2::new(u + ds, v + ds));
+
+                            vertices.extend(vertex_array.iter());
+                        } else {
+                            tiles_process.push_back(HEALPixCell(depth + 1, idx << 2));
+                            tiles_process.push_back(HEALPixCell(depth + 1, (idx << 2) + 1));
+                            tiles_process.push_back(HEALPixCell(depth + 1, (idx << 2) + 2));
+                            tiles_process.push_back(HEALPixCell(depth + 1, (idx << 2) + 3));
+                        }
+                    }
+                }
             }
 
             // Update the buffers
             self.fov_rendering_mode.vertex_array_object.bind()
-                .update_array(0, BufferData::VecData(&vertices))
-                .update_array(1, BufferData::VecData(&idx_texture));
+                .update_array(0, BufferData::VecData(&vertices));
 
             self.fov_rendering_mode.vertices = vertices;
-            self.fov_rendering_mode.idx_textures = idx_texture;
         }
     }
 

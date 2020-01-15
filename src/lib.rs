@@ -325,7 +325,7 @@ impl App {
         }
         // Updating
         if RENDER_FRAME.lock().unwrap().get() {
-            console::log_1(&format!("update").into());
+            //console::log_1(&format!("update").into());
             // Look for inertia
             if let Some(ref mut inertia) = &mut self.inertia {
                 if inertia.update(
@@ -362,7 +362,7 @@ impl App {
 
     fn render(&self) {
         if RENDER_FRAME.lock().unwrap().get() {
-            console::log_1(&format!("render").into());
+            //console::log_1(&format!("render").into());
 
             // Render the scene
             self.gl.clear_color(0.08, 0.08, 0.08, 1.0);
