@@ -28,6 +28,7 @@ pub struct Tile {
     time_received: Option<f32>,
 }
 
+const BLENDING_DURATION_MS: f32 = 500_f32;
 impl Tile {
     pub fn new(cell: HEALPixCell) -> Tile {
         let texture_idx = 0;
@@ -42,6 +43,22 @@ impl Tile {
 
             time_request,
             time_received
+        }
+    }
+
+    pub fn blending_factor(&self) -> f32 {
+        if let Some(time_received) = self.time_received {
+            let mut t = (utils::get_current_time() - time_received) / BLENDING_DURATION_MS;
+
+            if t > 1_f32 {
+                t = 1_f32;
+            } else if t < 0_f32 {
+                t = 0_f32;
+            }
+
+            t
+        } else {
+            0_f32
         }
     }
 }
@@ -349,7 +366,7 @@ impl BufferTiles {
 
     fn push_tile(&mut self, tile: Tile) {
         self.buffer.push(tile);
-        RENDER_FRAME.lock().unwrap().set_for_duration_seconds(500_f32);
+        RENDER_FRAME.lock().unwrap().set_for_duration_seconds(BLENDING_DURATION_MS);
     }
 
     pub fn add_to_loaded_tiles(&mut self, tile: HEALPixCell) {
@@ -391,7 +408,7 @@ impl BufferTiles {
         }
     }
 
-    pub fn replace_tile(&mut self, tile_loaded: HEALPixCell, time_request: f32, tile_request: &TileRequest, reset_time_received: bool) -> bool {
+    pub fn replace_tile(&mut self, tile_loaded: HEALPixCell, time_request: f32, tile_request: &TileRequest, depth_changed: bool) -> bool {
         // Check whether the buffer already contains the requested tile
         if self.loaded_tiles.contains(&tile_loaded) {
             // Change its priority in the buffer (if it is present!).
@@ -406,7 +423,7 @@ impl BufferTiles {
                 // Found
                 let mut tile = tile.clone();
                 tile.time_request = time_request;
-                if reset_time_received {
+                if depth_changed {
                     tile.time_received = Some(utils::get_current_time());
                 }
 
@@ -441,25 +458,6 @@ impl BufferTiles {
         false
     }
 
-    /*fn replace_texture_sampler_3d(&self, idx: i32, image: &HtmlImageElement) {
-        self.gl.active_texture(self.idx_texture_unit);
-        self.gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, self.texture.as_ref());
-        self.gl.tex_sub_image_3d_with_html_image_element(
-            WebGl2RenderingContext::TEXTURE_3D,
-            0,
-            0,
-            0,
-            idx,
-            WIDTH_TEXTURE,
-            HEIGHT_TEXTURE,
-            1,
-            WebGl2RenderingContext::RGB,
-            WebGl2RenderingContext::UNSIGNED_BYTE,
-            image,
-        )
-        .expect("Texture 3d");
-    }*/
-
     pub fn tiles(&self) -> BTreeSet<TilePerPixelGPU> {
         let refreshed_tiles: BTreeSet<TilePerPixelGPU> = self.buffer
             .iter()
@@ -478,6 +476,22 @@ impl BufferTiles {
         refreshed_tiles.union(&base_tiles)
             .cloned()
             .collect::<BTreeSet<_>>()
+    }
+
+    pub fn get(&self, tile: &HEALPixCell) -> Option<&Tile> {
+        let tile_buffer = Tile::new(*tile);
+
+        let tile = self.buffer
+            .iter()
+            .find(|&&x| x == tile_buffer);
+        
+        if tile.is_some() {
+            tile
+        } else {
+            self.base_tiles
+                .iter()
+                .find(|&&x| x == tile_buffer)
+        }
     }
 
     fn uniq_ordered_tiles(&self) -> Vec<TilePerPixelGPU> {
@@ -542,6 +556,7 @@ impl BufferTiles {
     }
 
     pub fn clear(&mut self) {
+        // TODO: Clear the texture
         self.buffer.clear();
         self.loaded_tiles.clear();
         self.requested_tiles.clear();
@@ -588,8 +603,9 @@ pub fn load_base_tiles(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>) {
                 let texture_idx = idx as u8;
                 let cell = HEALPixCell(0, idx as u64);
                 let time_received = Some(utils::get_current_time());
-                let mut buffer = buffer.borrow_mut();
-                buffer.base_tiles[idx] = Tile {
+                console::log_1(&format!("load aaahh").into());
+
+                buffer.borrow_mut().base_tiles[idx] = Tile {
                     cell,
 
                     texture_idx,
@@ -598,7 +614,7 @@ pub fn load_base_tiles(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>) {
                     time_received,
                 };
 
-                replace_texture_sampler_2d(&gl, &buffer.texture, texture_idx as i32, &image.borrow());
+                replace_texture_sampler_2d(&gl, &buffer.borrow().texture, texture_idx as i32, &image.borrow());
             }) as Box<dyn Fn()>)
         };
 

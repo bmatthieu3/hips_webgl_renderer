@@ -12,6 +12,12 @@ pub enum LastZoomAction {
     Unzoom = 2,
 }
 
+#[derive(PartialEq)]
+pub enum LastAction {
+    Zooming = 1,
+    Moving = 2,
+}
+
 use crate::field_of_view::FieldOfView;
 use cgmath::Rad;
 pub struct ViewPort {
@@ -27,11 +33,12 @@ pub struct ViewPort {
     final_zoom: f32,
 
     pub last_zoom_action: LastZoomAction,
-    is_moving: bool,
+    pub is_moving: bool,
     is_inertia: bool,
-    is_zooming: bool,
+    pub is_zooming: bool,
 
     is_action: bool,
+    pub last_action: LastAction,
 
     // Store the size in pixels of the hips sphere
     default_size_scissor: Vector2<f32>,
@@ -86,6 +93,8 @@ impl ViewPort {
         let is_zooming = false;
         let is_inertia = false;
 
+        let last_action = LastAction::Moving;
+
         let fov = FieldOfView::new();
         let fov_max = math::depth_to_fov(MAX_DEPTH.load(Ordering::Relaxed));
 
@@ -113,6 +122,7 @@ impl ViewPort {
             is_inertia,
 
             is_action,
+            last_action,
 
             default_size_scissor,
         };
@@ -143,6 +153,7 @@ impl ViewPort {
         self.is_action = true;
 
         self.last_zoom_action = LastZoomAction::Zoom;
+        self.last_action = LastAction::Zooming;
 
         self.final_zoom *= (1_f32 + 0.01_f32 * amount);
 
@@ -160,6 +171,7 @@ impl ViewPort {
         self.is_action = true;
 
         self.last_zoom_action = LastZoomAction::Unzoom;
+        self.last_action = LastAction::Zooming;
 
         self.final_zoom /= (1_f32 + 0.01_f32 * amount);
         if self.final_zoom < 0.5_f32 {
@@ -170,6 +182,7 @@ impl ViewPort {
     pub fn displacement(&mut self) {
         self.is_moving = true;
         self.is_action = true;
+        self.last_action = LastAction::Moving;
     }
 
     pub fn stop_displacement(&mut self) {
@@ -243,8 +256,8 @@ impl ViewPort {
             }
 
             // We update the zoom factor
-            self.current_zoom += (self.final_zoom - self.current_zoom) * 0.005_f32 * dt;
-            //self.current_zoom = self.final_zoom;
+            //self.current_zoom += (self.final_zoom - self.current_zoom) * 0.005_f32 * dt;
+            self.current_zoom = self.final_zoom;
 
             self.update_scissor();
         }

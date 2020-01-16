@@ -198,9 +198,6 @@ pub static CONTENT: &'static str = r#"#version 300 es
     uniform sampler2D textures;
     uniform Tile textures_tiles[64];
 
-    uniform sampler2D textures_0;
-    uniform Tile textures_0_tiles[12];
-
     uniform float current_time; // current time in ms
     struct TileColor {
         Tile tile;
@@ -250,46 +247,6 @@ pub static CONTENT: &'static str = r#"#version 300 es
         return TileColor(empty, vec3(0.f), false);
     }
 
-    TileColor get_depth_0_tile(vec3 pos) {
-        HashDxDy result = hash_with_dxdy(0, pos.zxy);
-        uint idx = result.idx;
-        uint uniq = 4U + idx;
-
-        vec2 uv = vec2(result.dy, result.dx);
-
-        int a = 0;
-        int b = 11;
-
-        int i = 5;
-
-        int h = 4;
-        // Binary search among the tile idx
-        for(int step = 0; step < h; step++) {
-            if (uniq == textures_0_tiles[i].uniq) {
-                Tile tile = textures_0_tiles[i];
-
-                float idx_row = float(tile.texture_idx / 8); // in [0; 7]
-                float idx_col = float(tile.texture_idx % 8); // in [0; 7]
-
-                vec2 offset = (vec2(idx_col, idx_row) + uv)/8.f;
-
-                vec3 color = texture(textures_0, offset).rgb;
-                return TileColor(tile, color, true);
-            } else if (uniq < textures_0_tiles[i].uniq) {
-                // go to left
-                b = i - 1;
-            } else {
-                // go to right
-                a = i + 1;
-            }
-            i = (a + b)/2;
-        }
-
-        // code unreachable
-        Tile empty = Tile(0U, -1, current_time, 0.f);
-        return TileColor(empty, vec3(0.f), false);
-    }
-
     const float duration = 500.f; // 500ms
     uniform int max_depth; // max depth of the HiPS
 
@@ -316,7 +273,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
                 return;
             }
 
-            TileColor base_tile = get_depth_0_tile(frag_pos);
+            TileColor base_tile = get_tile_color(frag_pos, 64.f, 0);
 
             out_color = mix(base_tile.color, prev_tile.color, alpha);
             out_frag_color = vec4(out_color, 1.f);
@@ -344,7 +301,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
 
         TileColor tile = get_tile_color(frag_pos, 64.f, depth);
         if (!tile.found) {
-            tile = get_depth_0_tile(frag_pos);
+            tile = get_tile_color(frag_pos, 64.f, 0);
         }
 
         out_color = mix(tile.color, current_tile.color, alpha);

@@ -213,7 +213,7 @@ impl FieldOfView {
                     
                     cells
                 };
-                self.current_depth = depth;
+                self.current_depth = depth + 1;
                 cells
             }
         } else {

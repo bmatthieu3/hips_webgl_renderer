@@ -234,7 +234,9 @@ impl App {
         gl.enable(WebGl2RenderingContext::BLEND);
         gl.blend_func(WebGl2RenderingContext::SRC_ALPHA, WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA);
         gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
-        gl.disable(WebGl2RenderingContext::DEPTH_TEST);
+        //gl.enable(WebGl2RenderingContext::DEPTH_TEST);
+        gl.enable(WebGl2RenderingContext::CULL_FACE);
+        gl.cull_face(WebGl2RenderingContext::BACK);
 
         // Projection definition
         let projection = ProjectionType::Orthographic(Orthographic {});
@@ -345,7 +347,6 @@ impl App {
                     &self.projection,
                     &self.viewport,
                 );
-
 
             // Update the catalog vizualization
             self.catalog.update(&self.projection, &self.viewport);
