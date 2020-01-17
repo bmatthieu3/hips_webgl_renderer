@@ -67,6 +67,26 @@ fn set_gl_scissor(gl: &WebGl2Context, size: Vector2<f32>) {
     gl.scissor(xo as i32, yo as i32, size.x as i32, size.y as i32);
 }
 
+const NUM_WHEEL_PER_DEPTH: usize = 5;
+fn fov() -> [Rad<f32>; NUM_WHEEL_PER_DEPTH * 29] {
+    let mut fov = [Rad(0_f32); NUM_WHEEL_PER_DEPTH * 29];
+
+    let max_depth = 29;
+    for depth in 0..max_depth {
+        let fov_min = math::depth_to_fov(depth as u8);
+        let fov_max = math::depth_to_fov((depth + 1) as u8);
+        let df = fov_max - fov_min;
+
+        let off = depth * NUM_WHEEL_PER_DEPTH;
+
+        for i in 0..NUM_WHEEL_PER_DEPTH {
+            fov[off + i] = fov_min + df*(i as f32)/(NUM_WHEEL_PER_DEPTH as f32);
+        }
+    }
+
+    fov
+}
+
 use crate::projection::ProjectionType;
 use web_sys::console;
 use crate::math;
