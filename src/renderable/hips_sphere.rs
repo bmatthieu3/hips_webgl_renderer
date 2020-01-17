@@ -55,9 +55,6 @@ impl SmallFieldOfViewRenderingMode {
     fn new(gl: &WebGl2Context, projection: &ProjectionType, buffer: Rc<RefCell<BufferTiles>>) -> SmallFieldOfViewRenderingMode {
         let vertices = Self::create_vertices_array(gl, projection, buffer);
 
-        console::log_1(&format!("VERTICES LENGTH: {:?}", vertices.len()).into());
-        //console::log_1(&format!("IDX TEXTURES LENGTH: {:?}", idx_textures.len()).into());
-
         let mut vertex_array_object = VertexArrayObject::new(gl);
 
         // VAO for the orthographic projection and small fovs on 2D projections
@@ -110,36 +107,104 @@ impl SmallFieldOfViewRenderingMode {
     }
 }
 
+fn add_vertices_grid(
+    vertex_array: &mut Vec<f32>,
+    depth: u8, idx: u64, n_segments: u16,
+    uv_start: &[Vector2<f32>; 4],
+    uv_end: &[Vector2<f32>; 4],
+    blending_factor: f32
+) {
+    let lonlat = healpix::nested::grid(depth, idx, n_segments);
+
+    let n_vertices_per_segment = n_segments + 1;
+    
+    for i in 0..n_segments {
+        for j in 0..n_segments {
+            let id_vertex_0 = (j + i * n_vertices_per_segment) as usize;
+            let id_vertex_1 = (j + 1 + i * n_vertices_per_segment) as usize;
+            let id_vertex_2 = (j + (i + 1) * n_vertices_per_segment) as usize;
+            let id_vertex_3 = (j + 1 + (i + 1) * n_vertices_per_segment) as usize;
+
+            let lonlat_quad = [
+                lonlat[id_vertex_0],
+                lonlat[id_vertex_1],
+                lonlat[id_vertex_2],
+                lonlat[id_vertex_3],
+            ];
+            //console::log_1(&format!("id_vertex: {:?} {:?} {:?} {:?}", id_vertex_0, id_vertex_1, id_vertex_2, id_vertex_3).into());
+
+            let hj0 = (j as f32) / (n_segments as f32);
+            let hi0 = (i as f32) / (n_segments as f32);
+
+            let hj1 = ((j + 1) as f32) / (n_segments as f32);
+            let hi1 = (i as f32) / (n_segments as f32);
+
+            let hj2 = (j as f32) / (n_segments as f32);
+            let hi2 = ((i + 1) as f32) / (n_segments as f32);
+
+            let hj3 = ((j + 1) as f32) / (n_segments as f32);
+            let hi3 = ((i + 1) as f32) / (n_segments as f32);
+
+            let d01s = uv_start[1].x - uv_start[0].x;
+            let d02s = uv_start[2].y - uv_start[0].y;
+
+            let uv_s_vertex_0 = Vector2::new(uv_start[0].x + hj0 * d01s, uv_start[0].y + hi0 * d02s);
+            let uv_s_vertex_1 = Vector2::new(uv_start[0].x + hj1 * d01s, uv_start[0].y + hi1 * d02s);
+            let uv_s_vertex_2 = Vector2::new(uv_start[0].x + hj2 * d01s, uv_start[0].y + hi2 * d02s);
+            let uv_s_vertex_3 = Vector2::new(uv_start[0].x + hj3 * d01s, uv_start[0].y + hi3 * d02s);
+
+            let uv_start_quad = [
+                uv_s_vertex_0,
+                uv_s_vertex_1,
+                uv_s_vertex_2,
+                uv_s_vertex_3,
+            ];
+            let d01e = uv_end[1].x - uv_end[0].x;
+            let d02e = uv_end[2].y - uv_end[0].y;
+            let uv_e_vertex_0 = Vector2::new(uv_end[0].x + hj0 * d01e, uv_end[0].y + hi0 * d02e);
+            let uv_e_vertex_1 = Vector2::new(uv_end[0].x + hj1 * d01e, uv_end[0].y + hi1 * d02e);
+            let uv_e_vertex_2 = Vector2::new(uv_end[0].x + hj2 * d01e, uv_end[0].y + hi2 * d02e);
+            let uv_e_vertex_3 = Vector2::new(uv_end[0].x + hj3 * d01e, uv_end[0].y + hi3 * d02e);
+
+            let uv_end_quad = [
+                uv_e_vertex_0,
+                uv_e_vertex_1,
+                uv_e_vertex_2,
+                uv_e_vertex_3,
+            ];
+            //console::log_1(&format!("UV: {:?} {:?} {:?}", uv_start_quad, d01s, d02s).into());
+
+            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 0, uv_start_quad[0], uv_end_quad[0], blending_factor);
+            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 1, uv_start_quad[1], uv_end_quad[1], blending_factor);
+            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 2, uv_start_quad[2], uv_end_quad[2], blending_factor);
+
+            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 1, uv_start_quad[1], uv_end_quad[1], blending_factor);
+            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 3, uv_start_quad[3], uv_end_quad[3], blending_factor);
+            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 2, uv_start_quad[2], uv_end_quad[2], blending_factor);
+
+        }
+    }
+}
+
 impl RenderingMode for SmallFieldOfViewRenderingMode {
     fn create_vertices_array(gl: &WebGl2Context, projection: &ProjectionType, buffer: Rc<RefCell<BufferTiles>>) -> Vec<f32> {
-        let depth = 2;
-        let vertices_data = (0..192)
+        /*
+        let mut vertices_data = (0..192)
             .map(|idx| {
-                let lonlat = healpix::nested::grid(depth, idx, 1);
-
                 let blending_factor = 1_f32;
                 let uv_start = [Vector2::new(0_f32, 0_f32); 4];
-
-                let tile = Tile::new(HEALPixCell(2, idx));
-                //let parent_tile_buffer = get_parent(&tile, 0, &buffer.borrow()).unwrap();
-                //let uv_end = get_uv_in_parent(&tile, &parent_tile_buffer);
                 let uv_end = uv_start.clone();
-
                 let mut vertex_array = Vec::with_capacity(10 * 6);
-                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 0, uv_start[0], uv_end[0], blending_factor);
-                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, uv_start[2], uv_end[2], blending_factor);
-                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, uv_start[1], uv_end[1], blending_factor);
-
-                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, uv_start[1], uv_end[1], blending_factor);
-                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, uv_start[2], uv_end[2], blending_factor);
-                SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 3, uv_start[3], uv_end[3], blending_factor);
+                add_vertices_grid(&mut vertex_array, 2, idx, 1, &uv_start, &uv_end, blending_factor);
 
                 vertex_array
             })
             .flatten()
             .collect::<Vec<_>>();
 
-        vertices_data
+        //vertices_data.extend(vec![0_f32; 8480]);
+        */
+        vec![0_f32; 20000]
     }
 
     fn create_index_array() -> Option<Vec<u16>> {
@@ -465,9 +530,6 @@ impl Mesh for HiPSSphere {
             let buffer = self.buffer.borrow();
             let vertices = if current_depth <= 2 {
                 (0..192).map(|idx| {
-                    let lonlat = healpix::nested::grid(2, idx, 1);
-
-                    let blending_factor = 1_f32;
                     let uv_start = [Vector2::new(0_f32, 0_f32); 4];
 
                     let tile = Tile::new(HEALPixCell(2, idx));
@@ -476,13 +538,7 @@ impl Mesh for HiPSSphere {
 
                     let mut vertex_array = Vec::with_capacity(10 * 6);
                     let blending_factor = 1_f32;
-                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 0, uv_start[0], uv_end[0], blending_factor);
-                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, uv_start[1], uv_end[1], blending_factor);
-                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, uv_start[2], uv_end[2], blending_factor);
-
-                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, uv_start[1], uv_end[1], blending_factor);
-                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 3, uv_start[3], uv_end[3], blending_factor);
-                    SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, uv_start[2], uv_end[2], blending_factor);
+                    add_vertices_grid(&mut vertex_array, 2, idx, 1, &uv_start, &uv_end, blending_factor);
 
                     vertex_array
                 })
@@ -529,15 +585,7 @@ impl Mesh for HiPSSphere {
                         };
 
                         let mut vertex_array = Vec::with_capacity(10 * 6);
-                        let lonlat = healpix::nested::grid(depth, idx, 1);
-
-                        SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 0, uv_start[0], uv_end[0], blending_factor);
-                        SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, uv_start[1], uv_end[1], blending_factor);
-                        SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, uv_start[2], uv_end[2], blending_factor);
-
-                        SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, uv_start[1], uv_end[1], blending_factor);
-                        SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 3, uv_start[3], uv_end[3], blending_factor);
-                        SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, uv_start[2], uv_end[2], blending_factor);
+                        add_vertices_grid(&mut vertex_array, depth, idx, 1, &uv_start, &uv_end, blending_factor);
 
                         // tile has been found in the buffer, we will
                         // render it
@@ -564,7 +612,9 @@ impl Mesh for HiPSSphere {
                                 let uv_start = [Vector2::new(0_f32, 0_f32); 4];
 
                                 let mut vertex_array = Vec::with_capacity(10 * 6);
-                                let lonlat = healpix::nested::grid(depth, idx, 1);
+                                add_vertices_grid(&mut vertex_array, depth, idx, 4, &uv_start, &uv_end, blending_factor);
+
+                                /*let lonlat = healpix::nested::grid(depth, idx, 1);
                                 SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 0, uv_start[0], uv_end[0], blending_factor);
                                 SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, uv_start[1], uv_end[1], blending_factor);
                                 SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, uv_start[2], uv_end[2], blending_factor);
@@ -572,7 +622,7 @@ impl Mesh for HiPSSphere {
                                 SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, uv_start[1], uv_end[1], blending_factor);
                                 SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 3, uv_start[3], uv_end[3], blending_factor);
                                 SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, uv_start[2], uv_end[2], blending_factor);
-
+                                */
                                 // tile has been found in the buffer, we will render it
                                 vertices.extend(vertex_array.iter());
                             } else {
@@ -595,7 +645,9 @@ impl Mesh for HiPSSphere {
                                         let uv_start = get_uv(child_tile_buffer);
 
                                         let mut vertex_array = Vec::with_capacity(10 * 6);
-                                        let lonlat = healpix::nested::grid(child_depth, child_idx, 1);
+                                        add_vertices_grid(&mut vertex_array, child_depth, child_idx, 1 << (depth + 2 - child_depth), &uv_start, &uv_end, blending_factor);
+
+                                        /*let lonlat = healpix::nested::grid(child_depth, child_idx, 1);
                                         SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 0, uv_start[0], uv_end[0], blending_factor);
                                         SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, uv_start[1], uv_end[1], blending_factor);
                                         SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, uv_start[2], uv_end[2], blending_factor);
@@ -603,7 +655,7 @@ impl Mesh for HiPSSphere {
                                         SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, uv_start[1], uv_end[1], blending_factor);
                                         SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 3, uv_start[3], uv_end[3], blending_factor);
                                         SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, uv_start[2], uv_end[2], blending_factor);
-
+                                        */
                                         // tile has been found in the buffer, we will render it
                                         vertices.extend(vertex_array.iter());
                                     } else {
@@ -622,7 +674,7 @@ impl Mesh for HiPSSphere {
                                             let uv_end = get_uv_in_parent(&tile_child, tile_buffer);
 
                                             let mut vertex_array = Vec::with_capacity(10 * 6);
-                                            let lonlat = healpix::nested::grid(child_depth, child_idx, 1);
+                                            /*let lonlat = healpix::nested::grid(child_depth, child_idx, 1);
                                             SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 0, uv_start[0], uv_end[0], blending_factor);
                                             SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, uv_start[1], uv_end[1], blending_factor);
                                             SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, uv_start[2], uv_end[2], blending_factor);
@@ -630,6 +682,9 @@ impl Mesh for HiPSSphere {
                                             SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, uv_start[1], uv_end[1], blending_factor);
                                             SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 3, uv_start[3], uv_end[3], blending_factor);
                                             SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, uv_start[2], uv_end[2], blending_factor);
+                                            */
+                                            add_vertices_grid(&mut vertex_array, child_depth, child_idx, 1, &uv_start, &uv_end, blending_factor);
+
                                             // tile has been found in the buffer, we will render it
                                             vertices.extend(vertex_array.iter());
                                         } else {
@@ -665,7 +720,7 @@ impl Mesh for HiPSSphere {
                                     let uv_start = get_uv(child_tile_buffer);
 
                                     let mut vertex_array = Vec::with_capacity(10 * 6);
-                                    let lonlat = healpix::nested::grid(child_depth, child_idx, 1);
+                                    /*let lonlat = healpix::nested::grid(child_depth, child_idx, 1);
                                     SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 0, uv_start[0], uv_end[0], blending_factor);
                                     SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, uv_start[1], uv_end[1], blending_factor);
                                     SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, uv_start[2], uv_end[2], blending_factor);
@@ -673,6 +728,8 @@ impl Mesh for HiPSSphere {
                                     SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, uv_start[1], uv_end[1], blending_factor);
                                     SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 3, uv_start[3], uv_end[3], blending_factor);
                                     SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, uv_start[2], uv_end[2], blending_factor);
+                                    */
+                                    add_vertices_grid(&mut vertex_array, child_depth, child_idx, 1 << (depth + 2 - child_depth), &uv_start, &uv_end, blending_factor);
 
                                     // tile has been found in the buffer, we will render it
                                     vertices.extend(vertex_array.iter());
@@ -691,7 +748,9 @@ impl Mesh for HiPSSphere {
                                         let uv_end = [Vector2::new(0_f32, 0_f32); 4];
 
                                         let mut vertex_array = Vec::with_capacity(10 * 6);
-                                        let lonlat = healpix::nested::grid(child_depth, child_idx, 1);
+                                        add_vertices_grid(&mut vertex_array, child_depth, child_idx, 1, &uv_start, &uv_end, blending_factor);
+
+                                        /*let lonlat = healpix::nested::grid(child_depth, child_idx, 1);
                                         SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 0, uv_start[0], uv_end[0], blending_factor);
                                         SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, uv_start[1], uv_end[1], blending_factor);
                                         SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, uv_start[2], uv_end[2], blending_factor);
@@ -699,7 +758,7 @@ impl Mesh for HiPSSphere {
                                         SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 1, uv_start[1], uv_end[1], blending_factor);
                                         SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 3, uv_start[3], uv_end[3], blending_factor);
                                         SmallFieldOfViewRenderingMode::add_vertex(&mut vertex_array, &lonlat, 2, uv_start[2], uv_end[2], blending_factor);
-
+                                        */
                                         // tile has been found in the buffer, we will render it
                                         vertices.extend(vertex_array.iter());
                                     } else {
@@ -807,6 +866,7 @@ impl Mesh for HiPSSphere {
                 vertices
             };
 
+            console::log_1(&format!("len {:?}", vertices.len()).into());
             // Update the buffers
             self.fov_rendering_mode.vertex_array_object.bind()
                 .update_array(0, BufferData::VecData(&vertices));
