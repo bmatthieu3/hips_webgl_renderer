@@ -61,11 +61,12 @@ use web_sys::console;
 pub fn depth_to_fov(depth: u8) -> Rad<f32> {
     let depth_pixel = depth + 9;
 
-    let pixel_ang = Rad((4_f32 * std::f32::consts::PI / (12_f32 * ((1 << (2*depth_pixel)) as f32))).sqrt());
+    //let c = (12 << (2*depth_pixel)) as f32;
+    let pixel_ang = Rad((4_f32 * std::f32::consts::PI / (12_f32 * 4_f32.powf(2_f32 * (depth_pixel as f32)))).sqrt());
 
     let (width_screen, _) = window_size_f32();
     let fov = pixel_ang * width_screen;
-    //print_to_console!("{:?} fov", fov);
+
     fov
 }
 

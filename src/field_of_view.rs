@@ -13,6 +13,7 @@ pub struct FieldOfView {
     vertices_world_space: Vec<Vector4<f32>>,
 
     value: Option<Rad<f32>>, // fov can be None if the camera is out of the projection
+    screen_value: Option<Vector2<f32>>,
 
     cells: BTreeSet<HEALPixCell>,
     current_depth: u8,
@@ -83,6 +84,8 @@ lazy_static! {
     };
 }
 
+use crate::renderable::projection::Projection;
+
 impl FieldOfView {
     pub fn new() -> FieldOfView {
         let num_vertices_width = 3;
@@ -109,6 +112,7 @@ impl FieldOfView {
         }).collect::<Vec<_>>();
         let vertices_world_space = vec![Vector4::new(0_f32, 0_f32, 0_f32, 1_f32); vertices_screen_space.len()];
         let value = None;
+        let screen_value = None;
 
         let cells = ALLSKY.lock().unwrap().clone();
         let current_depth = 0;
@@ -121,43 +125,50 @@ impl FieldOfView {
             vertices_world_space,
 
             value,
+            screen_value,
 
             cells,
             current_depth,
         }
     }
 
-    pub fn update(&mut self, model: &Matrix4<f32>, zoom: f32, projection: &ProjectionType) {
-        self.vertices_world_space = self.vertices_screen_space.iter()
-            .filter_map(|vertex_screen_space| {
-                let vertex_homogeneous_space = vertex_screen_space / zoom;
-                let vertex_world_space = projection.screen_to_world_space(&vertex_homogeneous_space);
-                vertex_world_space
-            })
-            .collect::<Vec<_>>();
+    pub fn set<P: Projection>(&mut self, fov: Option<Rad<f32>>, projection: &P) {
+        self.value = fov;
 
-        self.value = if self.vertices_world_space.len() == self.num_vertices {
-            let idx_r = self.num_vertices_width + 1 + (((self.num_vertices_height as f32)/2_f32).ceil() as usize);
-            let idx_l = 2 * self.num_vertices_width + 3 + self.num_vertices_height + (((self.num_vertices_height as f32)/2_f32).ceil() as usize);
+        if let Some(fov) = fov {
+            let lon = fov.0.abs() / 2_f32;
 
-            let pos_r_world_space = cgmath::Vector3::new(
-                self.vertices_world_space[idx_r].x,
-                self.vertices_world_space[idx_r].y,
-                self.vertices_world_space[idx_r].z
-            );
-            let pos_l_world_space = cgmath::Vector3::new(
-                self.vertices_world_space[idx_l].x,
-                self.vertices_world_space[idx_l].y,
-                self.vertices_world_space[idx_l].z
-            );
+            let (width, height) = window_size_f32();
+            let aspect = width / height;
+            let lat = lon / aspect;
 
-            let fov = math::angular_distance_xyz(pos_r_world_space, pos_l_world_space);
-            Some(fov)
+            // Vertex in the WCS of the FOV
+            let v0 = math::radec_to_xyz(Rad(lon), Rad(lat));
+
+            // Project this vertex into the screen
+            let p0 = P::world_to_screen_space(v0)
+                .unwrap();
+
+            // Set the screen factor for the vertex shader
+            self.screen_value = Some(Vector2::new(p0.x.abs(), p0.y.abs()));
+
+            self.vertices_world_space = self.vertices_screen_space
+                .iter()
+                .filter_map(|vertex_screen_space| {
+                    let vertex_homogeneous_space = Vector2::new(
+                        vertex_screen_space.x / p0.x.abs(),
+                        vertex_screen_space.y / p0.y.abs(),
+                    );
+                    let vertex_world_space = P::screen_to_world_space(&vertex_homogeneous_space);
+                    vertex_world_space
+                })
+                .collect::<Vec<_>>();
         } else {
-            None
-        };
+            self.screen_value = None;
+        }
+    }
 
-        
+    pub fn translate(&mut self, model: &Matrix4<f32>) {
         let allsky = ALLSKY.lock().unwrap();
         self.cells = if let Some(fov) = self.value {
             // The fov does not cross the border of the projection
@@ -223,9 +234,8 @@ impl FieldOfView {
         };
     }
 
-    // Returns the HEALPix cells located in the
-    // field of view
-    pub fn cells(&self) -> &BTreeSet<HEALPixCell> {
+    // Returns the HEALPix cells in the field of view
+    pub fn get_healpix_cells(&self) -> &BTreeSet<HEALPixCell> {
         &self.cells
     }
 

@@ -1,9 +1,5 @@
 
 use std::rc::Rc;
-use std::cell::RefCell;
-
-use crate::renderable::Renderable;
-use crate::renderable::hips_sphere::HiPSSphere;
 
 #[derive(Clone, Copy)]
 #[derive(PartialEq)]
@@ -20,6 +16,7 @@ pub enum LastAction {
 
 use crate::field_of_view::FieldOfView;
 use cgmath::Rad;
+use cgmath::Vector2;
 pub struct ViewPort {
     gl: WebGl2Context,
     canvas: Rc<web_sys::HtmlCanvasElement>,
@@ -29,8 +26,8 @@ pub struct ViewPort {
 
     time_start_zoom: Option<f32>, // Absolute time of the beginning of a zoom (in ms)
     time_end_zoom: Option<f32>, // Duration of a zoom (in ms)
-    current_zoom: f32,
-    final_zoom: f32,
+    current_zoom: Vector2<f32>,
+    //final_zoom: f32,
 
     pub last_zoom_action: LastZoomAction,
     pub is_moving: bool,
@@ -52,7 +49,6 @@ use crate::WebGl2Context;
 use crate::{set_window_size, window_size_f32, window_size_u32};
 use wasm_bindgen::JsCast;
 
-use cgmath::Vector2;
 use cgmath::Deg;
 
 /// Set the scissor knowing the size in pixel of the
@@ -98,8 +94,8 @@ use crate::utils;
 use crate::renderable::catalog::Catalog;
 impl ViewPort {
     pub fn new(gl: &WebGl2Context, size_pixels: &Vector2<f32>) -> ViewPort {
-        let current_zoom = 1_f32;
-        let final_zoom = current_zoom;
+        let current_zoom = Vector2::new(1_f32, 1_f32);
+        //let final_zoom = current_zoom;
 
         let canvas = Rc::new(
             gl.canvas().unwrap()
@@ -134,7 +130,7 @@ impl ViewPort {
             time_end_zoom,
 
             current_zoom,
-            final_zoom,
+            //final_zoom,
 
             last_zoom_action,
             is_moving,
@@ -153,7 +149,10 @@ impl ViewPort {
 
     pub fn update_scissor(&self) {
         // Take into account the zoom factor
-        let current_size_scissor = self.default_size_scissor * self.current_zoom;
+        let current_size_scissor = Vector2::new(
+            self.default_size_scissor.x * self.current_zoom.x,
+            self.default_size_scissor.y * self.current_zoom.y
+        );
         set_gl_scissor(&self.gl, current_size_scissor);
     }
 
@@ -175,7 +174,8 @@ impl ViewPort {
         self.last_zoom_action = LastZoomAction::Zoom;
         self.last_action = LastAction::Zooming;
 
-        self.final_zoom *= (1_f32 + 0.01_f32 * amount);
+        //self.final_zoom *= (1_f32 + 0.01_f32 * amount);
+        self.fov = 
 
         self.time_start_zoom = Some(utils::get_current_time());
     }
@@ -251,12 +251,30 @@ impl ViewPort {
             // Check if the max fov for this HiPS has been reached
             // if so we stop zooming!
             if let Some(fov) = self.fov.value() {
+                // Compute the zoom factor based on the value of the fov if there is one.
+                // Get one vertex of the field of viez in the world coordinate system
+                let lon = fov.0.abs() / 2_f32;
+
+                let (width, height) = window_size_f32();
+                let aspect = width / height;
+                let lat = lon / aspect;
+
+                // Vertex in the WCS of the FOV
+                let v0 = math::radec_to_xyz(Rad(lon), Rad(lat));
+
+                // Project this vertex into the screen
+                let p0 = projection
+                    .world_to_screen_space(v0)
+                    .unwrap();
+
+                self.current_zoom = Vector2::new(p0.x.abs(), p0.y.abs());
+
                 // Zooming
-                if self.fov_max > *fov && self.current_zoom < self.final_zoom {
+                /*if self.fov_max > *fov && self.current_zoom < self.final_zoom {
                     self.stop_zooming();
                     //catalog.update(projection, self);
                     return;
-                }
+                }*/
             }
             // We update the zoom factor
             /*let t = (utils::get_current_time() - self.time_start_zoom.unwrap()) / (self.time_end_zoom.unwrap() - self.time_start_zoom.unwrap());
@@ -269,15 +287,16 @@ impl ViewPort {
             self.current_zoom += (self.final_zoom - self.current_zoom).signum() * v * dt * 1e-3;
             */
             // Here we are currently zooming
-            if (self.current_zoom - self.final_zoom).abs() < 1e-3 {
+            /*if (self.current_zoom - self.final_zoom).abs() < 1e-3 {
                 self.stop_zooming();
                 //catalog.update(projection, self);
                 return;
-            }
+            }*/
 
             // We update the zoom factor
             //self.current_zoom += (self.final_zoom - self.current_zoom) * 0.005_f32 * dt;
-            self.current_zoom = self.final_zoom;
+            //self.current_zoom = self.final_zoom;
+            self.stop_zooming();
 
             self.update_scissor();
         }
@@ -330,30 +349,24 @@ impl ViewPort {
         self.update_scissor();
     }
 
-    pub fn get_zoom_factor(&self) -> f32 {
+    /*pub fn get_zoom_factor(&self) -> f32 {
         self.current_zoom
-    }
+    }*/
 
     /// Warning: this is executed by all the shaders
     pub fn send_to_vertex_shader(&self, gl: &WebGl2RenderingContext, shader: &Shader) {
-        // Send zoom factor
-        let zoom_factor_location = shader.get_uniform_location("zoom_factor");
-        gl.uniform1f(zoom_factor_location, self.current_zoom);
-
-        // Send last zoom action
-        let last_zoom_action_location = shader.get_uniform_location("last_zoom_action");
-        gl.uniform1i(last_zoom_action_location, self.last_zoom_action as i32);
         // Send window size
-        /*let location_resize_factor_x = shader.get_uniform_location(gl, "resize_factor_x");
-        gl.uniform1f(location_resize_factor_x.as_ref(), self.resize_factor_x);
-        
-        let location_resize_factor_y = shader.get_uniform_location(gl, "resize_factor_y");
-        gl.uniform1f(location_resize_factor_y.as_ref(), self.resize_factor_y);
-        */
         let location_aspect = shader.get_uniform_location("aspect");
 
         let (width, height) = window_size_f32();
         let aspect = width / height;
         gl.uniform1f(location_aspect, aspect);
+        // Send zoom factor
+        let zoom_factor_location = shader.get_uniform_location("zoom_factor");
+        gl.uniform2f(zoom_factor_location, self.current_zoom);
+
+        // Send last zoom action
+        let last_zoom_action_location = shader.get_uniform_location("last_zoom_action");
+        gl.uniform1i(last_zoom_action_location, self.last_zoom_action as i32);
     }
 }
