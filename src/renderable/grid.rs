@@ -252,7 +252,7 @@ impl ProjetedGrid {
         };
 
         grid.update_grid_positions(&cgmath::Matrix4::identity(), projection);
-        grid.update_label_positions(&cgmath::Matrix4::identity(), &projection, Some(viewport));
+        grid.update_label_positions(&cgmath::Matrix4::identity(), &projection, viewport);
 
         grid
     }
@@ -277,7 +277,7 @@ impl ProjetedGrid {
         //let num_vertices = self.lat.len() * (self.num_points_lon - 1) * 2;
         self.idx_vertices = vec![0; num_vertices];
 
-        let mut threshold_px = 2_f32 * (100_f32 / width_screen);
+        let mut threshold_px = 2_f32 * (200_f32 / width_screen);
         threshold_px = threshold_px * threshold_px;
 
         let mut i = 0;
@@ -325,16 +325,12 @@ impl ProjetedGrid {
         }
     }
 
-    pub fn update_label_positions(&mut self, local_to_world_mat: &Matrix4<f32>, projection: &ProjectionType, viewport: Option<&ViewPort>) {
+    pub fn update_label_positions(&mut self, local_to_world_mat: &Matrix4<f32>, projection: &ProjectionType, viewport: &ViewPort) {
         let (mut width_screen, mut height_screen) = window_size_f32();
         width_screen *= DEGRADE_CANVAS_RATIO;
         height_screen *= DEGRADE_CANVAS_RATIO;
 
-        let viewport_zoom_factor = if let Some(viewport) = viewport {
-            viewport.get_zoom_factor()
-        } else {
-            1_f32
-        };
+        let viewport_zoom_factor = viewport.get_screen_scaling_factor();
 
         // UPDATE LABEL POSITIONS
         self.label_pos_screen_space.clear();
@@ -347,10 +343,10 @@ impl ProjetedGrid {
             
             // multiply by the zoom factor from the viewport
             let mut pos_screen_space = cgmath::Vector2::new(
-                (((label_pos_screen_space.x * 0.5_f32) * viewport_zoom_factor + 0.5_f32) * width_screen) as f64,
-                ((-label_pos_screen_space.y * 0.5_f32) * width_screen * viewport_zoom_factor + 0.5_f32 * height_screen) as f64
+                (((label_pos_screen_space.x * 0.5_f32) / viewport_zoom_factor.x + 0.5_f32) * width_screen) as f64,
+                ((-label_pos_screen_space.y * 0.5_f32) * width_screen / viewport_zoom_factor.y + 0.5_f32 * height_screen) as f64
             );
-            pos_screen_space += cgmath::Vector2::new(-offset_pos_screen / 2_f64, self.font_size / 2_f64);
+            pos_screen_space += cgmath::Vector2::new(-offset_pos_screen / (2_f64 * (viewport_zoom_factor.x as f64)), self.font_size / (2_f64 * (viewport_zoom_factor.y as f64)));
 
             self.label_pos_screen_space.push(pos_screen_space);
         }
@@ -438,7 +434,7 @@ impl Mesh for ProjetedGrid {
         self.update_label_positions(
             local_to_world,
             projection,
-            Some(viewport)
+            viewport
         );
 
         // Update the VAO

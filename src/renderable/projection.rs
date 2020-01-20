@@ -2,7 +2,7 @@ use crate::viewport::ViewPort;
 
 use crate::window_size_f32;
 use crate::DEGRADE_CANVAS_RATIO;
-
+use web_sys::console;
 pub fn screen_pixels_to_homogenous(screen_pos: &Vector2<f32>, viewport: &ViewPort) -> Vector2<f32> {
     // Screen space in pixels to homogeneous screen space (values between [-1, 1])
     let (mut width, mut height) = window_size_f32();
@@ -14,8 +14,12 @@ pub fn screen_pixels_to_homogenous(screen_pos: &Vector2<f32>, viewport: &ViewPor
     // Scale to fit in [-1, 1]
     let homogeneous_pos = Vector2::new(2_f32 * (origin.x/width), -2_f32 * (origin.y/height));
 
-    let zoom_factor = viewport.get_zoom_factor();
-    homogeneous_pos / zoom_factor
+    let zoom_factor = viewport.get_screen_scaling_factor();
+    console::log_1(&format!("screen pixels {:?}", zoom_factor).into());
+    Vector2::new(
+        homogeneous_pos.x * zoom_factor.x,
+        homogeneous_pos.y * zoom_factor.y
+    )
 }
 
 pub trait Projection {
@@ -185,7 +189,7 @@ impl Projection for Aitoff {
         let (width, height) = window_size_f32();
         let aspect = width / height;
 
-        let (x, y) = (pos.x, pos.y/aspect);
+        let (x, y) = (pos.x, pos.y);
 
         let a = 1_f32;
         let b = 0.5_f32;
@@ -309,7 +313,7 @@ impl Projection for MollWeide {
         let (width, height) = window_size_f32();
         let aspect = width / height;
 
-        let (x, y) = (pos.x, pos.y/aspect);
+        let (x, y) = (pos.x, pos.y);
 
         let a = 1_f32;
         let b = 0.5_f32;
@@ -431,10 +435,7 @@ impl Projection for Orthographic {
     /// * `x` - in normalized device coordinates between [-1; 1]
     /// * `y` - in normalized device coordinates between [-1; 1]
     fn screen_to_world_space(pos: &Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
-        let (width, height) = window_size_f32();
-        let aspect = width / height;
-
-        let (x, y) = (pos.x * aspect, pos.y);
+        let (x, y) = (pos.x, pos.y);
 
         let xw_2 = 1_f32 - x*x - y*y;
 
@@ -455,11 +456,17 @@ impl Projection for Orthographic {
     /// * `pos_world_space` - Position in the world space. Must be a normalized vector
     fn world_to_screen_space(pos_world_space: cgmath::Vector4<f32>) -> Option<cgmath::Vector2<f32>> {
         let (width, height) = window_size_f32();
-        let aspect = height / width;
+        /*let aspect = height / width;
         Some(cgmath::Vector2::new(
             -pos_world_space.x,
             pos_world_space.y,
-        ) * aspect)
+        ) * aspect)*/
+        Some(
+            cgmath::Vector2::new(
+                -pos_world_space.x,
+                pos_world_space.y,
+            )
+        )
     }
 
     fn size() -> cgmath::Vector2<f32> {

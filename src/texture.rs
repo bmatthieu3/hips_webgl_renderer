@@ -848,7 +848,7 @@ impl Texture2D {
             WebGl2RenderingContext::UNSIGNED_BYTE,
             None
         ).expect("Texture 2D");
-        gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_2D);
+        //gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_2D);
 
         Texture2D::new(Rc::new(RefCell::new(webgl_texture)), idx_texture_unit)
     }

@@ -1,3 +1,4 @@
+#![feature(const_fn)]
 #[macro_use]
 extern crate lazy_static;
 extern crate itertools_num;
@@ -58,7 +59,6 @@ use std::sync::atomic::{AtomicU32, AtomicU8, AtomicBool};
 use std::sync::atomic::Ordering;
 
 use crate::render_next_frame::RENDER_FRAME;
-use crate::render_next_frame::UPDATE_FRAME;
 use crate::render_next_frame::UPDATE_USER_INTERFACE;
 
 use crate::event::Move;
@@ -249,7 +249,7 @@ impl App {
         );
 
         // Viewport definition
-        let viewport = ViewPort::new(&gl, &projection.size());
+        let viewport = ViewPort::new(&gl, &projection);
 
         // Grid definition
         let lon_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-30_f32).into(), cgmath::Deg(30_f32).into());
@@ -317,7 +317,7 @@ impl App {
     fn update(&mut self, dt: f32) {
         // Update the camera. When the camera has reached its final position
         // then we stop rendering the next frames!
-        self.viewport.update(&self.hips_sphere.get_model_mat(), &self.projection, dt);
+        self.viewport.update(&self.hips_sphere.get_model_mat());
         
         if !UPDATE_USER_INTERFACE.load(Ordering::Relaxed) {
             RENDER_FRAME.lock().unwrap().update(&self.viewport);
@@ -363,8 +363,6 @@ impl App {
 
     fn render(&self) {
         if RENDER_FRAME.lock().unwrap().get() {
-            //console::log_1(&format!("render").into());
-
             // Render the scene
             self.gl.clear_color(0.08, 0.08, 0.08, 1.0);
             self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
@@ -479,9 +477,9 @@ impl App {
     // ZOOM EVENT
     fn zoom(&mut self, delta_y: f32) {
         if delta_y < 0_f32 {
-            self.viewport.zoom(-delta_y);
+            self.viewport.zoom(&self.projection);
         } else {
-            self.viewport.unzoom(delta_y);
+            self.viewport.unzoom(&self.projection);
         }
     }
 

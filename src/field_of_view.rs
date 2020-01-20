@@ -85,7 +85,7 @@ lazy_static! {
 }
 
 use crate::renderable::projection::Projection;
-
+use web_sys::console;
 impl FieldOfView {
     pub fn new() -> FieldOfView {
         let num_vertices_width = 3;
@@ -132,7 +132,7 @@ impl FieldOfView {
         }
     }
 
-    pub fn set<P: Projection>(&mut self, fov: Option<Rad<f32>>, projection: &P) {
+    pub fn set(&mut self, fov: Option<Rad<f32>>, projection: &ProjectionType) {
         self.value = fov;
 
         if let Some(fov) = fov {
@@ -146,20 +146,24 @@ impl FieldOfView {
             let v0 = math::radec_to_xyz(Rad(lon), Rad(lat));
 
             // Project this vertex into the screen
-            let p0 = P::world_to_screen_space(v0)
+            let p0 = projection.world_to_screen_space(v0)
                 .unwrap();
 
             // Set the screen factor for the vertex shader
-            self.screen_value = Some(Vector2::new(p0.x.abs(), p0.y.abs()));
+            let (scale_screen_x, scale_screen_y) = (p0.x.abs(), p0.y.abs());
+            self.screen_value = Some(Vector2::new(scale_screen_x, scale_screen_y));
 
             self.vertices_world_space = self.vertices_screen_space
                 .iter()
                 .filter_map(|vertex_screen_space| {
+                    /* Screen space vertices of the FOV are in the screen space (ie. between [-1; 1])
+                    One needs to scale it to the homogeneous space first */ 
                     let vertex_homogeneous_space = Vector2::new(
-                        vertex_screen_space.x / p0.x.abs(),
-                        vertex_screen_space.y / p0.y.abs(),
+                        vertex_screen_space.x * p0.x.abs(),
+                        vertex_screen_space.y * p0.y.abs(),
                     );
-                    let vertex_world_space = P::screen_to_world_space(&vertex_homogeneous_space);
+                    // And unproj to get the FOV in the world space
+                    let vertex_world_space = projection.screen_to_world_space(&vertex_homogeneous_space);
                     vertex_world_space
                 })
                 .collect::<Vec<_>>();
@@ -181,7 +185,7 @@ impl FieldOfView {
                 let l = width;
                 // Compute the depth corresponding to the angular resolution of a pixel
                 // along the width of the screen
-                let mut depth = std::cmp::min(math::ang_per_pixel_to_depth(fov.0 / l), MAX_DEPTH.load(atomic::Ordering::Relaxed));
+                let mut depth = std::cmp::min(math::fov_to_depth(fov), MAX_DEPTH.load(atomic::Ordering::Relaxed));
                 //console::log_1(&format!("depth {:?}", depth).into());
                 let cells = if depth == 0 {
                     allsky.clone()
@@ -232,6 +236,8 @@ impl FieldOfView {
             self.current_depth = 0;
             allsky.clone()
         };
+
+        console::log_1(&format!("current depth {:?}", self.current_depth).into());
     }
 
     // Returns the HEALPix cells in the field of view
@@ -245,5 +251,9 @@ impl FieldOfView {
 
     pub fn value(&self) -> &Option<Rad<f32>> {
         &self.value
+    }
+
+    pub fn get_screen_scaling_factor(&self) -> Option<Vector2<f32>> {
+        self.screen_value
     }
 }

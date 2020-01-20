@@ -510,7 +510,7 @@ impl Mesh for HiPSSphere {
     ) {
         let field_of_view = viewport.field_of_view();
 
-        let tiles_fov = field_of_view.cells();
+        let tiles_fov = field_of_view.get_healpix_cells();
         let current_depth = field_of_view.get_current_depth();
 
         let prev_depth = DEPTH.load(Ordering::Relaxed);
@@ -528,7 +528,7 @@ impl Mesh for HiPSSphere {
         if self.fov_mode {
             //let mut tiles_rendered = BTreeSet::new();
             let buffer = self.buffer.borrow();
-            let vertices = if current_depth <= 2 {
+            let vertices = if current_depth <= 1 {
                 (0..192).map(|idx| {
                     let uv_start = [Vector2::new(0_f32, 0_f32); 4];
 

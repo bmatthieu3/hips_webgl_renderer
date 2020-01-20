@@ -33,7 +33,7 @@ pub fn radec_to_xyz(theta: cgmath::Rad<f32>, delta: cgmath::Rad<f32>) -> cgmath:
     )
 }
 
-pub fn ang_per_pixel_to_depth(x: f32) -> u8 {
+/*pub fn ang_per_pixel_to_depth(x: f32) -> u8 {
     let depth_pixel = (((4_f32 * std::f32::consts::PI) / (12_f32 * x * x)).log2() / 2_f32).floor() as i32;
 
     let mut depth = depth_pixel - 9;
@@ -41,14 +41,13 @@ pub fn ang_per_pixel_to_depth(x: f32) -> u8 {
         depth = 0;
     }
     depth as u8
-}
+}*/
 
 use crate::window_size_f32;
 pub fn fov_to_depth(fov: Rad<f32>) -> u8 {
-    let (width_screen, _) = window_size_f32();
-    let pixel_ang = fov.0 / width_screen;
+    let pixel_ang = fov.0 / window_size_f32().0;
 
-    let depth_pixel = (((4_f32 * std::f32::consts::PI) / (12_f32 * pixel_ang * pixel_ang)).log2() / 2_f32).floor() as i32;
+    let mut depth_pixel = (((4_f32 * std::f32::consts::PI) / (12_f32 * pixel_ang * pixel_ang)).log2() / 2_f32).ceil() as i32;
 
     let mut depth = depth_pixel - 9;
     if depth < 0 {
@@ -59,15 +58,13 @@ pub fn fov_to_depth(fov: Rad<f32>) -> u8 {
 
 use web_sys::console;
 pub fn depth_to_fov(depth: u8) -> Rad<f32> {
-    let depth_pixel = depth + 9;
+    let depth = depth + 9;
 
-    //let c = (12 << (2*depth_pixel)) as f32;
-    let pixel_ang = Rad((4_f32 * std::f32::consts::PI / (12_f32 * 4_f32.powf(2_f32 * (depth_pixel as f32)))).sqrt());
+    let sphere_area = 4_f32 * std::f32::consts::PI;
+    let num_hpx_cells = 12_f32 * 4_f32.powf(depth as f32);
+    let hpx_cell_ang = Rad((sphere_area / num_hpx_cells).sqrt());
 
-    let (width_screen, _) = window_size_f32();
-    let fov = pixel_ang * width_screen;
-
-    fov
+    hpx_cell_ang * window_size_f32().0
 }
 
 use cgmath::Vector2;

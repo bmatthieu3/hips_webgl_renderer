@@ -38,14 +38,14 @@ pub static CONTENT: &'static str = r#"#version 300 es
         return vec2(x / PI, aspect * y / PI);
     }
     vec2 world2screen_orthographic(vec3 p) {
-        return vec2(-p.x / aspect, p.y);
+        return vec2(-p.x, p.y);
     }
 
     void main() {
         vec3 p = vec3(model * vec4(center, 1.0f));
 
-        vec2 screen_pos = world2screen_orthographic(p) + offset * (0.02f / zoom_factor) * vec2(1.f, aspect);
-        gl_Position = vec4(screen_pos * zoom_factor, 0.f, 1.f);
+        vec2 screen_pos = world2screen_orthographic(p) + offset * (0.02f * zoom_factor) * vec2(1.f, aspect);
+        gl_Position = vec4(screen_pos / zoom_factor, 0.f, 1.f);
         out_uv = uv;
         out_p = p;
     }
