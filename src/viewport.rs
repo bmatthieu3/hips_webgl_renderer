@@ -29,13 +29,15 @@ pub struct ViewPort {
     screen_scaling: Vector2<f32>,
     fov_lookup_table: [Rad<f32>; NUM_WHEEL_PER_DEPTH * 29],
     zoom_index: usize,
-    //final_zoom: f32,
-
+    
+    has_zoomed: bool,
     pub last_zoom_action: LastZoomAction,
-    pub is_moving: bool,
-    is_inertia: bool,
 
-    is_action: bool,
+    has_moved: bool,
+    action: bool,
+    //is_inertia: bool,
+
+    //is_action: bool,
     pub last_action: LastAction,
 
     // Store the size in pixels of the hips sphere
@@ -81,8 +83,7 @@ fn field_of_view_table() -> [Rad<f32>; NUM_WHEEL_PER_DEPTH * 29] {
         }
     }
 
-    console::log_1(&format!("stop inertia {:?}", fov[0]).into());
-
+    console::log_1(&format!("FOV table {:?}", fov[0]).into());
 
     fov
 }
@@ -92,10 +93,16 @@ use web_sys::console;
 use crate::math;
 use std::sync::atomic::Ordering;
 use crate::MAX_DEPTH;
-use crate::print_to_console;
 use cgmath::Matrix4;
+use crate::renderable::hips_sphere::HiPSSphere;
+use crate::renderable::Renderable;
+
+use crate::renderable::catalog::Catalog;
+use crate::renderable::grid::ProjetedGrid;
+use crate::mouse_inertia::MouseInertia;
+
 impl ViewPort {
-    pub fn new(gl: &WebGl2Context, projection: &ProjectionType) -> ViewPort {
+    pub fn new(gl: &WebGl2Context, projection: &ProjectionType, hips_sphere: &Renderable<HiPSSphere>) -> ViewPort {
         //let final_zoom = current_zoom;
 
         let canvas = Rc::new(
@@ -105,9 +112,9 @@ impl ViewPort {
         );
 
         let last_zoom_action = LastZoomAction::Unzoom;
-        let is_moving = false;
-        let is_action = false;
-        let is_inertia = false;
+        let has_moved = false;
+        let has_zoomed = false;
+        let action = false;
 
         let last_action = LastAction::Moving;
 
@@ -120,8 +127,8 @@ impl ViewPort {
         let fov_lookup_table = field_of_view_table();
         let zoom_index = 0;
         
-        let mut fov = FieldOfView::new();
-        fov.set(Some(fov_lookup_table[0]), projection);
+        let mut fov = FieldOfView::new(&hips_sphere.mesh().get_buffer().borrow());
+        fov.set_aperture(Some(fov_lookup_table[0]), projection, hips_sphere);
         let screen_scaling = if let Some(screen_scaling) = fov.get_screen_scaling_factor() {
             screen_scaling
         } else {
@@ -140,13 +147,13 @@ impl ViewPort {
             screen_scaling,
             fov_lookup_table,
             zoom_index,
-            //final_zoom,
 
+            has_zoomed,
             last_zoom_action,
-            is_moving,
-            is_inertia,
 
-            is_action,
+            has_moved,
+
+            action,
             last_action,
 
             default_size_scissor,
@@ -165,7 +172,7 @@ impl ViewPort {
         set_gl_scissor(&self.gl, current_size_scissor);
     }
 
-    pub fn zoom(&mut self, projection: &ProjectionType) {
+    pub fn zoom(&mut self, projection: &ProjectionType, hips_sphere: &Renderable<HiPSSphere>) {
         self.last_zoom_action = LastZoomAction::Zoom;
         self.last_action = LastAction::Zooming;
 
@@ -173,18 +180,20 @@ impl ViewPort {
             self.zoom_index += 1;
         }
 
-        self.fov.set(Some(self.fov_lookup_table[self.zoom_index]), projection);
+        self.fov.set_aperture(Some(self.fov_lookup_table[self.zoom_index]), projection, hips_sphere);
+
         self.screen_scaling = if let Some(screen_scaling) = self.fov.get_screen_scaling_factor() {
             screen_scaling
         } else {
             Vector2::new(1_f32, 1_f32 / self.aspect)
         };
-        self.is_action = true;
+        self.action = true;
+        self.has_zoomed = true;
 
         self.update_scissor();
     }
 
-    pub fn unzoom(&mut self, projection: &ProjectionType) {
+    pub fn unzoom(&mut self, projection: &ProjectionType, hips_sphere: &Renderable<HiPSSphere>) {
         self.last_zoom_action = LastZoomAction::Unzoom;
         self.last_action = LastAction::Zooming;
 
@@ -192,101 +201,48 @@ impl ViewPort {
             self.zoom_index -= 1;
         }
 
-        self.fov.set(Some(self.fov_lookup_table[self.zoom_index]), projection);
+        self.fov.set_aperture(Some(self.fov_lookup_table[self.zoom_index]), projection, hips_sphere);
         self.screen_scaling = if let Some(screen_scaling) = self.fov.get_screen_scaling_factor() {
             screen_scaling
         } else {
             Vector2::new(1_f32, 1_f32 / self.aspect)
         };
-        self.is_action = true;
+        self.action = true;
+        self.has_zoomed = true;
 
         self.update_scissor();
     }
 
-    pub fn displacement(&mut self) {
-        self.is_moving = true;
-        self.is_action = true;
+    pub fn displacement(&mut self, hips_sphere: &Renderable<HiPSSphere>) {
+        self.has_moved = true;
+        self.action = true;
+
         self.last_action = LastAction::Moving;
+
+        self.fov.translate(hips_sphere);
     }
 
-    pub fn stop_displacement(&mut self) {
-        self.is_moving = false;
-
-        if !self.is_inertia {
-            self.is_action = false;
-        }
-    }
-
-    pub fn stop_zooming(&mut self) {
-        if !self.is_moving && !self.is_inertia {
-            self.is_action = false;
-        }
-    }
-
-    pub fn start_inertia(&mut self) {
-        self.is_inertia = true;
-        self.is_action = true;
-    }
-
-    pub fn stop_inertia(&mut self) {
-        console::log_1(&format!("stop inertia").into());
-
-        self.is_inertia = false;
-
-        if !self.is_moving {
-            self.is_action = false;
-        }
-    }
-
-    pub fn update(&mut self, model: &Matrix4<f32>) {
-        // If there is an action whether it is a zoom or a displacement
-        // then we update the fov
-        if self.is_action {
-            console::log_1(&format!("update FOV").into());
-            self.fov.translate(model);
-        }
-
-        self.stop_zooming();
-
-        /*if self.is_zooming {
-            // Check if the max fov for this HiPS has been reached
-            // if so we stop zooming!
-            /*if let Some(fov) = self.fov.value() {
-                // Zooming
-                if self.fov_max > *fov && self.current_zoom < self.final_zoom {
-                    self.stop_zooming();
-                    //catalog.update(projection, self);
-                    return;
-                }
+    pub fn update(&mut self, mut inertia: &mut Option<MouseInertia>, grid: &mut Renderable<ProjetedGrid>, catalog: &mut Renderable<Catalog>, hips_sphere: &mut Renderable<HiPSSphere>) {
+        // Look for inertia
+        if let Some(ref mut inertia_int) = &mut inertia {
+            if inertia_int.update(
+                hips_sphere,
+                grid,
+                catalog,
+                self
+            ) {
+                *inertia = None;
             }
-            // We update the zoom factor
-            /*let t = (utils::get_current_time() - self.time_start_zoom.unwrap()) / (self.time_end_zoom.unwrap() - self.time_start_zoom.unwrap());
+        }
 
-            let v = self.compute_speed(t);
-            if v < 1e-3 {
-                self.stop_zooming();
-                return;
-            }
-            self.current_zoom += (self.final_zoom - self.current_zoom).signum() * v * dt * 1e-3;
-            */
-            // Here we are currently zooming
-            if (self.current_zoom - self.final_zoom).abs() < 1e-3 {
-                self.stop_zooming();
-                //catalog.update(projection, self);
-                return;
-            }
-            */
-
-            // We update the zoom factor
-            //self.current_zoom += (self.final_zoom - self.current_zoom) * 0.005_f32 * dt;
-            //self.current_zoom = self.final_zoom;
-            //self.stop_zooming();
-        }*/
+        self.fov.update();
     }
-    pub fn set_max_field_of_view(&mut self, max_fov: Rad<f32>) {
-        self.fov_max = max_fov;
-        let deg: Deg<f32> = self.fov_max.into();
-        print_to_console!("fov max {:?}", deg.0);
+
+    pub fn clear_actions(&mut self) {
+        self.action = false;
+
+        self.has_moved = false;
+        self.has_zoomed = false;
     }
 
     pub fn field_of_view(&self) -> &FieldOfView {
@@ -294,7 +250,7 @@ impl ViewPort {
     }
 
     pub fn is_user_action(&self) -> bool {
-        self.is_action
+        self.action
     }
 
     pub fn resize(&mut self, new_size_scissor: &Vector2<f32>) {
@@ -307,15 +263,12 @@ impl ViewPort {
         self.gl.viewport(0, 0, width as i32, height as i32);
 
         self.default_size_scissor = *new_size_scissor;
-        self.update_scissor();
+        //self.update_scissor();
     }
 
     pub fn get_screen_scaling_factor(&self) -> &Vector2<f32> {
         &self.screen_scaling
     }
-    /*pub fn get_zoom_factor(&self) -> f32 {
-        self.current_zoom
-    }*/
 
     /// Warning: this is executed by all the shaders
     pub fn send_to_vertex_shader(&self, gl: &WebGl2RenderingContext, shader: &Shader) {

@@ -555,6 +555,10 @@ impl BufferTiles {
         self.size_binary_heap + 12
     }
 
+    pub fn len_variable_tiles(&self) -> usize {
+        self.size_binary_heap
+    }
+
     pub fn clear(&mut self) {
         // TODO: Clear the texture
         self.buffer.clear();

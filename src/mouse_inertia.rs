@@ -15,7 +15,7 @@ use crate::viewport::ViewPort;
 
 use crate::event::Move;
 use crate::utils;
-
+use web_sys::console;
 const DURATION: f32 = 10_f32;
 impl MouseInertia {
     pub fn new(
@@ -34,7 +34,7 @@ impl MouseInertia {
         } else {
             // Tell the viewport we enter in the inertia
             // mode
-            viewport.start_inertia();
+            //viewport.start_inertia();
 
             //let v0 = 0.0003_f32;
             let axis = event.get_axis();
@@ -53,12 +53,12 @@ impl MouseInertia {
         hips_sphere: &mut Renderable<HiPSSphere>,
         grid: &mut Renderable<ProjetedGrid>,
         catalog: &mut Renderable<Catalog>,
-        viewport: &mut ViewPort,
-        dt: f32,
+        viewport: &mut ViewPort
     ) -> bool {
+        console::log_1(&format!("inertia").into());
         if self.x < 1e-5 {
             // Stop inertia
-            viewport.stop_inertia();
+            //viewport.stop_inertia();
             return true;
         }
 
@@ -72,6 +72,9 @@ impl MouseInertia {
         let inv_model_mat = hips_sphere.get_inverted_model_mat();
         grid.set_model_mat(inv_model_mat);
         catalog.set_model_mat(inv_model_mat);
+
+        // Move the viewport
+        viewport.displacement(hips_sphere);
 
         self.x = dx;
 

@@ -90,7 +90,7 @@ impl Move {
                 catalog.set_model_mat(inv_model_mat);
 
                 self.start_world_pos = world_pos;
-                viewport.displacement();
+                viewport.displacement(hips_sphere);
 
                 // Update the time to the current move
                 self.last_time = utils::get_current_time();

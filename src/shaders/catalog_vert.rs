@@ -10,7 +10,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
     uniform float current_time;
     uniform mat4 model;
     uniform float aspect;
-    uniform float zoom_factor;
+    uniform vec2 zoom_factor;
     uniform float strength;
 
     const float PI = 3.1415926535897932384626433832795f;

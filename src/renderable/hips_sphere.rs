@@ -204,7 +204,7 @@ impl RenderingMode for SmallFieldOfViewRenderingMode {
 
         //vertices_data.extend(vec![0_f32; 8480]);
         */
-        vec![0_f32; 20000]
+        vec![0_f32; 32000]
     }
 
     fn create_index_array() -> Option<Vec<u16>> {
@@ -423,6 +423,10 @@ impl<'a> HiPSSphere {
         self.buffer.borrow_mut()
             .clear();
     }
+
+    pub fn get_buffer(&self) -> Rc<RefCell<BufferTiles>> {
+        self.buffer.clone()
+    }
 }
 
 use std::collections::HashMap;
@@ -510,8 +514,8 @@ impl Mesh for HiPSSphere {
     ) {
         let field_of_view = viewport.field_of_view();
 
-        let tiles_fov = field_of_view.get_healpix_cells();
-        let current_depth = field_of_view.get_current_depth();
+        let tiles_fov = field_of_view.healpix_cells();
+        let current_depth = field_of_view.current_depth();
 
         let prev_depth = DEPTH.load(Ordering::Relaxed);
         DEPTH.store(current_depth, Ordering::Relaxed);
@@ -533,7 +537,7 @@ impl Mesh for HiPSSphere {
                     let uv_start = [Vector2::new(0_f32, 0_f32); 4];
 
                     let tile = Tile::new(HEALPixCell(2, idx));
-                    let parent_tile_buffer = get_parent(&tile, 0, &buffer).unwrap();
+                    let parent_tile_buffer = get_parent(&tile, current_depth, &buffer).unwrap();
                     let uv_end = get_uv_in_parent(&tile, &parent_tile_buffer);
 
                     let mut vertex_array = Vec::with_capacity(10 * 6);

@@ -247,9 +247,8 @@ impl App {
             &shaders["hips_sphere"],
             hips_sphere_mesh,
         );
-
         // Viewport definition
-        let viewport = ViewPort::new(&gl, &projection);
+        let viewport = ViewPort::new(&gl, &projection, &hips_sphere);
 
         // Grid definition
         let lon_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-30_f32).into(), cgmath::Deg(30_f32).into());
@@ -315,32 +314,19 @@ impl App {
     } 
 
     fn update(&mut self, dt: f32) {
-        // Update the camera. When the camera has reached its final position
-        // then we stop rendering the next frames!
-        self.viewport.update(&self.hips_sphere.get_model_mat());
-        
         if !UPDATE_USER_INTERFACE.load(Ordering::Relaxed) {
             RENDER_FRAME.lock().unwrap().update(&self.viewport);
             //UPDATE_FRAME.lock().unwrap().update(&self.viewport);
         } else {
             UPDATE_USER_INTERFACE.store(false, Ordering::Relaxed);
         }
+
+        // Update the camera. When the camera has reached its final position
+        // then we stop rendering the next frames!
+        self.viewport.update(&mut self.inertia, &mut self.grid, &mut self.catalog, &mut self.hips_sphere);
+
         // Updating
         if RENDER_FRAME.lock().unwrap().get() {
-            //console::log_1(&format!("update").into());
-            // Look for inertia
-            if let Some(ref mut inertia) = &mut self.inertia {
-                if inertia.update(
-                    &mut self.hips_sphere,
-                    &mut self.grid,
-                    &mut self.catalog,
-                    &mut self.viewport,
-                    dt
-                ) {
-                    self.inertia = None;
-                }
-            }
-
             // Update the fov
             self.hips_sphere
                 .update(
@@ -419,18 +405,13 @@ impl App {
 
         // Re-initialize the color buffers
         self.hips_sphere.mesh_mut().refresh_buffer_tiles();
-
-        // Tell the viewport the maximum zoom level has changed
-        // based on the new value of MAX_DEPTH
-        let fov_max = math::depth_to_fov(MAX_DEPTH.load(Ordering::Relaxed));
-        self.viewport.set_max_field_of_view(fov_max);
     }
 
     /// MOVE EVENT
     fn initialize_move(&mut self, screen_pos: Vector2<f32>) {
         // stop inertia if there is one
         self.inertia = None;
-        self.viewport.stop_inertia();
+        //self.viewport.stop_inertia();
 
         let ref projection = self.projection;
         self.move_event = Move::new(screen_pos, projection, &self.viewport);
@@ -455,7 +436,7 @@ impl App {
     fn stop_move(&mut self, screen_pos: Vector2<f32>) {
         if let Some(ref mut move_event) = self.move_event {
             console::log_1(&format!("stop moving").into());
-            self.viewport.stop_displacement();
+            //self.viewport.stop_displacement();
 
             if ENABLE_INERTIA.load(Ordering::Relaxed) {
                 // Do not perform the inertia effect if the released
@@ -477,9 +458,9 @@ impl App {
     // ZOOM EVENT
     fn zoom(&mut self, delta_y: f32) {
         if delta_y < 0_f32 {
-            self.viewport.zoom(&self.projection);
+            self.viewport.zoom(&self.projection, &self.hips_sphere);
         } else {
-            self.viewport.unzoom(&self.projection);
+            self.viewport.unzoom(&self.projection, &self.hips_sphere);
         }
     }
 
@@ -664,7 +645,7 @@ impl WebClient {
             self.app.grid
                 .update(
                     &self.app.projection,
-                    &self.app.viewport
+                    &mut self.app.viewport
                 );
         }
         RENDER_FRAME.lock().unwrap().set(true);

@@ -44,10 +44,16 @@ pub fn radec_to_xyz(theta: cgmath::Rad<f32>, delta: cgmath::Rad<f32>) -> cgmath:
 }*/
 
 use crate::window_size_f32;
+// Used for selecting the current depth for a given FOV
+// We need to select a depth so that we do not see any pixels
+// This takes into account the screen resolution and can impact
+// the number of healpix cells to load. Bigger resolution will need
+// more cells which can overfit the buffer!
 pub fn fov_to_depth(fov: Rad<f32>) -> u8 {
     let pixel_ang = fov.0 / window_size_f32().0;
 
-    let mut depth_pixel = (((4_f32 * std::f32::consts::PI) / (12_f32 * pixel_ang * pixel_ang)).log2() / 2_f32).ceil() as i32;
+    //let depth_pixel = (((4_f32 * std::f32::consts::PI) / (12_f32 * pixel_ang * pixel_ang)).log2() / 2_f32) as i32;
+    let depth_pixel = (((4_f32 * std::f32::consts::PI) / (12_f32 * pixel_ang * pixel_ang)).log2() / 2_f32).ceil() as i32;
 
     let mut depth = depth_pixel - 9;
     if depth < 0 {
@@ -56,15 +62,12 @@ pub fn fov_to_depth(fov: Rad<f32>) -> u8 {
     depth as u8
 }
 
-use web_sys::console;
 pub fn depth_to_fov(depth: u8) -> Rad<f32> {
-    let depth = depth + 9;
-
     let sphere_area = 4_f32 * std::f32::consts::PI;
     let num_hpx_cells = 12_f32 * 4_f32.powf(depth as f32);
     let hpx_cell_ang = Rad((sphere_area / num_hpx_cells).sqrt());
 
-    hpx_cell_ang * window_size_f32().0
+    hpx_cell_ang
 }
 
 use cgmath::Vector2;

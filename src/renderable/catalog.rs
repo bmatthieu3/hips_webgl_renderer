@@ -280,8 +280,8 @@ impl Mesh for Catalog {
     ) {
         let field_of_view = viewport.field_of_view();
 
-        let mut current_field_of_view = field_of_view.get_healpix_cells();
-        let current_depth = field_of_view.get_current_depth();
+        let mut current_field_of_view = field_of_view.healpix_cells();
+        let current_depth = field_of_view.current_depth();
 
         let mut rebuild_binary_heap = true;
 

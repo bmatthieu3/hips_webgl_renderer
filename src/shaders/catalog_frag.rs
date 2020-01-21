@@ -7,8 +7,6 @@ pub static CONTENT: &'static str = r#"#version 300 es
     out vec4 color;
 
     uniform mat4 model;
-    uniform float zoom_factor;
-
     uniform sampler2D kernel_texture;
     uniform float strength;
 
