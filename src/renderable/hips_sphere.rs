@@ -537,10 +537,8 @@ impl Mesh for HiPSSphere {
         if depth_changed {
             //self.fov_mode = current_depth >= 1;
         }
-        console::log_1(&format!("AAAA {:?}", tiles_fov).into());
 
         load_tiles(&self.gl, self.buffer.clone(), tiles_fov, current_depth, depth_changed);
-        console::log_1(&format!("kjqsd {:?}", tiles_fov).into());
         // For Small FOV rendering mode
         if self.fov_mode {
             let buffer = self.buffer.borrow();

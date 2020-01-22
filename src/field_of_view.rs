@@ -1,4 +1,4 @@
-use cgmath::Rad;
+use cgmath::{Rad, Deg};
 use cgmath::Vector2;
 use cgmath::Vector4;
 
@@ -11,8 +11,8 @@ pub struct FieldOfView {
     vertices_local_space: [Vector4<f32>; NUM_VERTICES],
     vertices_world_space: [Vector4<f32>; NUM_VERTICES],
 
-    value: Option<Rad<f32>>, // fov can be None if the camera is out of the projection
-    screen_value: Option<Vector2<f32>>,
+    aperture_angle: Rad<f32>, // fov can be None if the camera is out of the projection
+    screen_scaling: Vector2<f32>,
 
     cells: BTreeSet<HEALPixCell>,
     current_depth: u8,
@@ -117,8 +117,8 @@ impl FieldOfView {
         let vertices_local_space = [Vector4::new(0_f32, 0_f32, 0_f32, 1_f32); NUM_VERTICES];
         let vertices_world_space = vertices_local_space.clone();
 
-        let value = None;
-        let screen_value = None;
+        let aperture_angle = Deg(30_f32).into();
+        let screen_scaling = Vector2::new(1_f32, 1_f32);
 
         let cells = ALLSKY.lock()
             .unwrap()
@@ -131,8 +131,8 @@ impl FieldOfView {
             vertices_local_space,
             vertices_world_space,
 
-            value,
-            screen_value,
+            aperture_angle,
+            screen_scaling,
 
             cells,
             current_depth,
@@ -141,43 +141,41 @@ impl FieldOfView {
         }
     }
 
-    pub fn set_aperture(&mut self, fov: Option<Rad<f32>>, projection: &ProjectionType, hips_sphere: &Renderable<HiPSSphere>) {
-        self.value = fov;
+    fn to_screen_factor(fov: Rad<f32>, projection: &ProjectionType) -> Vector2<f32> {
+        let (width, height) = window_size_f32();
+        let aspect = width / height;
 
-        if let Some(fov) = fov {
-            let (width, height) = window_size_f32();
-            let aspect = width / height;
+        let lon = fov.0.abs() / 2_f32;
+        let lat = lon / aspect;
 
-            let lon = fov.0.abs() / 2_f32;
-            let lat = lon / aspect;
+        // Vertex in the WCS of the FOV
+        let v0 = math::radec_to_xyz(Rad(lon), Rad(0_f32));
+        let v1 = math::radec_to_xyz(Rad(0_f32), Rad(lat));
 
-            // Vertex in the WCS of the FOV
-            let v0 = math::radec_to_xyz(Rad(lon), Rad(0_f32));
-            let v1 = math::radec_to_xyz(Rad(0_f32), Rad(lat));
+        // Project this vertex into the screen
+        let p0 = projection.world_to_screen_space(v0)
+            .unwrap();
+        let p1 = projection.world_to_screen_space(v1)
+            .unwrap();
 
-            // Project this vertex into the screen
-            let p0 = projection.world_to_screen_space(v0)
+        Vector2::new(p0.x.abs(), p1.y.abs())
+    }
+
+    pub fn set_aperture(&mut self, angle: Rad<f32>, projection: &ProjectionType, hips_sphere: &Renderable<HiPSSphere>) {
+        self.aperture_angle = angle;
+        self.screen_scaling = Self::to_screen_factor(angle, projection);
+
+        // Update the local coordinates w.r.t the newly computed
+        // screen scaling vector 
+        for idx_vertex in 0..NUM_VERTICES {
+            let screen_vertex = &self.vertices_screen_space[idx_vertex];
+            let homogeneous_vertex = Vector2::new(
+                screen_vertex.x * self.screen_scaling.x,
+                screen_vertex.y * self.screen_scaling.y,
+            );
+            self.vertices_local_space[idx_vertex] = projection
+                .screen_to_world_space(&homogeneous_vertex)
                 .unwrap();
-            let p1 = projection.world_to_screen_space(v1)
-                .unwrap();
-
-            // Set the screen factor for the vertex shader
-            let (scale_screen_x, scale_screen_y) = (p0.x.abs(), p1.y.abs());
-            self.screen_value = Some(Vector2::new(scale_screen_x, scale_screen_y));
-
-            for idx_vertex in 0..NUM_VERTICES {
-                let screen_vertex = &self.vertices_screen_space[idx_vertex];
-                let homogeneous_vertex = Vector2::new(
-                    screen_vertex.x * p0.x.abs(),
-                    screen_vertex.y * p1.y.abs(),
-                );
-                self.vertices_local_space[idx_vertex] = projection
-                    .screen_to_world_space(&homogeneous_vertex)
-                    .unwrap();
-            }
-        } else {
-            // Out of the projection
-            self.screen_value = None;
         }
 
         // Compute the world space vertices
@@ -197,63 +195,55 @@ impl FieldOfView {
     fn compute_healpix_cells(&mut self) {
         // The field of view has changed (zoom or translation, so we recompute the cells)
         let allsky = ALLSKY.lock().unwrap();
-        let cells = if let Some(fov) = self.value {
-            // Compute the depth corresponding to the angular resolution of a pixel
-            // along the width of the screen
-            let mut depth = std::cmp::min(
-                math::fov_to_depth(fov),
-                MAX_DEPTH.load(atomic::Ordering::Relaxed)
-            );
-            //console::log_1(&format!("depth {:?}", depth).into());
-            let cells = if depth == 0 {
-                allsky.clone()
-            } else {
-                // The fov is not too big so we can get the HEALPix cells
-                // being in the fov
-                //console::log_1(&format!("VERTICES world space, {:?}", self.vertices_world_space).into());
-                let lon_lat_world_space = self.vertices_world_space.iter()
-                    .map(|vertex_world_space| {
-                        // Take into account the rotation of the sphere
-                        //let vertex_model_space = (*model) * vertex_world_space;
 
-                        let (ra, dec) = math::xyzw_to_radec(*vertex_world_space);
-                        (ra as f64, dec as f64)
-                    })
-                    .collect::<Vec<_>>();
-
-                //console::log_1(&format!("LONLAT, {:?}", lon_lat_world_space).into());
-                let mut cells = BTreeSet::new();
-                while depth > 0 {
-                    let moc = healpix::nested::polygon_coverage(depth, &lon_lat_world_space, true);
-                    let num_tiles = moc.entries.len();
-                    // Stop when the number of tiles for this depth
-                    // can be contained in the tile buffer
-                    if num_tiles <= self.max_num_tiles {
-                        cells = moc.flat_iter()
-                            .map(|idx| {
-                                HEALPixCell(depth, idx)
-                            })
-                            .collect::<BTreeSet<_>>();
-                        break;
-                    }
-
-                    depth -= 1;
-                }
-
-                if depth == 0 {
-                    cells = allsky.clone();
-                }
-                
-                cells
-            };
-            self.current_depth = depth;
-            cells
-        } else {
-            // The fov is out the projection
-            self.current_depth = 0;
+        // Compute the depth corresponding to the angular resolution of a pixel
+        // along the width of the screen
+        let mut depth = std::cmp::min(
+            math::fov_to_depth(self.aperture_angle),
+            MAX_DEPTH.load(atomic::Ordering::Relaxed)
+        );
+        let cells = if depth == 0 {
             allsky.clone()
-        };
+        } else {
+            // The fov is not too big so we can get the HEALPix cells
+            // being in the fov
+            //console::log_1(&format!("VERTICES world space, {:?}", self.vertices_world_space).into());
+            let lon_lat_world_space = self.vertices_world_space.iter()
+                .map(|vertex_world_space| {
+                    // Take into account the rotation of the sphere
+                    //let vertex_model_space = (*model) * vertex_world_space;
 
+                    let (ra, dec) = math::xyzw_to_radec(*vertex_world_space);
+                    (ra as f64, dec as f64)
+                })
+                .collect::<Vec<_>>();
+
+            //console::log_1(&format!("LONLAT, {:?}", lon_lat_world_space).into());
+            let mut cells = BTreeSet::new();
+            while depth > 0 {
+                let moc = healpix::nested::polygon_coverage(depth, &lon_lat_world_space, true);
+                let num_tiles = moc.entries.len();
+                // Stop when the number of tiles for this depth
+                // can be contained in the tile buffer
+                if num_tiles <= self.max_num_tiles {
+                    cells = moc.flat_iter()
+                        .map(|idx| {
+                            HEALPixCell(depth, idx)
+                        })
+                        .collect::<BTreeSet<_>>();
+                    break;
+                }
+
+                depth -= 1;
+            }
+
+            if depth == 0 {
+                cells = allsky.clone();
+            }
+            
+            cells
+        };
+        self.current_depth = depth;
         self.cells = cells;
         console::log_1(&format!("current depth {:?}", self.current_depth).into());
     }
@@ -267,7 +257,7 @@ impl FieldOfView {
         self.current_depth
     }
 
-    pub fn get_screen_scaling_factor(&self) -> Option<Vector2<f32>> {
-        self.screen_value
+    pub fn get_screen_scaling_factor(&self) -> &Vector2<f32> {
+        &self.screen_scaling
     }
 }
