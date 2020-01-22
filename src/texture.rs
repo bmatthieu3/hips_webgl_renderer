@@ -14,7 +14,7 @@ const WIDTH_TEXTURE: i32 = 512;
 
 use crate::WebGl2Context;
 use web_sys::console;
-use crate::RENDER_FRAME;
+use crate::LATEST_TIME_TILE_RECEIVED;
 
 static mut NUM_TEXTURE_UNIT: u32 = WebGl2RenderingContext::TEXTURE0;
 
@@ -28,10 +28,14 @@ pub struct Tile {
     time_received: Option<f32>,
 }
 
-const BLENDING_DURATION_MS: f32 = 500_f32;
+pub const BLENDING_DURATION_MS: f32 = 500_f32;
 impl Tile {
     pub fn new(cell: HEALPixCell) -> Tile {
-        let texture_idx = 0;
+        let texture_idx = if cell.0 == 0 {
+            cell.1 as u8
+        } else {
+            0
+        };
 
         let time_request = 0_f32;
         let time_received = None;
@@ -161,7 +165,11 @@ impl From<&Tile> for TilePerPixelGPU {
         let texture_idx = tile.texture_idx as i32;
 
         let time_request = tile.time_request;
-        let time_received = tile.time_received.unwrap();
+        let time_received = if let Some(time_received) = tile.time_received {
+            time_received
+        } else {
+            time_request
+        };
 
         TilePerPixelGPU {
             uniq,
@@ -366,7 +374,7 @@ impl BufferTiles {
 
     fn push_tile(&mut self, tile: Tile) {
         self.buffer.push(tile);
-        RENDER_FRAME.lock().unwrap().set_for_duration_seconds(BLENDING_DURATION_MS);
+        *LATEST_TIME_TILE_RECEIVED.lock().unwrap() = utils::get_current_time();
     }
 
     pub fn add_to_loaded_tiles(&mut self, tile: HEALPixCell) {
@@ -506,11 +514,10 @@ impl BufferTiles {
             .iter()
             .map(|tile| {
                 tile.into()
-            });
+            }).collect::<Vec<_>>();
         
         tiles.extend(base_tiles);
         tiles.sort_unstable();
-
         tiles
     }
 
@@ -529,14 +536,12 @@ impl BufferTiles {
     pub fn send_to_shader(&self, shader: &Shader) {
         self.send_texture(shader);
         let tiles = self.uniq_ordered_tiles();
-
         for (i, tile) in tiles.iter().enumerate() {
             let mut name = String::from("textures");
             name += "_tiles";
             name += "[";
             name += &i.to_string();
             name += "].";
-
             let location_hpx_idx = shader.get_uniform_location(&(name.clone() + "uniq"));
             self.gl.uniform1ui(location_hpx_idx, tile.uniq);
 
@@ -607,7 +612,6 @@ pub fn load_base_tiles(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>) {
                 let texture_idx = idx as u8;
                 let cell = HEALPixCell(0, idx as u64);
                 let time_received = Some(utils::get_current_time());
-                console::log_1(&format!("load aaahh").into());
 
                 buffer.borrow_mut().base_tiles[idx] = Tile {
                     cell,

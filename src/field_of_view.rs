@@ -14,7 +14,7 @@ pub struct FieldOfView {
     value: Option<Rad<f32>>, // fov can be None if the camera is out of the projection
     screen_value: Option<Vector2<f32>>,
 
-    cells: Option<BTreeSet<HEALPixCell>>,
+    cells: BTreeSet<HEALPixCell>,
     current_depth: u8,
     max_num_tiles: usize,
 }
@@ -120,7 +120,9 @@ impl FieldOfView {
         let value = None;
         let screen_value = None;
 
-        let cells = Some(ALLSKY.lock().unwrap().clone());
+        let cells = ALLSKY.lock()
+            .unwrap()
+            .clone();
         let current_depth = 0;
 
         let max_num_tiles = buffer.len_variable_tiles();
@@ -149,8 +151,6 @@ impl FieldOfView {
             let lon = fov.0.abs() / 2_f32;
             let lat = lon / aspect;
 
-            console::log_1(&format!("qsdqsdqsd").into());
-
             // Vertex in the WCS of the FOV
             let v0 = math::radec_to_xyz(Rad(lon), Rad(0_f32));
             let v1 = math::radec_to_xyz(Rad(0_f32), Rad(lat));
@@ -175,15 +175,13 @@ impl FieldOfView {
                     .screen_to_world_space(&homogeneous_vertex)
                     .unwrap();
             }
-
-            // Compute the world space vertices
-            self.translate(hips_sphere);
         } else {
+            // Out of the projection
             self.screen_value = None;
         }
 
-        // Set the cells to None
-        self.cells = None;
+        // Compute the world space vertices
+        self.translate(hips_sphere);
     }
 
     pub fn translate(&mut self, hips_sphere: &Renderable<HiPSSphere>) {
@@ -193,15 +191,10 @@ impl FieldOfView {
         }
         console::log_1(&format!("current depth {:?}", self.current_depth).into());
 
-        // Set the cells to None
-        self.cells = None;
+        self.compute_healpix_cells();
     }
 
-    pub fn update(&mut self) {
-        if let Some(_) = self.cells {
-            return;
-        }
-
+    fn compute_healpix_cells(&mut self) {
         // The field of view has changed (zoom or translation, so we recompute the cells)
         let allsky = ALLSKY.lock().unwrap();
         let cells = if let Some(fov) = self.value {
@@ -261,18 +254,13 @@ impl FieldOfView {
             allsky.clone()
         };
 
-        self.cells = Some(cells);
+        self.cells = cells;
         console::log_1(&format!("current depth {:?}", self.current_depth).into());
     }
 
     // Returns the HEALPix cells in the field of view
     pub fn healpix_cells(&self) -> &BTreeSet<HEALPixCell> {
-        if let Some(ref cells) = self.cells {
-            return cells;
-        }
-
-        self.cells.as_ref()
-            .unwrap()
+        &self.cells
     }
 
     pub fn current_depth(&self) -> u8 {

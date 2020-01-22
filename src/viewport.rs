@@ -160,6 +160,7 @@ impl ViewPort {
         };
 
         viewport.resize(&default_size_scissor);
+
         viewport
     }
 
@@ -172,7 +173,12 @@ impl ViewPort {
         set_gl_scissor(&self.gl, current_size_scissor);
     }
 
-    pub fn zoom(&mut self, projection: &ProjectionType, hips_sphere: &Renderable<HiPSSphere>) {
+    pub fn zoom(
+        &mut self,
+        hips_sphere: &mut Renderable<HiPSSphere>,
+        catalog: &mut Renderable<Catalog>,
+        projection: &ProjectionType
+    ) {
         self.last_zoom_action = LastZoomAction::Zoom;
         self.last_action = LastAction::Zooming;
 
@@ -187,13 +193,24 @@ impl ViewPort {
         } else {
             Vector2::new(1_f32, 1_f32 / self.aspect)
         };
+
+        // Update the HiPS sphere 
+        hips_sphere.update(projection, &self);
+        // Update the catalog loaded
+        catalog.update(projection, &self);
+
         self.action = true;
         self.has_zoomed = true;
 
         self.update_scissor();
     }
 
-    pub fn unzoom(&mut self, projection: &ProjectionType, hips_sphere: &Renderable<HiPSSphere>) {
+    pub fn unzoom(
+        &mut self,
+        hips_sphere: &mut Renderable<HiPSSphere>,
+        catalog: &mut Renderable<Catalog>,
+        projection: &ProjectionType
+    ) {
         self.last_zoom_action = LastZoomAction::Unzoom;
         self.last_action = LastAction::Zooming;
 
@@ -201,56 +218,51 @@ impl ViewPort {
             self.zoom_index -= 1;
         }
 
-        self.fov.set_aperture(Some(self.fov_lookup_table[self.zoom_index]), projection, hips_sphere);
+        // Update the aperture of the Field Of View
+        self.fov.set_aperture(
+            Some(self.fov_lookup_table[self.zoom_index]),
+            projection,
+            hips_sphere
+        );
         self.screen_scaling = if let Some(screen_scaling) = self.fov.get_screen_scaling_factor() {
             screen_scaling
         } else {
             Vector2::new(1_f32, 1_f32 / self.aspect)
         };
+
+        // Update the HiPS sphere 
+        hips_sphere.update(projection, &self);
+        // Update the catalog loaded
+        catalog.update(projection, &self);
+
         self.action = true;
         self.has_zoomed = true;
 
         self.update_scissor();
     }
 
-    pub fn displacement(&mut self, hips_sphere: &Renderable<HiPSSphere>) {
+    pub fn displacement(
+        &mut self,
+        hips_sphere: &mut Renderable<HiPSSphere>,
+        catalog: &mut Renderable<Catalog>,
+        projection: &ProjectionType
+    ) {
         self.has_moved = true;
         self.action = true;
 
         self.last_action = LastAction::Moving;
 
+        // Translate the Field of View on the HiPS sphere
         self.fov.translate(hips_sphere);
-    }
 
-    pub fn update(&mut self, mut inertia: &mut Option<MouseInertia>, grid: &mut Renderable<ProjetedGrid>, catalog: &mut Renderable<Catalog>, hips_sphere: &mut Renderable<HiPSSphere>) {
-        // Look for inertia
-        if let Some(ref mut inertia_int) = &mut inertia {
-            if inertia_int.update(
-                hips_sphere,
-                grid,
-                catalog,
-                self
-            ) {
-                *inertia = None;
-            }
-        }
-
-        self.fov.update();
-    }
-
-    pub fn clear_actions(&mut self) {
-        self.action = false;
-
-        self.has_moved = false;
-        self.has_zoomed = false;
+        // Update the HiPS sphere 
+        hips_sphere.update(projection, &self);
+        // Update the catalog loaded
+        catalog.update(projection, &self);
     }
 
     pub fn field_of_view(&self) -> &FieldOfView {
         &self.fov
-    }
-
-    pub fn is_user_action(&self) -> bool {
-        self.action
     }
 
     pub fn resize(&mut self, new_size_scissor: &Vector2<f32>) {
@@ -263,7 +275,7 @@ impl ViewPort {
         self.gl.viewport(0, 0, width as i32, height as i32);
 
         self.default_size_scissor = *new_size_scissor;
-        //self.update_scissor();
+        self.update_scissor();
     }
 
     pub fn get_screen_scaling_factor(&self) -> &Vector2<f32> {

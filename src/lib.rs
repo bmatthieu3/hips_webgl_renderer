@@ -58,8 +58,8 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, AtomicU8, AtomicBool};
 use std::sync::atomic::Ordering;
 
-use crate::render_next_frame::RENDER_FRAME;
-use crate::render_next_frame::UPDATE_USER_INTERFACE;
+use crate::render_next_frame::LATEST_TIME_TILE_RECEIVED;
+use crate::texture::BLENDING_DURATION_MS;
 
 use crate::event::Move;
 
@@ -80,7 +80,7 @@ struct App {
     catalog: Renderable<Catalog>,
 
     // Move event
-    move_event: Option<Move>,
+    moving: Option<Move>,
 
     // Options
     // Mouse Inertia
@@ -242,31 +242,35 @@ impl App {
         let projection = ProjectionType::Orthographic(Orthographic {});
         // HiPS Sphere definition
         let hips_sphere_mesh = HiPSSphere::new(&gl, &projection);
-        let hips_sphere = Renderable::<HiPSSphere>::new(
+        let mut hips_sphere = Renderable::<HiPSSphere>::new(
             &gl,
             &shaders["hips_sphere"],
             hips_sphere_mesh,
         );
+
+        // Catalog definition
+        let catalog_mesh = Catalog::new(&gl, vec![]);
+        let mut catalog = Renderable::<Catalog>::new(
+            &gl,
+            &shaders["catalog"],
+            catalog_mesh
+        );
+
         // Viewport definition
         let viewport = ViewPort::new(&gl, &projection, &hips_sphere);
+        // Update the HiPS sphere 
+        //(&mut hips_sphere).update(&projection, &viewport);
+        // Update the catalog loaded
+        //(&mut catalog).update(&projection, &viewport);
 
         // Grid definition
         let lon_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-30_f32).into(), cgmath::Deg(30_f32).into());
         let lat_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-90_f32).into(), cgmath::Deg(90_f32).into());
-        //let projeted_grid_mesh = ProjetedGrid::new(cgmath::Deg(10_f32).into(), cgmath::Deg(10_f32).into(), Some(lat_bound), Some(lon_bound), &projection.get(), &viewport.borrow());
         let projeted_grid_mesh = ProjetedGrid::new(&gl, cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, &projection, &viewport);
         let grid = Renderable::<ProjetedGrid>::new(
             &gl,
             &shaders["grid"],
             projeted_grid_mesh,
-        );
-
-        // Catalog definition
-        let catalog_mesh = Catalog::new(&gl, vec![]);
-        let catalog = Renderable::<Catalog>::new(
-            &gl,
-            &shaders["catalog"],
-            catalog_mesh
         );
 
         // Resize event
@@ -287,7 +291,7 @@ impl App {
             .set_onresize(Some(onresize.as_ref().unchecked_ref()));
         onresize.forget();
 
-        let move_event = None;
+        let moving = None;
         let inertia = None;
         let gl = gl.clone();
         let app = App {
@@ -305,7 +309,7 @@ impl App {
             // The catalog renderable
             catalog,
 
-            move_event,
+            moving,
 
             inertia,
         };
@@ -314,41 +318,23 @@ impl App {
     } 
 
     fn update(&mut self, dt: f32) {
-        if !UPDATE_USER_INTERFACE.load(Ordering::Relaxed) {
+        /*if !UPDATE_USER_INTERFACE.load(Ordering::Relaxed) {
             RENDER_FRAME.lock().unwrap().update(&self.viewport);
             //UPDATE_FRAME.lock().unwrap().update(&self.viewport);
         } else {
             UPDATE_USER_INTERFACE.store(false, Ordering::Relaxed);
-        }
+        }*/
 
-        // Update the camera. When the camera has reached its final position
-        // then we stop rendering the next frames!
-        self.viewport.update(&mut self.inertia, &mut self.grid, &mut self.catalog, &mut self.hips_sphere);
-
-        // Updating
-        if RENDER_FRAME.lock().unwrap().get() {
-            // Update the fov
-            self.hips_sphere
-                .update(
-                    &self.projection,
-                    &self.viewport,
-                );
-
-            // Update the catalog vizualization
-            self.catalog.update(&self.projection, &self.viewport);
-
-            // The grid buffers and labels
-            if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
-                self.grid.update(
-                    &self.projection,
-                    &self.viewport
-                );
-            }
+        //self.viewport.update(&mut self.inertia, &mut self.grid, &mut self.catalog, &mut self.hips_sphere);
+        
+        // Check whether the HiPS sphere must be updated or not
+        if utils::get_current_time() < *LATEST_TIME_TILE_RECEIVED.lock().unwrap() + BLENDING_DURATION_MS {
+            self.hips_sphere.update(&self.projection, &self.viewport);
         }
     }
 
     fn render(&self) {
-        if RENDER_FRAME.lock().unwrap().get() {
+        if true {
             // Render the scene
             self.gl.clear_color(0.08, 0.08, 0.08, 1.0);
             self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
@@ -374,7 +360,7 @@ impl App {
             );
 
             // Draw the grid
-            if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
+            /*if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
                 // The grid lines
                 self.grid.draw(
                     shaders,
@@ -382,7 +368,7 @@ impl App {
                 );
                 // The labels
                 self.grid.mesh().draw_labels();
-            }
+            }*/
         }
     }
 
@@ -410,31 +396,38 @@ impl App {
     /// MOVE EVENT
     fn initialize_move(&mut self, screen_pos: Vector2<f32>) {
         // stop inertia if there is one
-        self.inertia = None;
+        //self.inertia = None;
         //self.viewport.stop_inertia();
 
-        let ref projection = self.projection;
-        self.move_event = Move::new(screen_pos, projection, &self.viewport);
+        if let Some(start_world_pos) = screen_to_world_space(&screen_pos, &self.projection, &self.viewport) {
+            self.moving = Some(Move::new(start_world_pos));
+        }
     }
 
     fn moves(&mut self, screen_pos: Vector2<f32>) {
-        if let Some(ref mut move_event) = self.move_event {
-            move_event.update(
-                &screen_pos,
-                
-                &mut self.hips_sphere,
-                &mut self.grid,
-                &mut self.catalog,
-                
-                &self.projection,
-                
-                &mut self.viewport
-            );
+        if let Some(world_pos) = screen_to_world_space(&screen_pos, &self.projection, &self.viewport) {
+            // If a move is done
+            if let Some(ref mut moving) = &mut self.moving {
+                // Moves the renderables
+                moving.apply_to_renderables(
+                    world_pos,
+
+                    &mut self.hips_sphere,
+                    &mut self.grid,
+                    &mut self.catalog,
+                );
+
+                console::log_1(&format!("moves").into());
+                // Moves the viewport
+                self.viewport.displacement(&mut self.hips_sphere, &mut self.catalog, &self.projection);
+                console::log_1(&format!("moves2").into());
+            }
         }
     }
 
     fn stop_move(&mut self, screen_pos: Vector2<f32>) {
-        if let Some(ref mut move_event) = self.move_event {
+        self.moving = None;
+        /*if let Some(ref mut move_event) = self.move_event {
             console::log_1(&format!("stop moving").into());
             //self.viewport.stop_displacement();
 
@@ -450,17 +443,15 @@ impl App {
                     );
                 }
             }
-
-            self.move_event = None;
-        }
+        }*/
     }
 
     // ZOOM EVENT
     fn zoom(&mut self, delta_y: f32) {
         if delta_y < 0_f32 {
-            self.viewport.zoom(&self.projection, &self.hips_sphere);
+            self.viewport.zoom(&mut self.hips_sphere, &mut self.catalog, &self.projection);
         } else {
-            self.viewport.unzoom(&self.projection, &self.hips_sphere);
+            self.viewport.unzoom(&mut self.hips_sphere, &mut self.catalog, &self.projection);
         }
     }
 
@@ -626,13 +617,13 @@ impl WebClient {
             _ => {}
         }
 
-        RENDER_FRAME.lock().unwrap().set(true);
+        //RENDER_FRAME.lock().unwrap().set(true);
         //UPDATE_FRAME.lock().unwrap().set(true);
 
         // This is a UI update so we tell the rendering loop
         // we do not want to update the update and render frame
         // bools
-        UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
+        //UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
 
         Ok(())
     }
@@ -648,8 +639,8 @@ impl WebClient {
                     &mut self.app.viewport
                 );
         }
-        RENDER_FRAME.lock().unwrap().set(true);
-        UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
+        //RENDER_FRAME.lock().unwrap().set(true);
+        //UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
 
         Ok(())
     }
@@ -660,8 +651,8 @@ impl WebClient {
             *grid = false;
             self.app.grid.mesh_mut().clear_canvas();
         }
-        RENDER_FRAME.lock().unwrap().set(true);
-        UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
+        //RENDER_FRAME.lock().unwrap().set(true);
+        //UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
 
         Ok(())
     }
@@ -682,8 +673,8 @@ impl WebClient {
     /// Change grid color
     pub fn change_grid_color(&mut self, red: f32, green: f32, blue: f32) -> Result<(), JsValue> {
         self.app.grid.mesh_mut().set_color_rgb(red, green, blue);
-        RENDER_FRAME.lock().unwrap().set(true);
-        UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
+        //RENDER_FRAME.lock().unwrap().set(true);
+        //UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
 
         Ok(())
     }
@@ -694,8 +685,8 @@ impl WebClient {
             .mesh_mut()
             .set_alpha(alpha);
 
-        RENDER_FRAME.lock().unwrap().set(true);
-        UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
+        //RENDER_FRAME.lock().unwrap().set(true);
+        //UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
 
         Ok(())
     }
@@ -705,8 +696,8 @@ impl WebClient {
             .mesh_mut()
             .set_alpha(alpha);
 
-        RENDER_FRAME.lock().unwrap().set(true);
-        UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
+        //RENDER_FRAME.lock().unwrap().set(true);
+        //UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
 
         Ok(())
     }
@@ -716,8 +707,8 @@ impl WebClient {
             .mesh_mut()
             .set_kernel_strength(strength);
 
-        RENDER_FRAME.lock().unwrap().set(true);
-        UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
+        //RENDER_FRAME.lock().unwrap().set(true);
+        //UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
 
         Ok(())
     }
@@ -726,10 +717,10 @@ impl WebClient {
     pub fn change_hips(&mut self, hips_url: String, hips_depth: i32) -> Result<(), JsValue> {
         self.app.reload_hips_sphere(hips_url, hips_depth as u8);
 
-        RENDER_FRAME.lock().unwrap().set(true);
+        //RENDER_FRAME.lock().unwrap().set(true);
         //UPDATE_FRAME.lock().unwrap().set(true);
 
-        UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
+        //UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
 
         Ok(())
     }

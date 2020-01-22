@@ -74,7 +74,7 @@ impl MouseInertia {
         catalog.set_model_mat(inv_model_mat);
 
         // Move the viewport
-        viewport.displacement(hips_sphere);
+        //viewport.displacement(hips_sphere);
 
         self.x = dx;
 
