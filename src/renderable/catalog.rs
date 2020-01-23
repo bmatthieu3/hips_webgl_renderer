@@ -233,7 +233,6 @@ use cgmath::Matrix4;
 use web_sys::WebGl2RenderingContext;
 use crate::WebGl2Context;
 
-use crate::projection::ProjectionType;
 use crate::viewport::ViewPort;
 
 use crate::renderable::Renderable;
@@ -244,6 +243,7 @@ use std::collections::BinaryHeap;
 use crate::window_size_u32;
 
 use crate::math;
+use crate::projection::Projection;
 impl Mesh for Catalog {
     fn create_buffers(&mut self, gl: &WebGl2Context) {
         self.vertex_array_object.bind()
@@ -272,10 +272,9 @@ impl Mesh for Catalog {
             .unbind();
     }
 
-    fn update<T: Mesh + DisableDrawing>(
+    fn update<P: Projection>(
         &mut self,
         _local_to_world: &Matrix4<f32>,
-        _projection: &ProjectionType,
         viewport: &ViewPort
     ) {
         let field_of_view = viewport.field_of_view();

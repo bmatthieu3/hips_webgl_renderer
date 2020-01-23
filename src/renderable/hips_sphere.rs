@@ -2,8 +2,6 @@ use web_sys::console;
 
 use web_sys::WebGl2RenderingContext;
 
-use crate::renderable::projection::ProjectionType;
-
 use std::rc::Rc;
 use std::cell::RefCell;
 
@@ -29,8 +27,9 @@ use crate::viewport::ViewPort;
 use cgmath::Vector2;
 use crate::WebGl2Context;
 
+use crate::projection::Projection;
 trait RenderingMode {
-    fn create_vertices_array(gl: &WebGl2Context, projection: &ProjectionType, buffer: Rc<RefCell<BufferTiles>>) -> Vec<f32>;
+    fn create_vertices_array<P: Projection>(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>) -> Vec<f32>;
     fn create_index_array() -> Option<Vec<u16>>;
     fn send_uniforms(gl: &WebGl2Context, shader: &Shader);
     fn draw<T: Mesh + DisableDrawing>(
@@ -52,8 +51,8 @@ use cgmath::Rad;
 use crate::math;
 use std::mem;
 impl SmallFieldOfViewRenderingMode {
-    fn new(gl: &WebGl2Context, projection: &ProjectionType, buffer: Rc<RefCell<BufferTiles>>) -> SmallFieldOfViewRenderingMode {
-        let vertices = Self::create_vertices_array(gl, projection, buffer);
+    fn new<P: Projection>(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>) -> SmallFieldOfViewRenderingMode {
+        let vertices = Self::create_vertices_array::<P>(gl, buffer);
 
         let mut vertex_array_object = VertexArrayObject::new(gl);
 
@@ -187,7 +186,7 @@ fn add_vertices_grid(
 }
 
 impl RenderingMode for SmallFieldOfViewRenderingMode {
-    fn create_vertices_array(gl: &WebGl2Context, projection: &ProjectionType, buffer: Rc<RefCell<BufferTiles>>) -> Vec<f32> {
+    fn create_vertices_array<P: Projection>(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>) -> Vec<f32> {
         /*
         let mut vertices_data = (0..192)
             .map(|idx| {
@@ -238,8 +237,8 @@ struct PerPixelRenderingMode {
 }
 
 impl PerPixelRenderingMode {
-    fn new(gl: &WebGl2Context, projection: &ProjectionType, buffer: Rc<RefCell<BufferTiles>>) -> PerPixelRenderingMode {
-        let vertices = Self::create_vertices_array(gl, projection, buffer);
+    fn new<P: Projection>(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>) -> PerPixelRenderingMode {
+        let vertices = Self::create_vertices_array::<P>(gl, buffer);
         let idx = Self::create_index_array().unwrap();
 
         let mut vertex_array_object = VertexArrayObject::new(gl);
@@ -272,8 +271,8 @@ impl PerPixelRenderingMode {
 
 use crate::window_size_f32;
 impl RenderingMode for PerPixelRenderingMode {
-    fn create_vertices_array(gl: &WebGl2Context, projection: &ProjectionType, _buffer: Rc<RefCell<BufferTiles>>) -> Vec<f32> {
-        let vertex_screen_space_positions = projection.build_screen_map();
+    fn create_vertices_array<P: Projection>(gl: &WebGl2Context, _buffer: Rc<RefCell<BufferTiles>>) -> Vec<f32> {
+        let vertex_screen_space_positions = P::build_screen_map();
 
         let (width, height) = window_size_f32();
         let scaling_screen_factor = Vector2::new(1_f32, height/width);
@@ -283,12 +282,13 @@ impl RenderingMode for PerPixelRenderingMode {
                 // Perform the inverse projection that converts
                 // screen position to the 3D space position
                 let homogeneous_pos = crate::projection::screen_pixels_to_homogenous(pos_screen_space);
-                let pos_world_space = projection.homogeneous_to_world_space(homogeneous_pos, &scaling_screen_factor).unwrap();
+                let pos_world_space = P::homogeneous_to_world_space(homogeneous_pos, &scaling_screen_factor).unwrap();
 
                 vec![homogeneous_pos.x, homogeneous_pos.y, pos_world_space.x, pos_world_space.y, pos_world_space.z]
             })
             .flatten()
             .collect::<Vec<_>>();
+        console::log_1(&format!("End Generation per pixel mode vertices").into());
 
         vertices_data
     }
@@ -376,12 +376,12 @@ pub struct HiPSSphere {
 }
 
 impl HiPSSphere {
-    pub fn new(gl: &WebGl2Context, projection: &ProjectionType) -> HiPSSphere {
+    pub fn new<P: Projection>(gl: &WebGl2Context) -> HiPSSphere {
         let buffer = Rc::new(RefCell::new(BufferTiles::new(gl)));
         load_base_tiles(gl, buffer.clone());
 
-        let fov_rendering_mode = SmallFieldOfViewRenderingMode::new(gl, projection, buffer.clone());
-        let per_pixel_rendering_mode = PerPixelRenderingMode::new(gl, projection, buffer.clone());
+        let fov_rendering_mode = SmallFieldOfViewRenderingMode::new::<P>(gl, buffer.clone());
+        let per_pixel_rendering_mode = PerPixelRenderingMode::new::<P>(gl, buffer.clone());
 
         let gl = gl.clone();
         //let fov_mode = false;
@@ -522,10 +522,9 @@ fn get_root_parent(tile: &Tile) -> Tile {
 impl Mesh for HiPSSphere {
     fn create_buffers(&mut self, gl: &WebGl2Context) {}
 
-    fn update<T: Mesh + DisableDrawing>(
+    fn update<P: Projection>(
         &mut self,
         _local_to_world: &Matrix4<f32>,
-        _projection: &ProjectionType,
         viewport: &ViewPort
     ) {
         let field_of_view = viewport.field_of_view();

@@ -1,7 +1,6 @@
 use crate::shader::Shader;
 
 use crate::viewport::ViewPort;
-use crate::renderable::projection::ProjectionType;
 
 pub mod buffers;
 pub mod hips_sphere;
@@ -18,13 +17,13 @@ use crate::WebGl2Context;
 use cgmath::Matrix4;
 
 use std::collections::HashMap;
+use crate::projection::Projection;
 pub trait Mesh {
     fn create_buffers(&mut self, gl: &WebGl2Context);
 
-    fn update<T: Mesh + DisableDrawing>(
+    fn update<P: Projection>(
         &mut self,
         local_to_world: &Matrix4<f32>,
-        projection: &ProjectionType,
         viewport: &ViewPort
     );
 
@@ -133,14 +132,13 @@ where T: Mesh + DisableDrawing {
         &mut self.mesh
     }
 
-    pub fn update(&mut self, projection: &ProjectionType, viewport: &ViewPort) {
+    pub fn update<P: Projection>(&mut self, viewport: &ViewPort) {
         let ref mut mesh = self.mesh;
 
         let ref local_to_world = self.model_mat;
 
-        mesh.update::<T>(
+        mesh.update::<P>(
             local_to_world,
-            projection,
             viewport
         );
     }

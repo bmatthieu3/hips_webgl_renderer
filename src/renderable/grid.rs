@@ -9,8 +9,6 @@ const NUM_POINTS: usize = 40;
 use crate::renderable::Mesh;
 use web_sys::WebGl2RenderingContext;
 
-use crate::ProjectionType;
-
 use crate::renderable::buffers::vertex_array_object::VertexArrayObject;
 use crate::renderable::buffers::array_buffer::ArrayBuffer;
 use crate::renderable::buffers::element_array_buffer::ElementArrayBuffer;
@@ -107,14 +105,15 @@ use wasm_bindgen::JsCast;
 use crate::math::radec_to_xyz;
 use crate::{window_size_f32, window_size_f64};
 
+
+use crate::projection::Projection;
 impl ProjetedGrid {
-    pub fn new(
+    pub fn new<P: Projection>(
         gl: &WebGl2Context,
         step_lat: cgmath::Rad<f32>,
         step_lon: cgmath::Rad<f32>,
         lat_bound: Option<Vector2<Rad<f32>>>,
         lon_bound: Option<Vector2<Rad<f32>>>,
-        projection: &ProjectionType,
         viewport: &ViewPort) -> ProjetedGrid {
         let (lat_min, lat_max) = if let Some(lat_bound) = lat_bound {
             (lat_bound.x.0, lat_bound.y.0)
@@ -247,13 +246,13 @@ impl ProjetedGrid {
             vertex_array_object
         };
 
-        grid.update_grid_positions(&cgmath::Matrix4::identity(), projection);
-        grid.update_label_positions(&cgmath::Matrix4::identity(), &projection, viewport);
+        grid.update_grid_positions::<P>(&cgmath::Matrix4::identity());
+        grid.update_label_positions::<P>(&cgmath::Matrix4::identity(), viewport);
 
         grid
     }
 
-    pub fn update_grid_positions(&mut self, local_to_world_mat: &Matrix4<f32>, projection: &ProjectionType) {
+    pub fn update_grid_positions<P: Projection>(&mut self, local_to_world_mat: &Matrix4<f32>) {
         let (mut width_screen, _) = window_size_f32();
 
         self.pos_screen_space.clear();
@@ -261,7 +260,7 @@ impl ProjetedGrid {
         for pos_local_space in self.pos_local_space.iter() {
             let pos_world_space = local_to_world_mat * pos_local_space;
 
-            let pos_screen_space = projection.world_to_screen_space(pos_world_space.clone()).unwrap();
+            let pos_screen_space = P::world_to_screen_space(pos_world_space.clone()).unwrap();
 
             self.pos_screen_space.push(pos_screen_space.x);
             self.pos_screen_space.push(pos_screen_space.y);
@@ -320,7 +319,7 @@ impl ProjetedGrid {
         }
     }
 
-    pub fn update_label_positions(&mut self, local_to_world_mat: &Matrix4<f32>, projection: &ProjectionType, viewport: &ViewPort) {
+    pub fn update_label_positions<P: Projection>(&mut self, local_to_world_mat: &Matrix4<f32>, viewport: &ViewPort) {
         let (mut width_screen, mut height_screen) = window_size_f32();
         let viewport_zoom_factor = viewport.get_scaling_screen_factor();
 
@@ -329,7 +328,7 @@ impl ProjetedGrid {
         for (label_text, pos_local_space) in self.label_text.iter().zip(self.label_pos_local_space.iter()) {
             let label_pos_world_space = local_to_world_mat * pos_local_space;
 
-            let label_pos_screen_space = projection.world_to_screen_space(label_pos_world_space).unwrap();
+            let label_pos_screen_space = P::world_to_screen_space(label_pos_world_space).unwrap();
 
             let offset_pos_screen = self.text_canvas.measure_text(label_text).unwrap().width();
             
@@ -408,19 +407,16 @@ impl Mesh for ProjetedGrid {
             .unbind();
     }
 
-    fn update<T: Mesh + DisableDrawing>(
+    fn update<P: Projection>(
         &mut self,
         local_to_world: &Matrix4<f32>,
-        projection: &ProjectionType,
         viewport: &ViewPort
     ) {
-        self.update_grid_positions(
+        self.update_grid_positions::<P>(
             local_to_world,
-            projection,
         );
-        self.update_label_positions(
+        self.update_label_positions::<P>(
             local_to_world,
-            projection,
             viewport
         );
 

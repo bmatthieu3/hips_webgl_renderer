@@ -42,7 +42,6 @@ use renderable::grid::ProjetedGrid;
 use renderable::catalog::{Catalog, Source};
 
 use renderable::projection;
-use renderable::projection::ProjectionType;
 use renderable::projection::{Aitoff, Orthographic, MollWeide};
 
 use viewport::ViewPort;
@@ -62,15 +61,16 @@ use crate::texture::BLENDING_DURATION_MS;
 
 use crate::event::Move;
 
-use crate::mouse_inertia::MouseInertia;
 use crate::projection::Projection;
-struct App {
+
+struct App<P>
+where P: Projection {
     gl: WebGl2Context,
 
     shaders: HashMap<&'static str, Shader>,
 
     viewport: ViewPort,
-    projection: ProjectionType,
+    projection: std::marker::PhantomData<P>,
 
     // The sphere renderable
     hips_sphere: Renderable<HiPSSphere>,
@@ -81,10 +81,6 @@ struct App {
 
     // Move event
     moving: Option<Move>,
-
-    // Options
-    // Mouse Inertia
-    inertia: Option<MouseInertia>,
 }
 
 fn add_tile_buffer_uniforms(name: &'static str, size: usize, uniforms: &mut Vec<String>) {
@@ -110,8 +106,9 @@ fn add_tile_buffer_uniforms(name: &'static str, size: usize, uniforms: &mut Vec<
 }
 
 use cgmath::Vector2;
-impl App {
-    fn new(gl: &WebGl2Context) -> Result<App, JsValue> {
+impl<P> App<P>
+where P: Projection {
+    fn new(gl: &WebGl2Context) -> Result<App<P>, JsValue> {
         // Shader definition
         // HiPS sphere shader
         // uniforms definition
@@ -237,26 +234,26 @@ impl App {
         gl.enable(WebGl2RenderingContext::CULL_FACE);
         gl.cull_face(WebGl2RenderingContext::BACK);
 
-        // Projection definition
-        let projection = ProjectionType::Orthographic(Orthographic {});
         // HiPS Sphere definition
-        let hips_sphere_mesh = HiPSSphere::new(&gl, &projection);
-        let mut hips_sphere = Renderable::<HiPSSphere>::new(
+        let hips_sphere_mesh = HiPSSphere::new::<P>(&gl);
+        console::log_1(&format!("fffff sfs").into());
+        let hips_sphere = Renderable::<HiPSSphere>::new(
             &gl,
             &shaders["hips_sphere"],
             hips_sphere_mesh,
         );
-
+        console::log_1(&format!("fffff sfs").into());
         // Catalog definition
         let catalog_mesh = Catalog::new(&gl, vec![]);
-        let mut catalog = Renderable::<Catalog>::new(
+        let catalog = Renderable::<Catalog>::new(
             &gl,
             &shaders["catalog"],
             catalog_mesh
         );
-
+        console::log_1(&format!("fffff sfs3").into());
         // Viewport definition
-        let viewport = ViewPort::new(&gl, &projection, &hips_sphere);
+        let viewport = ViewPort::new::<P>(&gl, &hips_sphere);
+        console::log_1(&format!("fffff sfs4").into());
         // Update the HiPS sphere 
         //(&mut hips_sphere).update(&projection, &viewport);
         // Update the catalog loaded
@@ -265,7 +262,7 @@ impl App {
         // Grid definition
         let lon_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-30_f32).into(), cgmath::Deg(30_f32).into());
         let lat_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-90_f32).into(), cgmath::Deg(90_f32).into());
-        let projeted_grid_mesh = ProjetedGrid::new(&gl, cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, &projection, &viewport);
+        let projeted_grid_mesh = ProjetedGrid::new::<P>(&gl, cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, &viewport);
         let grid = Renderable::<ProjetedGrid>::new(
             &gl,
             &shaders["grid"],
@@ -291,7 +288,6 @@ impl App {
         onresize.forget();
 
         let moving = None;
-        let inertia = None;
         let gl = gl.clone();
         let app = App {
             gl,
@@ -299,7 +295,7 @@ impl App {
             shaders,
 
             viewport,
-            projection,
+            projection: std::marker::PhantomData,
 
             // The sphere renderable
             hips_sphere,
@@ -309,8 +305,6 @@ impl App {
             catalog,
 
             moving,
-
-            inertia,
         };
 
         Ok(app)
@@ -328,7 +322,7 @@ impl App {
         
         // Check whether the HiPS sphere must be updated or not
         if utils::get_current_time() < *LATEST_TIME_TILE_RECEIVED.lock().unwrap() + BLENDING_DURATION_MS {
-            self.hips_sphere.update(&self.projection, &self.viewport);
+            self.hips_sphere.update::<P>(&self.viewport);
         }
     }
 
@@ -371,17 +365,31 @@ impl App {
         }
     }
 
-    fn set_projection(&mut self, projection: ProjectionType) {
-        // Set the new projection
-        self.projection = projection;
-
+    fn set_projection<Q: Projection>(mut self) -> App::<Q> {
         // New HiPS sphere
-        let hips_sphere_mesh = HiPSSphere::new(&self.gl, &projection);
+        let hips_sphere_mesh = HiPSSphere::new::<Q>(&self.gl);
 
         // Update the scissor for the new projection
-        self.viewport.resize(&projection.size());
-
+        self.viewport.resize(&Q::size());
         self.hips_sphere.update_mesh(&self.shaders["hips_sphere"], hips_sphere_mesh);
+
+        App::<Q> {
+            gl: self.gl,
+
+            shaders: self.shaders,
+
+            viewport: self.viewport,
+            projection: std::marker::PhantomData,
+
+            // The sphere renderable
+            hips_sphere: self.hips_sphere,
+            // The grid renderable
+            grid: self.grid,
+            // The catalog renderable
+            catalog: self.catalog,
+
+            moving: self.moving,
+        }
     }
 
     fn reload_hips_sphere(&mut self, hips_url: String, hips_depth: u8) {
@@ -398,13 +406,13 @@ impl App {
         //self.inertia = None;
         //self.viewport.stop_inertia();
 
-        if let Some(start_world_pos) = self.projection.screen_to_world_space(screen_pos, &self.viewport) {
+        if let Some(start_world_pos) = P::screen_to_world_space(screen_pos, &self.viewport) {
             self.moving = Some(Move::new(start_world_pos));
         }
     }
 
     fn moves(&mut self, screen_pos: Vector2<f32>) {
-        if let Some(world_pos) = self.projection.screen_to_world_space(screen_pos, &self.viewport) {
+        if let Some(world_pos) = P::screen_to_world_space(screen_pos, &self.viewport) {
             // If a move is done
             if let Some(ref mut moving) = &mut self.moving {
                 // Moves the renderables
@@ -418,7 +426,7 @@ impl App {
 
                 console::log_1(&format!("moves").into());
                 // Moves the viewport
-                self.viewport.displacement(&mut self.hips_sphere, &mut self.catalog, &self.projection);
+                self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog);
                 console::log_1(&format!("moves2").into());
             }
         }
@@ -448,9 +456,9 @@ impl App {
     // ZOOM EVENT
     fn zoom(&mut self, delta_y: f32) {
         if delta_y < 0_f32 {
-            self.viewport.zoom(&mut self.hips_sphere, &mut self.catalog, &self.projection);
+            self.viewport.zoom::<P>(&mut self.hips_sphere, &mut self.catalog);
         } else {
-            self.viewport.unzoom(&mut self.hips_sphere, &mut self.catalog, &self.projection);
+            self.viewport.unzoom::<P>(&mut self.hips_sphere, &mut self.catalog);
         }
     }
 
@@ -550,9 +558,121 @@ impl Deref for WebGl2Context {
     }
 }
 
+enum AppConfig {
+    Ait(App<Aitoff>),
+    Ort(App<Orthographic>),
+    Mol(App<MollWeide>),
+}
+
+impl AppConfig {
+    fn set_projection(self, proj: &str) -> AppConfig {
+        match (self, proj) {
+            (AppConfig::Ait(app), "aitoff") => {
+                AppConfig::Ait(app)
+            },
+            (AppConfig::Ait(app), "orthographic") => {
+                AppConfig::Ort(app.set_projection::<Orthographic>())
+            },
+            (AppConfig::Ait(app), "mollweide") => {
+                AppConfig::Mol(app.set_projection::<MollWeide>())
+            },
+
+            (AppConfig::Ort(app), "aitoff") => {
+                AppConfig::Ait(app.set_projection::<Aitoff>())
+            },
+            (AppConfig::Ort(app), "orthographic") => {
+                AppConfig::Ort(app)
+            },
+            (AppConfig::Ort(app), "mollweide") => {
+                AppConfig::Mol(app.set_projection::<MollWeide>())
+            },
+
+            (AppConfig::Mol(app), "aitoff") => {
+                AppConfig::Ait(app.set_projection::<Aitoff>())
+            },
+            (AppConfig::Mol(app), "orthographic") => {
+                AppConfig::Ort(app.set_projection::<Orthographic>())
+            },
+            (AppConfig::Mol(app), "mollweide") => {
+                AppConfig::Mol(app)
+            },
+            _ => unreachable!()
+        }
+    }
+
+    fn update(&mut self, dt: f32) {
+        match self {
+            AppConfig::Ait(app) => app.update(dt),
+            AppConfig::Mol(app) => app.update(dt),
+            AppConfig::Ort(app) => app.update(dt),
+        }
+    }
+
+    fn render(&self) {
+        match self {
+            AppConfig::Ait(app) => app.render(),
+            AppConfig::Mol(app) => app.render(),
+            AppConfig::Ort(app) => app.render(),
+        }
+    }
+
+    pub fn initialize_move(&mut self, screen_pos_x: f32, screen_pos_y: f32) {
+        let screen_pos = Vector2::new(screen_pos_x, screen_pos_y);
+        match self {
+            AppConfig::Ait(app) => app.initialize_move(screen_pos),
+            AppConfig::Mol(app) => app.initialize_move(screen_pos),
+            AppConfig::Ort(app) => app.initialize_move(screen_pos),
+        }
+    }
+
+    /// Stop move
+    pub fn stop_move(&mut self, screen_pos_x: f32, screen_pos_y: f32) {
+        let screen_pos = Vector2::new(screen_pos_x, screen_pos_y);
+        match self {
+            AppConfig::Ait(app) => app.stop_move(screen_pos),
+            AppConfig::Mol(app) => app.stop_move(screen_pos),
+            AppConfig::Ort(app) => app.stop_move(screen_pos),
+        }
+    }
+    /// Keep moving
+    pub fn moves(&mut self, screen_pos_x: f32, screen_pos_y: f32) {
+        let screen_pos = Vector2::new(screen_pos_x, screen_pos_y);
+        match self {
+            AppConfig::Ait(app) => app.moves(screen_pos),
+            AppConfig::Mol(app) => app.moves(screen_pos),
+            AppConfig::Ort(app) => app.moves(screen_pos),
+        }
+    }
+
+    /// Wheel event
+    pub fn zoom(&mut self, delta_y: f32) {
+        match self {
+            AppConfig::Ait(app) => app.zoom(delta_y),
+            AppConfig::Mol(app) => app.zoom(delta_y),
+            AppConfig::Ort(app) => app.zoom(delta_y),
+        }
+    }
+
+    pub fn add_catalog(&mut self, data: &JsValue) {
+        let data: Vec<[f32; 3]> = data.into_serde().unwrap();
+
+        let sources: Vec<Source> = data.into_iter()
+            .map(|ref source| {
+                (source as &[f32]).into()
+            })
+            .collect::<Vec<_>>();
+
+        match self {
+            AppConfig::Ait(app) => app.add_catalog(sources),
+            AppConfig::Mol(app) => app.add_catalog(sources),
+            AppConfig::Ort(app) => app.add_catalog(sources),
+        }
+    }
+}
+
 #[wasm_bindgen]
 pub struct WebClient {
-    app: App,
+    appconfig: AppConfig,
 }
 
 #[wasm_bindgen]
@@ -562,17 +682,18 @@ impl WebClient {
     pub fn new() -> WebClient {
         let gl = WebGl2Context::new();
 
-        let app = App::new(&gl).unwrap();
+        let app: App<Orthographic> = App::new(&gl).unwrap();
+        let appconfig = AppConfig::Ort(app);
 
         WebClient {
-            app,
+            appconfig,
         }
     }
 
     /// Update our WebGL Water application. `index.html` will call this function in order
     /// to begin rendering.
     pub fn update(&mut self, dt: f32) -> Result<(), JsValue> {
-        self.app.update(dt);
+        self.appconfig.update(dt);
 
         Ok(())
     }
@@ -580,40 +701,20 @@ impl WebClient {
     /// Update our WebGL Water application. `index.html` will call this function in order
     /// to begin rendering.
     pub fn render(&self) -> Result<(), JsValue> {
-        self.app.render();
+        self.appconfig.render();
 
         Ok(())
     }
 
     /// Change the current projection of the HiPS
-    pub fn set_projection(&mut self, name: String) -> Result<(), JsValue> {
-        match name.as_ref() {
-            "aitoff" => {
-                self.app.set_projection(ProjectionType::Aitoff(Aitoff {}));
-            },
-            "orthographic" => {
-                self.app.set_projection(ProjectionType::Orthographic(Orthographic {}));
-            },
-            "mollweide" => {
-                self.app.set_projection(ProjectionType::MollWeide(MollWeide {}));
-            },
-            _ => {}
-        }
+    pub fn set_projection(mut self, name: String) -> Result<WebClient, JsValue> {
+        self.appconfig = self.appconfig.set_projection(&name);
 
-        //RENDER_FRAME.lock().unwrap().set(true);
-        //UPDATE_FRAME.lock().unwrap().set(true);
-
-        // This is a UI update so we tell the rendering loop
-        // we do not want to update the update and render frame
-        // bools
-        //UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
-
-        Ok(())
+        Ok(self)
     }
 
-    /// Enable equatorial grid
+    /*/// Enable equatorial grid
     pub fn enable_equatorial_grid(&mut self) -> Result<(), JsValue> {
-        //self.app.grid.borrow_mut().enable();
         if let Some(grid) = ENABLED_WIDGETS.lock().unwrap().get_mut("grid") {
             *grid = true;
             self.app.grid
@@ -622,8 +723,6 @@ impl WebClient {
                     &mut self.app.viewport
                 );
         }
-        //RENDER_FRAME.lock().unwrap().set(true);
-        //UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
 
         Ok(())
     }
@@ -700,51 +799,35 @@ impl WebClient {
     pub fn change_hips(&mut self, hips_url: String, hips_depth: i32) -> Result<(), JsValue> {
         self.app.reload_hips_sphere(hips_url, hips_depth as u8);
 
-        //RENDER_FRAME.lock().unwrap().set(true);
-        //UPDATE_FRAME.lock().unwrap().set(true);
-
-        //UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
-
         Ok(())
-    }
+    }*/
 
     /// Start move
     pub fn initialize_move(&mut self, screen_pos_x: f32, screen_pos_y: f32) -> Result<(), JsValue> {
-        let screen_pos = Vector2::new(screen_pos_x, screen_pos_y);
-        self.app.initialize_move(screen_pos);
+        self.appconfig.initialize_move(screen_pos_x, screen_pos_y);
         Ok(())
     }
     /// Stop move
     pub fn stop_move(&mut self, screen_pos_x: f32, screen_pos_y: f32) -> Result<(), JsValue> {
-        let screen_pos = Vector2::new(screen_pos_x, screen_pos_y);
-        self.app.stop_move(screen_pos);
+        self.appconfig.stop_move(screen_pos_x, screen_pos_y);
         Ok(())
     }
     /// Keep moving
     pub fn moves(&mut self, screen_pos_x: f32, screen_pos_y: f32) -> Result<(), JsValue> {
-        let screen_pos = Vector2::new(screen_pos_x, screen_pos_y);
-        self.app.moves(screen_pos);
+        self.appconfig.moves(screen_pos_x, screen_pos_y);
         Ok(())
     }
 
     /// Wheel event
     pub fn zoom(&mut self, delta_y: f32) -> Result<(), JsValue> {
-        self.app.zoom(delta_y);
+        self.appconfig.zoom(delta_y);
 
         Ok(())
     }
 
     /// Add new catalog
     pub fn add_catalog(&mut self, data: &JsValue) -> Result<(), JsValue> {
-        let data: Vec<[f32; 3]> = data.into_serde().unwrap();
-
-        let sources: Vec<Source> = data.into_iter()
-            .map(|ref source| {
-                (source as &[f32]).into()
-            })
-            .collect::<Vec<_>>();
-
-        self.app.add_catalog(sources);
+        self.appconfig.add_catalog(data);
 
         Ok(())
     }

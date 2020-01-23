@@ -12,7 +12,7 @@ pub struct FieldOfView {
     vertices_world_space: [Vector4<f32>; NUM_VERTICES],
 
     aperture_angle: Rad<f32>, // fov can be None if the camera is out of the projection
-    screen_scaling: Vector2<f32>,
+    scaling_screen_factor: Vector2<f32>,
 
     cells: BTreeSet<HEALPixCell>,
     current_depth: u8,
@@ -21,7 +21,6 @@ pub struct FieldOfView {
 
 use itertools_num;
 use std::iter;
-use crate::projection::ProjectionType;
 use crate::math;
 use crate::MAX_DEPTH;
 use crate::window_size_f32;
@@ -89,6 +88,7 @@ use web_sys::console;
 
 use crate::renderable::Renderable;
 use crate::renderable::hips_sphere::HiPSSphere;
+use crate::projection::Projection;
 impl FieldOfView {
     pub fn new(buffer: &BufferTiles) -> FieldOfView {
         let mut x_homo_space = itertools_num::linspace::<f32>(-1., 1., NUM_VERTICES_WIDTH + 2)
@@ -118,7 +118,7 @@ impl FieldOfView {
         let vertices_world_space = vertices_local_space.clone();
 
         let aperture_angle = Deg(30_f32).into();
-        let screen_scaling = Vector2::new(1_f32, 1_f32);
+        let scaling_screen_factor = Vector2::new(1_f32, 1_f32);
 
         let cells = ALLSKY.lock()
             .unwrap()
@@ -132,7 +132,7 @@ impl FieldOfView {
             vertices_world_space,
 
             aperture_angle,
-            screen_scaling,
+            scaling_screen_factor,
 
             cells,
             current_depth,
@@ -141,7 +141,7 @@ impl FieldOfView {
         }
     }
 
-    fn to_screen_factor(fov: Rad<f32>, projection: &ProjectionType) -> Vector2<f32> {
+    fn to_screen_factor<P: Projection>(fov: Rad<f32>) -> Vector2<f32> {
         let (width, height) = window_size_f32();
         let aspect = width / height;
 
@@ -153,25 +153,27 @@ impl FieldOfView {
         let v1 = math::radec_to_xyz(Rad(0_f32), Rad(lat));
 
         // Project this vertex into the screen
-        let p0 = projection.world_to_screen_space(v0)
+        let p0 = P::world_to_screen_space(v0)
             .unwrap();
-        let p1 = projection.world_to_screen_space(v1)
+        let p1 = P::world_to_screen_space(v1)
             .unwrap();
 
         Vector2::new(p0.x.abs(), p1.y.abs())
     }
 
-    pub fn set_aperture(&mut self, angle: Rad<f32>, projection: &ProjectionType, hips_sphere: &Renderable<HiPSSphere>) {
+    pub fn set_aperture<P: Projection>(&mut self, angle: Rad<f32>, hips_sphere: &Renderable<HiPSSphere>) {
         self.aperture_angle = angle;
-        let scaling_screen_factor = *self.get_scaling_screen_factor();
+        let scaling_screen_factor = Self::to_screen_factor::<P>(angle);
         // Update the local coordinates w.r.t the newly computed
         // screen scaling vector 
         for idx_vertex in 0..NUM_VERTICES {
             let homogeneous_vertex = &self.vertices_homo_space[idx_vertex];
-            self.vertices_local_space[idx_vertex] = projection
-                .homogeneous_to_world_space(homogeneous_vertex.clone(), &scaling_screen_factor)
-                .unwrap();
+            self.vertices_local_space[idx_vertex] = P::homogeneous_to_world_space(
+                homogeneous_vertex.clone(),
+                &scaling_screen_factor
+            ).unwrap();
         }
+        self.scaling_screen_factor = scaling_screen_factor;
 
         // Compute the world space vertices
         self.translate(hips_sphere);
@@ -253,6 +255,6 @@ impl FieldOfView {
     }
 
     pub fn get_scaling_screen_factor(&self) -> &Vector2<f32> {
-        &self.screen_scaling
+        &self.scaling_screen_factor
     }
 }

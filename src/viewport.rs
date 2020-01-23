@@ -26,7 +26,9 @@ pub struct ViewPort {
     aspect: f32,
 
     fov_lookup_table: [Rad<f32>; NUM_WHEEL_PER_DEPTH * 29],
-    zoom_index: usize,
+    zoom_index: i16,
+
+    screen_scaling_factor: Vector2<f32>,
     
     pub last_zoom_action: LastZoomAction,
     pub last_action: LastAction,
@@ -73,12 +75,9 @@ fn field_of_view_table() -> [Rad<f32>; NUM_WHEEL_PER_DEPTH * 29] {
         }
     }
 
-    console::log_1(&format!("FOV table {:?}", fov[0]).into());
-
     fov
 }
 
-use crate::projection::ProjectionType;
 use web_sys::console;
 use crate::math;
 use std::sync::atomic::Ordering;
@@ -90,9 +89,9 @@ use crate::renderable::Renderable;
 use crate::renderable::catalog::Catalog;
 use crate::renderable::grid::ProjetedGrid;
 use crate::mouse_inertia::MouseInertia;
-
+use crate::projection::Projection;
 impl ViewPort {
-    pub fn new(gl: &WebGl2Context, projection: &ProjectionType, hips_sphere: &Renderable<HiPSSphere>) -> ViewPort {
+    pub fn new<P: Projection>(gl: &WebGl2Context, hips_sphere: &Renderable<HiPSSphere>) -> ViewPort {
         //let final_zoom = current_zoom;
 
         let canvas = Rc::new(
@@ -104,7 +103,7 @@ impl ViewPort {
         let last_zoom_action = LastZoomAction::Unzoom;
         let last_action = LastAction::Moving;
 
-        let default_size_scissor = projection.size();
+        let default_size_scissor = P::size();
         let (width, height) = window_size_f32();
         let aspect = width / height;
 
@@ -112,9 +111,10 @@ impl ViewPort {
         let zoom_index = 0;
         
         let mut fov = FieldOfView::new(&hips_sphere.mesh().get_buffer().borrow());
-        fov.set_aperture(fov_lookup_table[0], projection, hips_sphere);
-
+        fov.set_aperture::<P>(fov_lookup_table[0], hips_sphere);
         let gl = gl.clone();
+
+        let screen_scaling_factor = *fov.get_scaling_screen_factor();
         let mut viewport = ViewPort {
             gl,
             canvas,
@@ -124,6 +124,8 @@ impl ViewPort {
             aspect,
             fov_lookup_table,
             zoom_index,
+
+            screen_scaling_factor,
 
             last_zoom_action,
             last_action,
@@ -146,34 +148,33 @@ impl ViewPort {
         set_gl_scissor(&self.gl, current_size_scissor);
     }
 
-    pub fn zoom(
+    pub fn zoom<P: Projection>(
         &mut self,
         hips_sphere: &mut Renderable<HiPSSphere>,
         catalog: &mut Renderable<Catalog>,
-        projection: &ProjectionType
     ) {
         self.last_zoom_action = LastZoomAction::Zoom;
         self.last_action = LastAction::Zooming;
 
-        if self.zoom_index < (self.fov_lookup_table.len() - 1) {
+        if self.zoom_index < (self.fov_lookup_table.len() - 1) as i16  {
             self.zoom_index += 1;
         }
 
-        self.fov.set_aperture(self.fov_lookup_table[self.zoom_index], projection, hips_sphere);
+        self.fov.set_aperture::<P>(self.fov_lookup_table[self.zoom_index as usize], hips_sphere);
+        self.screen_scaling_factor = *self.fov.get_scaling_screen_factor();
 
         // Update the HiPS sphere 
-        hips_sphere.update(projection, &self);
+        hips_sphere.update::<P>(&self);
         // Update the catalog loaded
-        catalog.update(projection, &self);
+        catalog.update::<P>(&self);
 
         self.update_scissor();
     }
 
-    pub fn unzoom(
+    pub fn unzoom<P: Projection>(
         &mut self,
         hips_sphere: &mut Renderable<HiPSSphere>,
         catalog: &mut Renderable<Catalog>,
-        projection: &ProjectionType
     ) {
         self.last_zoom_action = LastZoomAction::Unzoom;
         self.last_action = LastAction::Zooming;
@@ -183,25 +184,24 @@ impl ViewPort {
         }
 
         // Update the aperture of the Field Of View
-        self.fov.set_aperture(
-            self.fov_lookup_table[self.zoom_index],
-            projection,
+        self.fov.set_aperture::<P>(
+            self.fov_lookup_table[self.zoom_index as usize],
             hips_sphere
         );
+        self.screen_scaling_factor =  *self.fov.get_scaling_screen_factor();
 
         // Update the HiPS sphere 
-        hips_sphere.update(projection, &self);
+        hips_sphere.update::<P>(&self);
         // Update the catalog loaded
-        catalog.update(projection, &self);
+        catalog.update::<P>(&self);
 
         self.update_scissor();
     }
 
-    pub fn displacement(
+    pub fn displacement<P: Projection>(
         &mut self,
         hips_sphere: &mut Renderable<HiPSSphere>,
         catalog: &mut Renderable<Catalog>,
-        projection: &ProjectionType
     ) {
         self.last_action = LastAction::Moving;
 
@@ -209,9 +209,9 @@ impl ViewPort {
         self.fov.translate(hips_sphere);
 
         // Update the HiPS sphere 
-        hips_sphere.update(projection, &self);
+        hips_sphere.update::<P>(&self);
         // Update the catalog loaded
-        catalog.update(projection, &self);
+        catalog.update::<P>(&self);
     }
 
     pub fn field_of_view(&self) -> &FieldOfView {
@@ -222,6 +222,7 @@ impl ViewPort {
         let (width, height) = window_size_u32();
 
         set_window_size(width, height);
+        self.aspect = (width as f32) / (height as f32);
 
         self.canvas.set_width(width);
         self.canvas.set_height(height);
@@ -232,7 +233,7 @@ impl ViewPort {
     }
 
     pub fn get_scaling_screen_factor(&self) -> &Vector2<f32> {
-        self.fov.get_scaling_screen_factor()
+        &self.screen_scaling_factor
     }
 
     /// Warning: this is executed by all the shaders
@@ -243,8 +244,7 @@ impl ViewPort {
         gl.uniform1f(location_aspect, self.aspect);
         // Send zoom factor
         let zoom_factor_location = shader.get_uniform_location("zoom_factor");
-        let screen_scaling = self.fov.get_scaling_screen_factor();
-        gl.uniform2f(zoom_factor_location, screen_scaling.x, screen_scaling.y);
+        gl.uniform2f(zoom_factor_location, self.screen_scaling_factor.x, self.screen_scaling_factor.y);
 
         // Send last zoom action
         let last_zoom_action_location = shader.get_uniform_location("last_zoom_action");

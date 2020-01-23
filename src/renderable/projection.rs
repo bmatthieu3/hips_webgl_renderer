@@ -11,6 +11,9 @@ use crate::viewport::ViewPort;
 
 use crate::window_size_f32;
 use web_sys::console;
+
+// Screen pixels whose origin is in the top-left corner
+// To homogeneous coordinates system
 pub fn screen_pixels_to_homogenous(screen_pos: Vector2<f32>) -> Vector2<f32> {
     // Screen space in pixels to homogeneous screen space (values between [-1, 1])
     let (width, height) = window_size_f32();
@@ -70,100 +73,9 @@ pub struct MollWeide;
 #[derive(Clone, Copy)]
 pub struct Orthographic;
 
-#[derive(Clone, Copy)]
-pub enum ProjectionType {
-    Aitoff(Aitoff),
-    MollWeide(MollWeide),
-    Orthographic(Orthographic),
-}
-
-impl ProjectionType {
-    pub fn build_screen_map(&self) -> Vec<cgmath::Vector2<f32>> {
-        match self {
-            ProjectionType::Aitoff(_) => {
-                Aitoff::build_screen_map()
-            },
-            ProjectionType::Orthographic(_) => {
-                Orthographic::build_screen_map()
-            },
-            ProjectionType::MollWeide(_) => {
-                MollWeide::build_screen_map()
-            },
-        }
-    }
-
-    /// Screen space to world space transformation
-    /// 
-    /// This returns a normalized vector along its first 3 dimensions.
-    /// Its fourth component is set to 1.
-    /// 
-    /// # Arguments
-    /// 
-    /// * `x` - X mouse position in screen space (between [-1, 1])
-    /// * `y` - Y mouse position in screen space (between [-1, 1])
-    pub fn screen_to_world_space(&self, pos: Vector2<f32>, viewport: &ViewPort) -> Option<cgmath::Vector4<f32>> {
-        match self {
-            ProjectionType::Aitoff(_) => {
-                Aitoff::screen_to_world_space(pos, viewport)
-            },
-            ProjectionType::Orthographic(_) => {
-                Orthographic::screen_to_world_space(pos, viewport)
-            },
-            ProjectionType::MollWeide(_) => {
-                MollWeide::screen_to_world_space(pos, viewport)
-            },
-        }
-    }
-
-    pub fn homogeneous_to_world_space(&self, pos: Vector2<f32>, scaling_screen_factor: &Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
-        match self {
-            ProjectionType::Aitoff(_) => {
-                Aitoff::homogeneous_to_world_space(pos, scaling_screen_factor)
-            },
-            ProjectionType::Orthographic(_) => {
-                Orthographic::homogeneous_to_world_space(pos, scaling_screen_factor)
-            },
-            ProjectionType::MollWeide(_) => {
-                MollWeide::homogeneous_to_world_space(pos, scaling_screen_factor)
-            },
-        }
-    }
-
-    /// World space to screen space transformation
-    /// 
-    /// # Arguments
-    /// 
-    /// * `x` - X mouse position in the screen space (in pixel)
-    /// * `y` - Y mouse position in the screen space (in pixel)
-    pub fn world_to_screen_space(&self, pos_world_space: cgmath::Vector4<f32>) -> Option<cgmath::Vector2<f32>> {
-        match self {
-            ProjectionType::Aitoff(_) => {
-                Aitoff::world_to_screen_space(pos_world_space)
-            },
-            ProjectionType::Orthographic(_) => {
-                Orthographic::world_to_screen_space(pos_world_space)
-            },
-            ProjectionType::MollWeide(_) => {
-                MollWeide::world_to_screen_space(pos_world_space)
-            },
-        }
-    }
-
-    /// Get the size in pixel on the screen
-    pub fn size(&self) -> cgmath::Vector2<f32> {
-        match self {
-            ProjectionType::Aitoff(_) => {
-                Aitoff::size()
-            },
-            ProjectionType::Orthographic(_) => {
-                Orthographic::size()
-            },
-            ProjectionType::MollWeide(_) => {
-                MollWeide::size()
-            },
-        }
-    }
-}
+pub static ORTHO_PROJ: Orthographic = Orthographic {};
+pub static AITOFF_PROJ: Aitoff = Aitoff {};
+pub static MOLLWEIDE_PROJ: MollWeide = MollWeide {};
 
 use cgmath::Vector2;
 
@@ -185,7 +97,7 @@ impl Projection for Aitoff {
             for i in 0..NUM_VERTICES_PER_STEP {
                 let angle = (i as f32) * 2_f32 * std::f32::consts::PI / (NUM_VERTICES_PER_STEP as f32);
 
-                let mut pos_screen_space = Vector2::<f32>::new(
+                let pos_screen_space = Vector2::<f32>::new(
                     (width/2_f32 - 1_f32) * radius * angle.cos(),
                     ((width/2_f32 - 1_f32) / 2_f32) * radius * angle.sin()
                 );
@@ -414,12 +326,11 @@ impl Projection for Orthographic {
             for i in 0..NUM_VERTICES_PER_STEP {
                 let angle = (i as f32) * 2_f32 * std::f32::consts::PI / (NUM_VERTICES_PER_STEP as f32);
 
-                let mut pos_screen_space = Vector2::<f32>::new(
+                let pos_screen_space = Vector2::<f32>::new(
                     (height/2_f32 - 1_f32) * radius * angle.cos(),
                     (height/2_f32 - 1_f32) * radius * angle.sin()
                 );
 
-                pos_screen_space += Vector2::<f32>::new(width / 2_f32, height / 2_f32);
                 vertices_screen.push(pos_screen_space + center_screen_space);
             }
         }
@@ -442,7 +353,6 @@ impl Projection for Orthographic {
         let pos = Vector2::new(pos.x * scaling_screen_factor.x, pos.y * scaling_screen_factor.y);
 
         let xw_2 = 1_f32 - pos.x*pos.x - pos.y*pos.y;
-
         if xw_2 > 0_f32 {
             let pos_world_space = cgmath::Vector4::new(-pos.x, pos.y, xw_2.sqrt(), 1_f32);
 

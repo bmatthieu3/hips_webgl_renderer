@@ -17,7 +17,6 @@ pub struct Move {
 
 use cgmath::Vector2;
 use cgmath::InnerSpace;
-use crate::projection::ProjectionType;
 use crate::viewport::ViewPort;
 use crate::math;
 use crate::utils;
