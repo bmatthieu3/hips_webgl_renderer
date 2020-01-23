@@ -106,7 +106,6 @@ use cgmath::{SquareMatrix, InnerSpace};
 use wasm_bindgen::JsCast;
 use crate::math::radec_to_xyz;
 use crate::{window_size_f32, window_size_f64};
-use crate::DEGRADE_CANVAS_RATIO;
 
 impl ProjetedGrid {
     pub fn new(
@@ -204,9 +203,6 @@ impl ProjetedGrid {
             .dyn_into::<web_sys::HtmlCanvasElement>().unwrap();
 
         let (mut width, mut height) = window_size_f32();
-        width *= DEGRADE_CANVAS_RATIO;
-        height *= DEGRADE_CANVAS_RATIO; 
-
         text_canvas.set_width(width as u32);
         text_canvas.set_height(height as u32);
 
@@ -259,7 +255,6 @@ impl ProjetedGrid {
 
     pub fn update_grid_positions(&mut self, local_to_world_mat: &Matrix4<f32>, projection: &ProjectionType) {
         let (mut width_screen, _) = window_size_f32();
-        width_screen *= DEGRADE_CANVAS_RATIO;
 
         self.pos_screen_space.clear();
         // UPDATE GRID VERTICES POSITIONS
@@ -327,9 +322,6 @@ impl ProjetedGrid {
 
     pub fn update_label_positions(&mut self, local_to_world_mat: &Matrix4<f32>, projection: &ProjectionType, viewport: &ViewPort) {
         let (mut width_screen, mut height_screen) = window_size_f32();
-        width_screen *= DEGRADE_CANVAS_RATIO;
-        height_screen *= DEGRADE_CANVAS_RATIO;
-
         let viewport_zoom_factor = viewport.get_screen_scaling_factor();
 
         // UPDATE LABEL POSITIONS
@@ -355,8 +347,6 @@ impl ProjetedGrid {
     pub fn draw_labels(&self) {
         // Clear the 2D canvas
         let (mut width_screen, mut height_screen) = window_size_f64();
-        width_screen *= DEGRADE_CANVAS_RATIO as f64;
-        height_screen *= DEGRADE_CANVAS_RATIO as f64;
         self.text_canvas.clear_rect(0_f64, 0_f64, width_screen, height_screen);
         // Fill
         for (label_text, pos_screen_space) in self.label_text.iter().zip(self.label_pos_screen_space.iter()) {
@@ -366,9 +356,6 @@ impl ProjetedGrid {
 
     pub fn clear_canvas(&mut self) {
         let (mut width_screen, mut height_screen) = window_size_f64();
-        width_screen *= DEGRADE_CANVAS_RATIO as f64;
-        height_screen *= DEGRADE_CANVAS_RATIO as f64;
-
         self.text_canvas.clear_rect(0_f64, 0_f64, width_screen, height_screen); 
     }
 

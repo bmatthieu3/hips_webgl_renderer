@@ -22,21 +22,13 @@ pub struct ViewPort {
     canvas: Rc<web_sys::HtmlCanvasElement>,
 
     fov: FieldOfView,
-    fov_max: Rad<f32>,
 
     aspect: f32,
 
     fov_lookup_table: [Rad<f32>; NUM_WHEEL_PER_DEPTH * 29],
     zoom_index: usize,
     
-    has_zoomed: bool,
     pub last_zoom_action: LastZoomAction,
-
-    has_moved: bool,
-    action: bool,
-    //is_inertia: bool,
-
-    //is_action: bool,
     pub last_action: LastAction,
 
     // Store the size in pixels of the hips sphere
@@ -110,13 +102,7 @@ impl ViewPort {
         );
 
         let last_zoom_action = LastZoomAction::Unzoom;
-        let has_moved = false;
-        let has_zoomed = false;
-        let action = false;
-
         let last_action = LastAction::Moving;
-
-        let fov_max = math::depth_to_fov(MAX_DEPTH.load(Ordering::Relaxed));
 
         let default_size_scissor = projection.size();
         let (width, height) = window_size_f32();
@@ -134,18 +120,12 @@ impl ViewPort {
             canvas,
 
             fov,
-            fov_max,
 
             aspect,
             fov_lookup_table,
             zoom_index,
 
-            has_zoomed,
             last_zoom_action,
-
-            has_moved,
-
-            action,
             last_action,
 
             default_size_scissor,
@@ -186,9 +166,6 @@ impl ViewPort {
         // Update the catalog loaded
         catalog.update(projection, &self);
 
-        self.action = true;
-        self.has_zoomed = true;
-
         self.update_scissor();
     }
 
@@ -217,9 +194,6 @@ impl ViewPort {
         // Update the catalog loaded
         catalog.update(projection, &self);
 
-        self.action = true;
-        self.has_zoomed = true;
-
         self.update_scissor();
     }
 
@@ -229,9 +203,6 @@ impl ViewPort {
         catalog: &mut Renderable<Catalog>,
         projection: &ProjectionType
     ) {
-        self.has_moved = true;
-        self.action = true;
-
         self.last_action = LastAction::Moving;
 
         // Translate the Field of View on the HiPS sphere

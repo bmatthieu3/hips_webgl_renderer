@@ -1,13 +1,10 @@
 use crate::viewport::ViewPort;
 
 use crate::window_size_f32;
-use crate::DEGRADE_CANVAS_RATIO;
 use web_sys::console;
 pub fn screen_pixels_to_homogenous(screen_pos: &Vector2<f32>, viewport: &ViewPort) -> Vector2<f32> {
     // Screen space in pixels to homogeneous screen space (values between [-1, 1])
-    let (mut width, mut height) = window_size_f32();
-    width = width * DEGRADE_CANVAS_RATIO;
-    height = height * DEGRADE_CANVAS_RATIO;
+    let (width, height) = window_size_f32();
     // Change of origin
     let origin = screen_pos - Vector2::new(width, height)/2_f32;
 

@@ -1,4 +1,3 @@
-#![feature(const_fn)]
 #[macro_use]
 extern crate lazy_static;
 extern crate itertools_num;
@@ -461,8 +460,6 @@ impl App {
     }
 }
 
-static DEGRADE_CANVAS_RATIO: f32 = 1.0_f32;
-
 lazy_static! {
     static ref WIDTH_SCREEN: Arc<AtomicU32> = Arc::new(
         AtomicU32::new(
@@ -472,10 +469,10 @@ lazy_static! {
                 .dyn_into::<web_sys::HtmlCanvasElement>().unwrap()
                 .width() as u32*/
             //1024
-            (web_sys::window().unwrap().inner_width()
+            web_sys::window().unwrap().inner_width()
                 .unwrap()
                 .as_f64()
-                .unwrap() / (DEGRADE_CANVAS_RATIO as f64)) as u32
+                .unwrap() as u32
             //512 as u32
         )
     );
@@ -487,10 +484,10 @@ lazy_static! {
                 .dyn_into::<web_sys::HtmlCanvasElement>().unwrap()
                 .height() as u32*/
             //768
-            (web_sys::window().unwrap().inner_height()
+            web_sys::window().unwrap().inner_height()
                 .unwrap()
                 .as_f64()
-                .unwrap() / (DEGRADE_CANVAS_RATIO as f64)) as u32
+                .unwrap() as u32
             //512 as u32
         )
     );
