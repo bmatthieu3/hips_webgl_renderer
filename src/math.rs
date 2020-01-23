@@ -52,7 +52,6 @@ use crate::window_size_f32;
 pub fn fov_to_depth(fov: Rad<f32>) -> u8 {
     let pixel_ang = fov.0 / window_size_f32().0;
 
-    //let depth_pixel = (((4_f32 * std::f32::consts::PI) / (12_f32 * pixel_ang * pixel_ang)).log2() / 2_f32) as i32;
     let depth_pixel = (((4_f32 * std::f32::consts::PI) / (12_f32 * pixel_ang * pixel_ang)).log2() / 2_f32).ceil() as i32;
 
     let mut depth = depth_pixel - 9;
@@ -64,10 +63,10 @@ pub fn fov_to_depth(fov: Rad<f32>) -> u8 {
 
 pub fn depth_to_fov(depth: u8) -> Rad<f32> {
     let sphere_area = 4_f32 * std::f32::consts::PI;
-    let num_hpx_cells = 12_f32 * 4_f32.powf(depth as f32);
-    let hpx_cell_ang = Rad((sphere_area / num_hpx_cells).sqrt());
+    let num_hpx_cells = 12_f32 * 4_f32.powf((depth + 9)as f32);
+    let hpx_cell_ang = Rad(((sphere_area) / num_hpx_cells).sqrt());
 
-    hpx_cell_ang
+    hpx_cell_ang * window_size_f32().0
 }
 
 use cgmath::Vector2;

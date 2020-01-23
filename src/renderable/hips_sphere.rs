@@ -549,7 +549,104 @@ impl Mesh for HiPSSphere {
             let num_tiles = tiles_fov.len();
             let mut vertices = Vec::with_capacity(10 * 6 * num_tiles);
 
-            if viewport.last_zoom_action == LastZoomAction::Zoom {
+            if current_depth <= 2 {
+                for idx in 0..192 {
+                    let current_tile = Tile::new(HEALPixCell(2, idx));
+
+                    let current_idx = idx >> (2*(2 - current_depth));
+                    let tile = HEALPixCell(current_depth, current_idx);
+                    if let Some(tile_buffer) = buffer.get(&tile) {
+                        let blending_factor = tile_buffer.blending_factor();
+                        let uv_start = if blending_factor == 1_f32 {
+                            [Vector2::new(0_f32, 0_f32); 4]
+                        } else {
+                            let (mut parent_depth, mut parent_idx) = if current_depth == 0 {
+                                (0, current_idx)
+                            } else {
+                                (current_depth - 1, current_idx >> 2)
+                            };
+                            //console::log_1(&format!("@aaahaQQA {:?}", parent_depth).into());
+
+                            let mut parent_tile = HEALPixCell(parent_depth, parent_idx);
+
+                            while parent_depth > 0 {
+                                if let Some(_) = buffer.get(&parent_tile) {
+                                    break;
+                                }
+        
+                                parent_depth -= 1;
+                                parent_idx = parent_idx >> 2;
+        
+                                parent_tile = HEALPixCell(parent_depth, parent_idx);
+                            }
+                            //console::log_1(&format!("@aaahaQQAB {:?}", parent_depth).into());
+                            let parent_tile_buffer = if parent_depth == 0 {
+                                get_root_parent(&Tile::new(tile))
+                            } else { 
+                                buffer.get(&parent_tile).unwrap().clone()
+                            };
+                            //console::log_1(&format!("@aaahaQQAC {:?}", parent_depth).into());
+
+                            get_uv_in_parent(&current_tile, &parent_tile_buffer)
+                        };
+
+                        let uv_end = if blending_factor == 0_f32 {
+                            [Vector2::new(0_f32, 0_f32); 4]
+                        } else {
+                            get_uv_in_parent(&current_tile, tile_buffer)
+                        };
+
+                        let mut vertex_array = Vec::with_capacity(10 * 6);
+                        add_vertices_grid(&mut vertex_array, 2, idx, 1, &uv_start, &uv_end, blending_factor);
+
+                        vertices.extend(vertex_array.iter());
+                    } else {
+                        let blending_factor = 0_f32;
+                        let uv_end = [Vector2::new(0_f32, 0_f32); 4];
+                        let (mut parent_depth, mut parent_idx) = if current_depth == 0 {
+                            (0, current_idx)
+                        } else {
+                            (current_depth - 1, current_idx >> 2)
+                        };                          
+                        //console::log_1(&format!("aaahaQQA {:?}", parent_depth).into());
+
+                        let mut parent_tile = HEALPixCell(parent_depth, parent_idx);
+                        //console::log_1(&format!("aaahaQQ {:?}", parent_tile).into());
+
+                        while parent_depth > 0 {
+                            if let Some(parent_tile) = buffer.get(&parent_tile) {
+                                break;
+                            }
+    
+                            parent_depth -= 1;
+                            parent_idx = parent_idx >> 2;
+    
+                            parent_tile = HEALPixCell(parent_depth, parent_idx);
+                        }
+                        //console::log_1(&format!("aaaha {:?}, current_depth {:?}", blending_factor, parent_depth).into());
+                        let parent_tile_buffer = if parent_depth == 0 {
+                            get_root_parent(&Tile::new(tile))
+                        } else { 
+                            buffer.get(&parent_tile).unwrap().clone()
+                        };
+                        //console::log_1(&format!("aaahauuu {:?}", blending_factor).into());
+                        let uv_start = get_uv_in_parent(&current_tile, &parent_tile_buffer);
+                        
+                        let mut vertex_array = Vec::with_capacity(10 * 6);
+                        add_vertices_grid(&mut vertex_array, 2, idx, 1, &uv_start, &uv_end, blending_factor);
+
+                        vertices.extend(vertex_array.iter());
+                    }
+                }
+                // Update the buffers
+                self.fov_rendering_mode.vertex_array_object.bind()
+                    .update_array(0, BufferData::VecData(&vertices));
+
+                self.fov_rendering_mode.vertices = vertices;
+                return;
+            }
+
+            if viewport.last_zoom_action == LastZoomAction::Zoom || viewport.last_action == LastAction::Moving  {
                 for tile in tiles_fov.iter() {
                     // If the tile is not already processed
                     let (depth, idx) = (tile.0, tile.1);
@@ -593,7 +690,7 @@ impl Mesh for HiPSSphere {
                     //tiles_rendered.insert(tile);
                     vertices.extend(vertex_array.iter());
                 }
-            } else if viewport.last_action == LastAction::Moving || viewport.last_zoom_action == LastZoomAction::Unzoom {
+            } else if viewport.last_zoom_action == LastZoomAction::Unzoom {
                 let buffer = self.buffer.borrow();
 
                 for tile in tiles_fov.iter() {

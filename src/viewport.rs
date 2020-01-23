@@ -156,12 +156,16 @@ impl ViewPort {
         self.last_zoom_action = LastZoomAction::Zoom;
         self.last_action = LastAction::Zooming;
 
-        if self.zoom_index < (self.fov_lookup_table.len() - 1) as i16  {
+        if self.zoom_index < (self.fov_lookup_table.len() - 1) as i16 {
             self.zoom_index += 1;
         }
 
-        self.fov.set_aperture::<P>(self.fov_lookup_table[self.zoom_index as usize], hips_sphere);
-        self.screen_scaling_factor = *self.fov.get_scaling_screen_factor();
+        if self.zoom_index < 0 {
+            self.screen_scaling_factor = self.screen_scaling_factor / 1.1_f32;
+        } else {
+            self.fov.set_aperture::<P>(self.fov_lookup_table[self.zoom_index as usize], hips_sphere);
+            self.screen_scaling_factor = *self.fov.get_scaling_screen_factor();
+        }
 
         // Update the HiPS sphere 
         hips_sphere.update::<P>(&self);
@@ -181,14 +185,18 @@ impl ViewPort {
 
         if self.zoom_index > 0 {
             self.zoom_index -= 1;
-        }
 
-        // Update the aperture of the Field Of View
-        self.fov.set_aperture::<P>(
-            self.fov_lookup_table[self.zoom_index as usize],
-            hips_sphere
-        );
-        self.screen_scaling_factor =  *self.fov.get_scaling_screen_factor();
+            // Update the aperture of the Field Of View
+            self.fov.set_aperture::<P>(
+                self.fov_lookup_table[self.zoom_index as usize],
+                hips_sphere
+            );
+            self.screen_scaling_factor =  *self.fov.get_scaling_screen_factor();
+        } else {
+            self.zoom_index -= 1;
+
+            self.screen_scaling_factor = self.screen_scaling_factor * 1.1_f32;
+        }
 
         // Update the HiPS sphere 
         hips_sphere.update::<P>(&self);
