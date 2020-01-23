@@ -19,19 +19,6 @@ use cgmath::Vector2;
 use cgmath::InnerSpace;
 use crate::projection::ProjectionType;
 use crate::viewport::ViewPort;
-pub fn screen_to_world_space(screen_pos: &Vector2<f32>, projection: &ProjectionType, viewport: &ViewPort) -> Option<Vector4<f32>> {
-    let homogeneous_pos = crate::projection::screen_pixels_to_homogenous(&screen_pos, viewport);
-
-    let world_pos = projection.screen_to_world_space(&homogeneous_pos);
-    if let Some(world_pos) = world_pos {
-        let world_pos = world_pos.normalize();
-
-        Some(world_pos)
-    } else {
-        None
-    }
-}
-
 use crate::math;
 use crate::utils;
 

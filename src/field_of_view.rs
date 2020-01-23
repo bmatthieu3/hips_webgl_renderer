@@ -7,7 +7,7 @@ const NUM_VERTICES_HEIGHT: usize = 3;
 const NUM_VERTICES: usize = 4 + 2*NUM_VERTICES_WIDTH + 2*NUM_VERTICES_HEIGHT;
 
 pub struct FieldOfView {
-    vertices_screen_space: [Vector2<f32>; NUM_VERTICES],
+    vertices_homo_space: [Vector2<f32>; NUM_VERTICES],
     vertices_local_space: [Vector4<f32>; NUM_VERTICES],
     vertices_world_space: [Vector4<f32>; NUM_VERTICES],
 
@@ -91,26 +91,26 @@ use crate::renderable::Renderable;
 use crate::renderable::hips_sphere::HiPSSphere;
 impl FieldOfView {
     pub fn new(buffer: &BufferTiles) -> FieldOfView {
-        let mut x_screen_space = itertools_num::linspace::<f32>(-1., 1., NUM_VERTICES_WIDTH + 2)
+        let mut x_homo_space = itertools_num::linspace::<f32>(-1., 1., NUM_VERTICES_WIDTH + 2)
             .collect::<Vec<_>>();
 
-        x_screen_space.extend(iter::repeat(1_f32).take(NUM_VERTICES_HEIGHT));
-        x_screen_space.extend(itertools_num::linspace::<f32>(1., -1., NUM_VERTICES_WIDTH + 2));
-        x_screen_space.extend(iter::repeat(-1_f32).take(NUM_VERTICES_HEIGHT));
+        x_homo_space.extend(iter::repeat(1_f32).take(NUM_VERTICES_HEIGHT));
+        x_homo_space.extend(itertools_num::linspace::<f32>(1., -1., NUM_VERTICES_WIDTH + 2));
+        x_homo_space.extend(iter::repeat(-1_f32).take(NUM_VERTICES_HEIGHT));
 
-        let mut y_screen_space = iter::repeat(-1_f32).take(NUM_VERTICES_WIDTH + 1)
+        let mut y_homo_space = iter::repeat(-1_f32).take(NUM_VERTICES_WIDTH + 1)
             .collect::<Vec<_>>();
 
-        y_screen_space.extend(itertools_num::linspace::<f32>(-1., 1., NUM_VERTICES_HEIGHT + 2));
-        y_screen_space.extend(iter::repeat(1_f32).take(NUM_VERTICES_WIDTH));
-        y_screen_space.extend(itertools_num::linspace::<f32>(1., -1., NUM_VERTICES_HEIGHT + 2));
-        y_screen_space.pop();
+        y_homo_space.extend(itertools_num::linspace::<f32>(-1., 1., NUM_VERTICES_HEIGHT + 2));
+        y_homo_space.extend(iter::repeat(1_f32).take(NUM_VERTICES_WIDTH));
+        y_homo_space.extend(itertools_num::linspace::<f32>(1., -1., NUM_VERTICES_HEIGHT + 2));
+        y_homo_space.pop();
 
-        let mut vertices_screen_space = [Vector2::new(0_f32, 0_f32); NUM_VERTICES];
+        let mut vertices_homo_space = [Vector2::new(0_f32, 0_f32); NUM_VERTICES];
         for idx_vertex in 0..NUM_VERTICES {
-            vertices_screen_space[idx_vertex] = Vector2::new(
-                x_screen_space[idx_vertex],
-                y_screen_space[idx_vertex],
+            vertices_homo_space[idx_vertex] = Vector2::new(
+                x_homo_space[idx_vertex],
+                y_homo_space[idx_vertex],
             );
         }
         
@@ -127,7 +127,7 @@ impl FieldOfView {
 
         let max_num_tiles = buffer.len_variable_tiles();
         FieldOfView {
-            vertices_screen_space,
+            vertices_homo_space,
             vertices_local_space,
             vertices_world_space,
 
@@ -163,18 +163,13 @@ impl FieldOfView {
 
     pub fn set_aperture(&mut self, angle: Rad<f32>, projection: &ProjectionType, hips_sphere: &Renderable<HiPSSphere>) {
         self.aperture_angle = angle;
-        self.screen_scaling = Self::to_screen_factor(angle, projection);
-
+        let scaling_screen_factor = *self.get_scaling_screen_factor();
         // Update the local coordinates w.r.t the newly computed
         // screen scaling vector 
         for idx_vertex in 0..NUM_VERTICES {
-            let screen_vertex = &self.vertices_screen_space[idx_vertex];
-            let homogeneous_vertex = Vector2::new(
-                screen_vertex.x * self.screen_scaling.x,
-                screen_vertex.y * self.screen_scaling.y,
-            );
+            let homogeneous_vertex = &self.vertices_homo_space[idx_vertex];
             self.vertices_local_space[idx_vertex] = projection
-                .screen_to_world_space(&homogeneous_vertex)
+                .homogeneous_to_world_space(homogeneous_vertex.clone(), &scaling_screen_factor)
                 .unwrap();
         }
 
@@ -257,7 +252,7 @@ impl FieldOfView {
         self.current_depth
     }
 
-    pub fn get_screen_scaling_factor(&self) -> &Vector2<f32> {
+    pub fn get_scaling_screen_factor(&self) -> &Vector2<f32> {
         &self.screen_scaling
     }
 }

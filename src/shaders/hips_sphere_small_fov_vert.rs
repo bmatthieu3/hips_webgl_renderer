@@ -18,7 +18,6 @@ pub static CONTENT: &'static str = r#"#version 300 es
     uniform float aspect;
 
     vec2 world2screen_orthographic(vec3 p) {
-        //return vec2(-p.x / aspect, p.y);
         return vec2(-p.x, p.y);
     }
 

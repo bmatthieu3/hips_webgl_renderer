@@ -110,7 +110,6 @@ fn add_tile_buffer_uniforms(name: &'static str, size: usize, uniforms: &mut Vec<
 }
 
 use cgmath::Vector2;
-use crate::event::screen_to_world_space;
 impl App {
     fn new(gl: &WebGl2Context) -> Result<App, JsValue> {
         // Shader definition
@@ -399,13 +398,13 @@ impl App {
         //self.inertia = None;
         //self.viewport.stop_inertia();
 
-        if let Some(start_world_pos) = screen_to_world_space(&screen_pos, &self.projection, &self.viewport) {
+        if let Some(start_world_pos) = self.projection.screen_to_world_space(screen_pos, &self.viewport) {
             self.moving = Some(Move::new(start_world_pos));
         }
     }
 
     fn moves(&mut self, screen_pos: Vector2<f32>) {
-        if let Some(world_pos) = screen_to_world_space(&screen_pos, &self.projection, &self.viewport) {
+        if let Some(world_pos) = self.projection.screen_to_world_space(screen_pos, &self.viewport) {
             // If a move is done
             if let Some(ref mut moving) = &mut self.moving {
                 // Moves the renderables

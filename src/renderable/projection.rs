@@ -1,30 +1,34 @@
+// Screen space: pixels space between
+// * x_px in [0, width-1]
+// * y_px in [0, height-1]
+
+// Homogeneous space
+// * x_h in [-1, 1]
+// * y_h in [-1, 1]
+
+// World space
 use crate::viewport::ViewPort;
 
 use crate::window_size_f32;
 use web_sys::console;
-pub fn screen_pixels_to_homogenous(screen_pos: &Vector2<f32>, viewport: &ViewPort) -> Vector2<f32> {
+pub fn screen_pixels_to_homogenous(screen_pos: Vector2<f32>) -> Vector2<f32> {
     // Screen space in pixels to homogeneous screen space (values between [-1, 1])
     let (width, height) = window_size_f32();
     // Change of origin
     let origin = screen_pos - Vector2::new(width, height)/2_f32;
 
     // Scale to fit in [-1, 1]
-    let homogeneous_pos = Vector2::new(2_f32 * (origin.x/width), -2_f32 * (origin.y/height));
-
-    let zoom_factor = viewport.get_screen_scaling_factor();
-    Vector2::new(
-        homogeneous_pos.x * zoom_factor.x,
-        homogeneous_pos.y * zoom_factor.y
-    )
+    Vector2::new(2_f32 * (origin.x/width), -2_f32 * (origin.y/height))
 }
 
 use cgmath::Vector4;
 use cgmath::InnerSpace;
 pub trait Projection {
-    fn screen_to_world_space(screen_pos: &Vector2<f32>, viewport: &ViewPort) -> Option<Vector4<f32>> {
-        let homogeneous_pos = crate::projection::screen_pixels_to_homogenous(&screen_pos, viewport);
+    fn screen_to_world_space(screen_pos: Vector2<f32>, viewport: &ViewPort) -> Option<Vector4<f32>> {
+        let homogeneous_pos = crate::projection::screen_pixels_to_homogenous(screen_pos);
 
-        let world_pos = Self::homogeneous_to_world_space(&homogeneous_pos);
+        let scaling_screen_factor = viewport.get_scaling_screen_factor();
+        let world_pos = Self::homogeneous_to_world_space(homogeneous_pos, scaling_screen_factor);
         if let Some(world_pos) = world_pos {
             let world_pos = world_pos.normalize();
 
@@ -46,7 +50,7 @@ pub trait Projection {
     /// 
     /// * `x` - X mouse position in homogenous screen space (between [-1, 1])
     /// * `y` - Y mouse position in homogenous screen space (between [-1, 1])
-    fn homogeneous_to_world_space(pos: &Vector2<f32>) -> Option<cgmath::Vector4<f32>>;
+    fn homogeneous_to_world_space(pos: Vector2<f32>, scaling_screen_factor: &Vector2<f32>) -> Option<cgmath::Vector4<f32>>;
     /// World to screen space transformation
     /// 
     /// # Arguments
@@ -97,7 +101,7 @@ impl ProjectionType {
     /// 
     /// * `x` - X mouse position in screen space (between [-1, 1])
     /// * `y` - Y mouse position in screen space (between [-1, 1])
-    pub fn screen_to_world_space(&self, pos: &Vector2<f32>, viewport: &ViewPort) -> Option<cgmath::Vector4<f32>> {
+    pub fn screen_to_world_space(&self, pos: Vector2<f32>, viewport: &ViewPort) -> Option<cgmath::Vector4<f32>> {
         match self {
             ProjectionType::Aitoff(_) => {
                 Aitoff::screen_to_world_space(pos, viewport)
@@ -107,6 +111,20 @@ impl ProjectionType {
             },
             ProjectionType::MollWeide(_) => {
                 MollWeide::screen_to_world_space(pos, viewport)
+            },
+        }
+    }
+
+    pub fn homogeneous_to_world_space(&self, pos: Vector2<f32>, scaling_screen_factor: &Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
+        match self {
+            ProjectionType::Aitoff(_) => {
+                Aitoff::homogeneous_to_world_space(pos, scaling_screen_factor)
+            },
+            ProjectionType::Orthographic(_) => {
+                Orthographic::homogeneous_to_world_space(pos, scaling_screen_factor)
+            },
+            ProjectionType::MollWeide(_) => {
+                MollWeide::homogeneous_to_world_space(pos, scaling_screen_factor)
             },
         }
     }
@@ -159,7 +177,7 @@ impl Projection for Aitoff {
 
         let (width, height) = window_size_f32();
 
-        let center_screen_space = Vector2::<f32>::new(0_f32, 0_f32);
+        let center_screen_space = Vector2::<f32>::new(width / 2_f32, height / 2_f32);
         vertices_screen.push(center_screen_space);
 
         for j in 0..NUM_STEPS {
@@ -172,13 +190,7 @@ impl Projection for Aitoff {
                     ((width/2_f32 - 1_f32) / 2_f32) * radius * angle.sin()
                 );
 
-                pos_screen_space += Vector2::<f32>::new(width / 2_f32, height / 2_f32);
-                vertices_screen.push(
-                    Vector2::<f32>::new(
-                        2_f32 * ((pos_screen_space.x / width) - 0.5_f32),
-                        -2_f32 * ((pos_screen_space.y / height) - 0.5_f32),
-                    )
-                );
+                vertices_screen.push(pos_screen_space + center_screen_space);
             }
         }
 
@@ -196,14 +208,14 @@ impl Projection for Aitoff {
     /// 
     /// * `x` - in normalized device coordinates between [-1; 1]
     /// * `y` - in normalized device coordinates between [-1; 1]
-    fn homogeneous_to_world_space(pos: &Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
-        let (x, y) = (pos.x, pos.y);
+    fn homogeneous_to_world_space(pos: Vector2<f32>, scaling_screen_factor: &Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
+        let pos = Vector2::new(pos.x * scaling_screen_factor.x, pos.y * scaling_screen_factor.y);
 
         let a = 1_f32;
         let b = 0.5_f32;
-        if is_inside_ellipse(&cgmath::Vector2::new(x, y), a, b) {
-            let u = x * std::f32::consts::PI * 0.5_f32;
-            let v = y * std::f32::consts::PI;
+        if is_inside_ellipse(&pos, a, b) {
+            let u = pos.x * std::f32::consts::PI * 0.5_f32;
+            let v = pos.y * std::f32::consts::PI;
             //da uv a lat/lon
             let c = (v*v + u*u).sqrt();
 
@@ -280,7 +292,7 @@ impl Projection for MollWeide {
 
         let (width, height) = window_size_f32();
 
-        let center_screen_space = Vector2::<f32>::new(0_f32, 0_f32);
+        let center_screen_space = Vector2::<f32>::new(width / 2_f32, height / 2_f32);
         vertices_screen.push(center_screen_space);
 
         for j in 0..NUM_STEPS {
@@ -293,13 +305,7 @@ impl Projection for MollWeide {
                     ((width/2_f32 - 1_f32) / 2_f32) * radius * angle.sin()
                 );
 
-                pos_screen_space += Vector2::<f32>::new(width / 2_f32, height / 2_f32);
-                vertices_screen.push(
-                    Vector2::<f32>::new(
-                        2_f32 * ((pos_screen_space.x / width) - 0.5_f32),
-                        -2_f32 * ((pos_screen_space.y / height) - 0.5_f32),
-                    )
-                );
+                vertices_screen.push(pos_screen_space + center_screen_space);
             }
         }
 
@@ -317,17 +323,17 @@ impl Projection for MollWeide {
     /// 
     /// * `x` - in normalized device coordinates between [-1; 1]
     /// * `y` - in normalized device coordinates between [-1; 1]
-    fn homogeneous_to_world_space(pos: &Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
-        let (x, y) = (pos.x, pos.y);
+    fn homogeneous_to_world_space(pos: Vector2<f32>, scaling_screen_factor: &Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
+        let pos = Vector2::new(pos.x * scaling_screen_factor.x, pos.y * scaling_screen_factor.y);
 
         let a = 1_f32;
         let b = 0.5_f32;
-        if is_inside_ellipse(&cgmath::Vector2::new(x, y), a, b) {
-            let y2 = y * y;
+        if is_inside_ellipse(&pos, a, b) {
+            let y2 = pos.y * pos.y;
             let k = (1_f32 - 4_f32 * y2).sqrt();
 
-            let theta = std::f32::consts::PI * x / k;
-            let delta = ((2_f32 * (2_f32 * y).asin() + 4_f32 * y * k) / std::f32::consts::PI).asin();
+            let theta = std::f32::consts::PI * pos.x / k;
+            let delta = ((2_f32 * (2_f32 * pos.y).asin() + 4_f32 * pos.y * k) / std::f32::consts::PI).asin();
 
             // The minus is an astronomical convention.
             // longitudes are increasing from right to left
@@ -400,9 +406,7 @@ impl Projection for Orthographic {
 
         let (width, height) = window_size_f32();
 
-        let center_screen_space = Vector2::<f32>::new(
-            0_f32, 0_f32
-        );
+        let center_screen_space = Vector2::<f32>::new(width / 2_f32, height / 2_f32);
         vertices_screen.push(center_screen_space);
 
         for j in 0..NUM_STEPS {
@@ -416,12 +420,7 @@ impl Projection for Orthographic {
                 );
 
                 pos_screen_space += Vector2::<f32>::new(width / 2_f32, height / 2_f32);
-                vertices_screen.push(
-                    Vector2::<f32>::new(
-                        2_f32 * ((pos_screen_space.x / width) - 0.5_f32),
-                        -2_f32 * ((pos_screen_space.y / height) - 0.5_f32)
-                    )
-                );
+                vertices_screen.push(pos_screen_space + center_screen_space);
             }
         }
 
@@ -439,13 +438,13 @@ impl Projection for Orthographic {
     /// 
     /// * `x` - in normalized device coordinates between [-1; 1]
     /// * `y` - in normalized device coordinates between [-1; 1]
-    fn homogeneous_to_world_space(pos: &Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
-        let (x, y) = (pos.x, pos.y);
+    fn homogeneous_to_world_space(pos: Vector2<f32>, scaling_screen_factor: &Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
+        let pos = Vector2::new(pos.x * scaling_screen_factor.x, pos.y * scaling_screen_factor.y);
 
-        let xw_2 = 1_f32 - x*x - y*y;
+        let xw_2 = 1_f32 - pos.x*pos.x - pos.y*pos.y;
 
         if xw_2 > 0_f32 {
-            let pos_world_space = cgmath::Vector4::new(-x, y, xw_2.sqrt(), 1_f32);
+            let pos_world_space = cgmath::Vector4::new(-pos.x, pos.y, xw_2.sqrt(), 1_f32);
 
             Some(pos_world_space)
         } else {

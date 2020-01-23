@@ -137,7 +137,7 @@ impl ViewPort {
     }
 
     pub fn update_scissor(&self) {
-        let ref screen_scaling = self.fov.get_screen_scaling_factor();
+        let ref screen_scaling = self.fov.get_scaling_screen_factor();
         // Take into account the zoom factor
         let current_size_scissor = Vector2::new(
             self.default_size_scissor.x / screen_scaling.x,
@@ -231,8 +231,8 @@ impl ViewPort {
         self.update_scissor();
     }
 
-    pub fn get_screen_scaling_factor(&self) -> &Vector2<f32> {
-        self.fov.get_screen_scaling_factor()
+    pub fn get_scaling_screen_factor(&self) -> &Vector2<f32> {
+        self.fov.get_scaling_screen_factor()
     }
 
     /// Warning: this is executed by all the shaders
@@ -243,7 +243,7 @@ impl ViewPort {
         gl.uniform1f(location_aspect, self.aspect);
         // Send zoom factor
         let zoom_factor_location = shader.get_uniform_location("zoom_factor");
-        let screen_scaling = self.fov.get_screen_scaling_factor();
+        let screen_scaling = self.fov.get_scaling_screen_factor();
         gl.uniform2f(zoom_factor_location, screen_scaling.x, screen_scaling.y);
 
         // Send last zoom action

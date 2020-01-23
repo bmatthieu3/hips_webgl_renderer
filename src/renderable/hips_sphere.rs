@@ -270,18 +270,22 @@ impl PerPixelRenderingMode {
     }
 }
 
+use crate::window_size_f32;
 impl RenderingMode for PerPixelRenderingMode {
     fn create_vertices_array(gl: &WebGl2Context, projection: &ProjectionType, _buffer: Rc<RefCell<BufferTiles>>) -> Vec<f32> {
         let vertex_screen_space_positions = projection.build_screen_map();
 
+        let (width, height) = window_size_f32();
+        let scaling_screen_factor = Vector2::new(1_f32, height/width);
         let vertices_data = vertex_screen_space_positions
             .into_iter()
             .map(|pos_screen_space| {
                 // Perform the inverse projection that converts
                 // screen position to the 3D space position
-                let pos_world_space = projection.screen_to_world_space(&pos_screen_space).unwrap();
+                let homogeneous_pos = crate::projection::screen_pixels_to_homogenous(pos_screen_space);
+                let pos_world_space = projection.homogeneous_to_world_space(homogeneous_pos, &scaling_screen_factor).unwrap();
 
-                vec![pos_screen_space.x, pos_screen_space.y, pos_world_space.x, pos_world_space.y, pos_world_space.z]
+                vec![homogeneous_pos.x, homogeneous_pos.y, pos_world_space.x, pos_world_space.y, pos_world_space.z]
             })
             .flatten()
             .collect::<Vec<_>>();
@@ -371,7 +375,7 @@ pub struct HiPSSphere {
     gl: WebGl2Context,
 }
 
-impl<'a> HiPSSphere {
+impl HiPSSphere {
     pub fn new(gl: &WebGl2Context, projection: &ProjectionType) -> HiPSSphere {
         let buffer = Rc::new(RefCell::new(BufferTiles::new(gl)));
         load_base_tiles(gl, buffer.clone());

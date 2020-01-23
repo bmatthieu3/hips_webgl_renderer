@@ -322,7 +322,7 @@ impl ProjetedGrid {
 
     pub fn update_label_positions(&mut self, local_to_world_mat: &Matrix4<f32>, projection: &ProjectionType, viewport: &ViewPort) {
         let (mut width_screen, mut height_screen) = window_size_f32();
-        let viewport_zoom_factor = viewport.get_screen_scaling_factor();
+        let viewport_zoom_factor = viewport.get_scaling_screen_factor();
 
         // UPDATE LABEL POSITIONS
         self.label_pos_screen_space.clear();

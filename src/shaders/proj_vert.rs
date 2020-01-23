@@ -11,7 +11,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
     uniform float zoom_factor;
 
     void main() {
-        gl_Position = vec4((screen_position.xy * zoom_factor), 0.0, 1.0);
+        gl_Position = vec4((screen_position.xy / zoom_factor), 0.0, 1.0);
         out_vert_pos = vec3(model * vec4(position, 1.f));
     }
 "#;
