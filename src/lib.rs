@@ -63,6 +63,7 @@ use crate::texture::BLENDING_DURATION_MS;
 use crate::event::Move;
 
 use crate::mouse_inertia::MouseInertia;
+use crate::projection::Projection;
 struct App {
     gl: WebGl2Context,
 
@@ -463,32 +464,18 @@ impl App {
 lazy_static! {
     static ref WIDTH_SCREEN: Arc<AtomicU32> = Arc::new(
         AtomicU32::new(
-            /*web_sys::window().unwrap()
-                .document().unwrap()
-                .get_element_by_id("canvas").unwrap()
-                .dyn_into::<web_sys::HtmlCanvasElement>().unwrap()
-                .width() as u32*/
-            //1024
             web_sys::window().unwrap().inner_width()
                 .unwrap()
                 .as_f64()
                 .unwrap() as u32
-            //512 as u32
         )
     );
     static ref HEIGHT_SCREEN: Arc<AtomicU32> = Arc::new(
         AtomicU32::new(
-            /*web_sys::window().unwrap()
-                .document().unwrap()
-                .get_element_by_id("canvas").unwrap()
-                .dyn_into::<web_sys::HtmlCanvasElement>().unwrap()
-                .height() as u32*/
-            //768
             web_sys::window().unwrap().inner_height()
                 .unwrap()
                 .as_f64()
                 .unwrap() as u32
-            //512 as u32
         )
     );
     static ref ENABLED_WIDGETS: Arc<Mutex<HashMap<&'static str, bool>>> = {

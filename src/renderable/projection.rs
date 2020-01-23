@@ -12,14 +12,28 @@ pub fn screen_pixels_to_homogenous(screen_pos: &Vector2<f32>, viewport: &ViewPor
     let homogeneous_pos = Vector2::new(2_f32 * (origin.x/width), -2_f32 * (origin.y/height));
 
     let zoom_factor = viewport.get_screen_scaling_factor();
-    console::log_1(&format!("screen pixels {:?}", zoom_factor).into());
     Vector2::new(
         homogeneous_pos.x * zoom_factor.x,
         homogeneous_pos.y * zoom_factor.y
     )
 }
 
+use cgmath::Vector4;
+use cgmath::InnerSpace;
 pub trait Projection {
+    fn screen_to_world_space(screen_pos: &Vector2<f32>, viewport: &ViewPort) -> Option<Vector4<f32>> {
+        let homogeneous_pos = crate::projection::screen_pixels_to_homogenous(&screen_pos, viewport);
+
+        let world_pos = Self::homogeneous_to_world_space(&homogeneous_pos);
+        if let Some(world_pos) = world_pos {
+            let world_pos = world_pos.normalize();
+
+            Some(world_pos)
+        } else {
+            None
+        }
+    }
+
     fn build_screen_map() -> Vec<cgmath::Vector2<f32>>;
 
     //fn scale_by_screen_ratio(x: f32, y: f32) -> (f32, f32);
@@ -32,7 +46,7 @@ pub trait Projection {
     /// 
     /// * `x` - X mouse position in homogenous screen space (between [-1, 1])
     /// * `y` - Y mouse position in homogenous screen space (between [-1, 1])
-    fn screen_to_world_space(pos: &Vector2<f32>) -> Option<cgmath::Vector4<f32>>;
+    fn homogeneous_to_world_space(pos: &Vector2<f32>) -> Option<cgmath::Vector4<f32>>;
     /// World to screen space transformation
     /// 
     /// # Arguments
@@ -81,18 +95,18 @@ impl ProjectionType {
     /// 
     /// # Arguments
     /// 
-    /// * `x` - X mouse position in homogenous screen space (between [-1, 1])
-    /// * `y` - Y mouse position in homogenous screen space (between [-1, 1])
-    pub fn screen_to_world_space(&self, pos: &Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
+    /// * `x` - X mouse position in screen space (between [-1, 1])
+    /// * `y` - Y mouse position in screen space (between [-1, 1])
+    pub fn screen_to_world_space(&self, pos: &Vector2<f32>, viewport: &ViewPort) -> Option<cgmath::Vector4<f32>> {
         match self {
             ProjectionType::Aitoff(_) => {
-                Aitoff::screen_to_world_space(pos)
+                Aitoff::screen_to_world_space(pos, viewport)
             },
             ProjectionType::Orthographic(_) => {
-                Orthographic::screen_to_world_space(pos)
+                Orthographic::screen_to_world_space(pos, viewport)
             },
             ProjectionType::MollWeide(_) => {
-                MollWeide::screen_to_world_space(pos)
+                MollWeide::screen_to_world_space(pos, viewport)
             },
         }
     }
@@ -182,10 +196,7 @@ impl Projection for Aitoff {
     /// 
     /// * `x` - in normalized device coordinates between [-1; 1]
     /// * `y` - in normalized device coordinates between [-1; 1]
-    fn screen_to_world_space(pos: &Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
-        let (width, height) = window_size_f32();
-        let aspect = width / height;
-
+    fn homogeneous_to_world_space(pos: &Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
         let (x, y) = (pos.x, pos.y);
 
         let a = 1_f32;
@@ -306,10 +317,7 @@ impl Projection for MollWeide {
     /// 
     /// * `x` - in normalized device coordinates between [-1; 1]
     /// * `y` - in normalized device coordinates between [-1; 1]
-    fn screen_to_world_space(pos: &Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
-        let (width, height) = window_size_f32();
-        let aspect = width / height;
-
+    fn homogeneous_to_world_space(pos: &Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
         let (x, y) = (pos.x, pos.y);
 
         let a = 1_f32;
@@ -431,7 +439,7 @@ impl Projection for Orthographic {
     /// 
     /// * `x` - in normalized device coordinates between [-1; 1]
     /// * `y` - in normalized device coordinates between [-1; 1]
-    fn screen_to_world_space(pos: &Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
+    fn homogeneous_to_world_space(pos: &Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
         let (x, y) = (pos.x, pos.y);
 
         let xw_2 = 1_f32 - x*x - y*y;
