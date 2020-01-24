@@ -25,7 +25,7 @@ pub struct ViewPort {
 
     aspect: f32,
 
-    fov_lookup_table: [Rad<f32>; NUM_WHEEL_PER_DEPTH * 29],
+    fov_lookup_table: [Rad<f32>; NUM_WHEEL_PER_DEPTH * 30],
     zoom_index: i16,
 
     screen_scaling_factor: Vector2<f32>,
@@ -59,14 +59,14 @@ fn set_gl_scissor(gl: &WebGl2Context, size: Vector2<f32>) {
 }
 
 const NUM_WHEEL_PER_DEPTH: usize = 5;
-fn field_of_view_table() -> [Rad<f32>; NUM_WHEEL_PER_DEPTH * 29] {
-    let mut fov = [Rad(0_f32); NUM_WHEEL_PER_DEPTH * 29];
+fn field_of_view_table() -> [Rad<f32>; NUM_WHEEL_PER_DEPTH * 30] {
+    let mut fov = [Rad(0_f32); NUM_WHEEL_PER_DEPTH * 30];
 
-    let max_depth = 29;
-    for depth in 0..29 {
+    for depth in 0..30 {
+        let fov_max = math::depth_to_fov(depth as u8) * 2_f32;
         let fov_min = math::depth_to_fov(depth as u8);
-        let fov_max = math::depth_to_fov((depth + 1) as u8);
-        let df = fov_max - fov_min;
+
+        let df = fov_min - fov_max;
 
         let off = depth * NUM_WHEEL_PER_DEPTH;
 

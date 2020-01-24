@@ -64,7 +64,7 @@ pub fn fov_to_depth(fov: Rad<f32>) -> u8 {
 pub fn depth_to_fov(depth: u8) -> Rad<f32> {
     let sphere_area = 4_f32 * std::f32::consts::PI;
     let num_hpx_cells = 12_f32 * 4_f32.powf((depth + 9)as f32);
-    let hpx_cell_ang = Rad(((sphere_area) / num_hpx_cells).sqrt());
+    let hpx_cell_ang = Rad((sphere_area / num_hpx_cells).sqrt());
 
     hpx_cell_ang * window_size_f32().0
 }
