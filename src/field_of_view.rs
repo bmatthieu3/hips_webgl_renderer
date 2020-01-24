@@ -1,29 +1,46 @@
 use cgmath::{Rad, Deg};
 use cgmath::Vector2;
 use cgmath::Vector4;
+use cgmath::Matrix4;
+use cgmath::SquareMatrix;
 
 const NUM_VERTICES_WIDTH: usize = 3;
 const NUM_VERTICES_HEIGHT: usize = 3;
 const NUM_VERTICES: usize = 4 + 2*NUM_VERTICES_WIDTH + 2*NUM_VERTICES_HEIGHT;
 
 pub struct FieldOfView {
-    vertices_homo_space: [Vector2<f32>; NUM_VERTICES],
-    vertices_local_space: [Vector4<f32>; NUM_VERTICES],
-    vertices_world_space: [Vector4<f32>; NUM_VERTICES],
+    pos_ndc_space: [Vector2<f32>; NUM_VERTICES],
+    pos_world_space: Option<[Vector4<f32>; NUM_VERTICES]>,
+    pos_transformed_space: Option<[Vector4<f32>; NUM_VERTICES]>,
 
     aperture_angle: Rad<f32>, // fov can be None if the camera is out of the projection
-    scaling_screen_factor: Vector2<f32>,
+    r: Matrix4<f32>, // Rotation matrix of the FOV (i.e. same as the HiPS sphere model matrix)
+
+    ndc_to_clip: Vector2<f32>,
+    clip_zoom_factor: f32,
 
     cells: BTreeSet<HEALPixCell>,
     current_depth: u8,
-    max_num_tiles: usize,
+
+    // The width over height ratio
+    aspect: f32,
+
+    // The width of the screen in pixels
+    width: f32,
+    // The height of the screen in pixels
+    height: f32,
+
+    // Canvas HtmlElement
+    canvas: web_sys::HtmlCanvasElement,
+
+    // WebGL2 context
+    gl: WebGl2Context,
 }
 
 use itertools_num;
 use std::iter;
 use crate::math;
 use crate::MAX_DEPTH;
-use crate::window_size_f32;
 
 use std::sync::atomic;
 use std::cmp;
@@ -86,105 +103,187 @@ lazy_static! {
 use crate::texture::BufferTiles;
 use web_sys::console;
 
+use wasm_bindgen::JsCast;
+
 use crate::renderable::Renderable;
 use crate::renderable::hips_sphere::HiPSSphere;
 use crate::projection::Projection;
+use crate::WebGl2Context;
+
 impl FieldOfView {
-    pub fn new(buffer: &BufferTiles) -> FieldOfView {
-        let mut x_homo_space = itertools_num::linspace::<f32>(-1., 1., NUM_VERTICES_WIDTH + 2)
+    pub fn new<P: Projection>(gl: &WebGl2Context, aperture_angle: Rad<f32>) -> FieldOfView {
+        let mut x_ndc_space = itertools_num::linspace::<f32>(-1., 1., NUM_VERTICES_WIDTH + 2)
             .collect::<Vec<_>>();
 
-        x_homo_space.extend(iter::repeat(1_f32).take(NUM_VERTICES_HEIGHT));
-        x_homo_space.extend(itertools_num::linspace::<f32>(1., -1., NUM_VERTICES_WIDTH + 2));
-        x_homo_space.extend(iter::repeat(-1_f32).take(NUM_VERTICES_HEIGHT));
+        x_ndc_space.extend(iter::repeat(1_f32).take(NUM_VERTICES_HEIGHT));
+        x_ndc_space.extend(itertools_num::linspace::<f32>(1., -1., NUM_VERTICES_WIDTH + 2));
+        x_ndc_space.extend(iter::repeat(-1_f32).take(NUM_VERTICES_HEIGHT));
 
-        let mut y_homo_space = iter::repeat(-1_f32).take(NUM_VERTICES_WIDTH + 1)
+        let mut y_ndc_space = iter::repeat(-1_f32).take(NUM_VERTICES_WIDTH + 1)
             .collect::<Vec<_>>();
 
-        y_homo_space.extend(itertools_num::linspace::<f32>(-1., 1., NUM_VERTICES_HEIGHT + 2));
-        y_homo_space.extend(iter::repeat(1_f32).take(NUM_VERTICES_WIDTH));
-        y_homo_space.extend(itertools_num::linspace::<f32>(1., -1., NUM_VERTICES_HEIGHT + 2));
-        y_homo_space.pop();
+        y_ndc_space.extend(itertools_num::linspace::<f32>(-1., 1., NUM_VERTICES_HEIGHT + 2));
+        y_ndc_space.extend(iter::repeat(1_f32).take(NUM_VERTICES_WIDTH));
+        y_ndc_space.extend(itertools_num::linspace::<f32>(1., -1., NUM_VERTICES_HEIGHT + 2));
+        y_ndc_space.pop();
 
-        let mut vertices_homo_space = [Vector2::new(0_f32, 0_f32); NUM_VERTICES];
+        let mut pos_ndc_space = [Vector2::new(0_f32, 0_f32); NUM_VERTICES];
         for idx_vertex in 0..NUM_VERTICES {
-            vertices_homo_space[idx_vertex] = Vector2::new(
-                x_homo_space[idx_vertex],
-                y_homo_space[idx_vertex],
+            pos_ndc_space[idx_vertex] = Vector2::new(
+                x_ndc_space[idx_vertex],
+                y_ndc_space[idx_vertex],
             );
         }
         
-        let vertices_local_space = [Vector4::new(0_f32, 0_f32, 0_f32, 1_f32); NUM_VERTICES];
-        let vertices_world_space = vertices_local_space.clone();
-
-        let aperture_angle = Deg(30_f32).into();
-        let scaling_screen_factor = Vector2::new(1_f32, 1_f32);
+        let pos_world_space = None;
+        let pos_transformed_space = None;
 
         let cells = ALLSKY.lock()
             .unwrap()
             .clone();
+
+        let width = web_sys::window()
+            .unwrap()
+            .inner_width()
+            .unwrap()
+            .as_f64()
+            .unwrap() as f32;
+        let height = web_sys::window()
+            .unwrap()
+            .inner_height()
+            .unwrap()
+            .as_f64()
+            .unwrap() as f32;
+
+        let aspect = width / height;
+        let ndc_to_clip = Self::compute_ndc_to_clip_factor(width, height);
+        let clip_zoom_factor = 0_f32;
         let current_depth = 0;
 
-        let max_num_tiles = buffer.len_variable_tiles();
-        FieldOfView {
-            vertices_homo_space,
-            vertices_local_space,
-            vertices_world_space,
+        // Canvas definition
+        let canvas = gl.canvas().unwrap()
+            .dyn_into::<web_sys::HtmlCanvasElement>()
+            .unwrap();
+        canvas.set_width(width as u32);
+        canvas.set_height(height as u32);
+        gl.viewport(0, 0, width as i32, height as i32);
+        gl.scissor(0, 0, width as i32, height as i32);
+
+        let r = Matrix4::identity();
+
+        let gl = gl.clone();
+        let mut fov = FieldOfView {
+            pos_ndc_space,
+            pos_world_space,
+            pos_transformed_space,
 
             aperture_angle,
-            scaling_screen_factor,
+            r,
+            
+            ndc_to_clip,
+            clip_zoom_factor,
 
             cells,
             current_depth,
 
-            max_num_tiles
-        }
+            aspect,
+
+            width,
+            height,
+
+            canvas,
+            gl,
+        };
+
+        console::log_1(&format!("SET FOV").into());
+        fov.set_aperture::<P>(aperture_angle);
+        console::log_1(&format!("FOV end init").into());
+        fov
     }
 
-    fn to_screen_factor<P: Projection>(fov: Rad<f32>) -> Vector2<f32> {
-        let (width, height) = window_size_f32();
-        let aspect = width / height;
+    pub fn resize_window<P: Projection>(&mut self, width: f32, height: f32) {
+        self.width = width;
+        self.height = height;
 
+        self.aspect = width / height;
+
+        self.canvas.set_width(width as u32);
+        self.canvas.set_height(height as u32);
+        self.gl.viewport(0, 0, width as i32, height as i32);
+        self.gl.scissor(0, 0, width as i32, height as i32);
+
+        // Compute the new clip zoom factor
+        self.ndc_to_clip = Self::compute_ndc_to_clip_factor(width, height);
+
+        self.set_aperture::<P>(self.aperture_angle);
+    }
+
+    fn compute_clip_zoom_factor<P: Projection>(fov: Rad<f32>) -> f32 {
         let lon = fov.0.abs() / 2_f32;
-        let lat = lon / aspect;
 
         // Vertex in the WCS of the FOV
         let v0 = math::radec_to_xyz(Rad(lon), Rad(0_f32));
-        let v1 = math::radec_to_xyz(Rad(0_f32), Rad(lat));
 
         // Project this vertex into the screen
-        let p0 = P::world_to_screen_space(v0)
-            .unwrap();
-        let p1 = P::world_to_screen_space(v1)
-            .unwrap();
-
-        Vector2::new(p0.x.abs(), p1.y.abs())
+        let p0 = P::world_to_clip_space(v0);
+        p0.x.abs()
     }
 
-    pub fn set_aperture<P: Projection>(&mut self, angle: Rad<f32>, hips_sphere: &Renderable<HiPSSphere>) {
+    fn compute_ndc_to_clip_factor(width: f32, height: f32) -> Vector2<f32> {
+        Vector2::new(1_f32, height / width)
+    }
+
+    pub fn set_aperture<P: Projection>(&mut self, angle: Rad<f32>) {
         self.aperture_angle = angle;
-        let scaling_screen_factor = Self::to_screen_factor::<P>(angle);
-        // Update the local coordinates w.r.t the newly computed
-        // screen scaling vector 
-        for idx_vertex in 0..NUM_VERTICES {
-            let homogeneous_vertex = &self.vertices_homo_space[idx_vertex];
-            self.vertices_local_space[idx_vertex] = P::homogeneous_to_world_space(
-                homogeneous_vertex.clone(),
-                &scaling_screen_factor
-            ).unwrap();
-        }
-        self.scaling_screen_factor = scaling_screen_factor;
 
-        // Compute the world space vertices
-        self.translate(hips_sphere);
+        // Compute the new clip zoom factor
+        self.clip_zoom_factor = Self::compute_clip_zoom_factor::<P>(angle);
+        // Deproject the FOV from ndc to the world space
+        let mut vertices_world_space = [Vector4::new(0_f32, 0_f32, 0_f32, 0_f32); NUM_VERTICES];
+        let mut out_of_fov = false;
+        for idx_vertex in 0..NUM_VERTICES {
+            let pos_ndc_space = &self.pos_ndc_space[idx_vertex];
+
+            let pos_clip_space = Vector2::new(
+                pos_ndc_space.x * self.ndc_to_clip.x * self.clip_zoom_factor,
+                pos_ndc_space.y * self.ndc_to_clip.y * self.clip_zoom_factor,
+            );
+
+            let pos_world_space = P::clip_to_world_space(pos_clip_space);
+            if let Some(pos_world_space) = pos_world_space {
+                vertices_world_space[idx_vertex] = pos_world_space;
+            } else {
+                out_of_fov = true;
+                break;
+            }
+        }
+        if out_of_fov {
+            self.pos_world_space = None;
+        } else {
+            self.pos_world_space = Some(vertices_world_space);
+        }
+
+        // Rotate the FOV
+        self.rotate();
     }
 
-    pub fn translate(&mut self, hips_sphere: &Renderable<HiPSSphere>) {
-        let model = hips_sphere.get_model_mat();
-        for idx_vertex in 0..NUM_VERTICES {
-            self.vertices_world_space[idx_vertex] = *model * self.vertices_local_space[idx_vertex];
+    pub fn set_rotation_mat(&mut self, r: &Matrix4<f32>) {
+        self.r = *r;
+
+        self.rotate();
+    }
+
+    fn rotate(&mut self) {
+        if let Some(pos_world_space) = self.pos_world_space {
+            let mut pos_transformed_space = [Vector4::new(0_f32, 0_f32, 0_f32, 0_f32); NUM_VERTICES];
+            for idx_vertex in 0..NUM_VERTICES {
+                pos_transformed_space[idx_vertex] = self.r * pos_world_space[idx_vertex];
+            }
+
+            self.pos_transformed_space = Some(pos_transformed_space);
+        } else {
+            self.pos_transformed_space = None;
         }
-        console::log_1(&format!("current depth {:?}", self.current_depth).into());
 
         self.compute_healpix_cells();
     }
@@ -193,55 +292,60 @@ impl FieldOfView {
         // The field of view has changed (zoom or translation, so we recompute the cells)
         let allsky = ALLSKY.lock().unwrap();
 
-        // Compute the depth corresponding to the angular resolution of a pixel
-        // along the width of the screen
-        let mut depth = std::cmp::min(
-            math::fov_to_depth(self.aperture_angle),
-            MAX_DEPTH.load(atomic::Ordering::Relaxed)
-        );
-        let cells = if depth == 0 {
-            allsky.clone()
-        } else {
-            // The fov is not too big so we can get the HEALPix cells
-            // being in the fov
-            //console::log_1(&format!("VERTICES world space, {:?}", self.vertices_world_space).into());
-            let lon_lat_world_space = self.vertices_world_space.iter()
-                .map(|vertex_world_space| {
-                    // Take into account the rotation of the sphere
-                    //let vertex_model_space = (*model) * vertex_world_space;
+        if let Some(pos_transformed_space) = self.pos_transformed_space {
+            // Compute the depth corresponding to the angular resolution of a pixel
+            // along the width of the screen
+            let mut depth = std::cmp::min(
+                math::fov_to_depth(self.aperture_angle, self.width),
+                MAX_DEPTH.load(atomic::Ordering::Relaxed)
+            );
+            let cells = if depth == 0 {
+                allsky.clone()
+            } else {
+                // The fov is not too big so we can get the HEALPix cells
+                // being in the fov
+                let lon_lat_world_space = pos_transformed_space.iter()
+                    .map(|pos_transformed_space| {
+                        let (ra, dec) = math::xyzw_to_radec(*pos_transformed_space);
+                        (ra as f64, dec as f64)
+                    })
+                    .collect::<Vec<_>>();
 
-                    let (ra, dec) = math::xyzw_to_radec(*vertex_world_space);
-                    (ra as f64, dec as f64)
-                })
-                .collect::<Vec<_>>();
+                let mut cells = BTreeSet::new();
+                while depth > 0 {
+                    let moc = healpix::nested::polygon_coverage(depth, &lon_lat_world_space, true);
+                    let num_tiles = moc.entries.len();
 
-            //console::log_1(&format!("LONLAT, {:?}", lon_lat_world_space).into());
-            let mut cells = BTreeSet::new();
-            while depth > 0 {
-                let moc = healpix::nested::polygon_coverage(depth, &lon_lat_world_space, true);
-                let num_tiles = moc.entries.len();
-                // Stop when the number of tiles for this depth
-                // can be contained in the tile buffer
-                if num_tiles <= self.max_num_tiles {
-                    cells = moc.flat_iter()
-                        .map(|idx| {
-                            HEALPixCell(depth, idx)
-                        })
-                        .collect::<BTreeSet<_>>();
-                    break;
+                    // Stop when the number of tiles for this depth
+                    // can be contained in the tile buffer
+                    if num_tiles <= 52 {
+                        cells = moc.flat_iter()
+                            .map(|idx| {
+                                HEALPixCell(depth, idx)
+                            })
+                            .collect::<BTreeSet<_>>();
+                        break;
+                    }
+                    console::log_1(&format!("buffer too small!").into());
+
+
+                    depth -= 1;
                 }
 
-                depth -= 1;
-            }
+                if depth == 0 {
+                    cells = allsky.clone();
+                }
+                
+                cells
+            };
 
-            if depth == 0 {
-                cells = allsky.clone();
-            }
-            
-            cells
-        };
-        self.current_depth = depth;
-        self.cells = cells;
+            self.current_depth = depth;
+            self.cells = cells;
+        } else {
+            self.current_depth = 0;
+            self.cells = allsky.clone();
+        }
+
         console::log_1(&format!("current depth {:?}", self.current_depth).into());
     }
 
@@ -254,7 +358,27 @@ impl FieldOfView {
         self.current_depth
     }
 
-    pub fn get_scaling_screen_factor(&self) -> &Vector2<f32> {
-        &self.scaling_screen_factor
+    pub fn get_ndc_to_clip(&self) -> &Vector2<f32> {
+        &self.ndc_to_clip
+    }
+
+    pub fn get_clip_zoom_factor(&self) -> f32 {
+        self.clip_zoom_factor
+    }
+
+    pub fn get_aspect(&self) -> f32 {
+        self.aspect
+    }
+
+    pub fn get_width_screen(&self) -> f32 {
+        self.width
+    }
+
+    pub fn get_height_screen(&self) -> f32 {
+        self.height
+    }
+
+    pub fn get_size_screen(&self) -> (f32, f32) {
+        (self.width, self.height)
     }
 }

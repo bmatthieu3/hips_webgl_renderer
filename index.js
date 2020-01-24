@@ -306,6 +306,14 @@ function touchpad_events(webClient) {
             // zoom event
         }
     }, false);
+
+    // Resize event
+    window.addEventListener('resize', () => {
+        let width = window.innerWidth;
+        let height = window.innerHeight;
+
+        webClient.resize(width, height);
+    })
 }
 
 function retrieveCatalogSources(webClient) {

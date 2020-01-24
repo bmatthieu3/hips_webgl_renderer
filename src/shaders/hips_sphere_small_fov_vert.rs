@@ -14,7 +14,8 @@ pub static CONTENT: &'static str = r#"#version 300 es
     out float frag_blending_factor;
 
     uniform mat4 model;
-    uniform vec2 zoom_factor;
+    uniform vec2 ndc_to_clip;
+    uniform float clip_zoom_factor;
     uniform float aspect;
 
     vec2 world2screen_orthographic(vec3 p) {
@@ -23,7 +24,8 @@ pub static CONTENT: &'static str = r#"#version 300 es
 
     void main() {
         vec3 world_pos = vec3(inverse(model) * vec4(position, 1.f));
-        gl_Position = vec4((world2screen_orthographic(world_pos) / zoom_factor), 0.0, 1.0);
+        gl_Position = vec4(world2screen_orthographic(world_pos) / (ndc_to_clip * clip_zoom_factor), 0.0, 1.0);
+        //gl_Position = vec4((world2screen_orthographic(world_pos)), 0.0, 1.0);
 
         frag_uv_start = uv_start;
         frag_uv_end = uv_end;

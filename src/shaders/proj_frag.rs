@@ -183,7 +183,6 @@ pub static CONTENT: &'static str = r#"#version 300 es
         );
     }
 
-    uniform float zoom_factor;
     uniform int last_zoom_action;
 
     struct Tile {

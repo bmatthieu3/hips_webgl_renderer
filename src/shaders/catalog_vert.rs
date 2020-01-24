@@ -10,7 +10,10 @@ pub static CONTENT: &'static str = r#"#version 300 es
     uniform float current_time;
     uniform mat4 model;
     uniform float aspect;
-    uniform vec2 zoom_factor;
+
+    uniform vec2 ndc_to_clip;
+    uniform float clip_zoom_factor;
+
     uniform float strength;
 
     const float PI = 3.1415926535897932384626433832795f;
@@ -35,7 +38,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
         float x = -2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);
         float y = inv_sinc_alpha * sin(delta);
 
-        return vec2(x / PI, aspect * y / PI);
+        return vec2(x / PI, y / PI);
     }
     vec2 world2screen_orthographic(vec3 p) {
         return vec2(-p.x, p.y);
@@ -44,8 +47,9 @@ pub static CONTENT: &'static str = r#"#version 300 es
     void main() {
         vec3 p = vec3(model * vec4(center, 1.0f));
 
-        vec2 screen_pos = world2screen_orthographic(p) + offset * (0.02f * zoom_factor) * vec2(1.f, aspect);
-        gl_Position = vec4(screen_pos / zoom_factor, 0.f, 1.f);
+        vec2 pos_clip_space = world2screen_orthographic(p) + offset * (0.02f * clip_zoom_factor);
+        gl_Position = vec4(pos_clip_space / (ndc_to_clip * clip_zoom_factor), 0.f, 1.f);
+        //gl_Position = vec4(screen_pos, 0.f, 1.f);
         out_uv = uv;
         out_p = p;
     }

@@ -117,7 +117,8 @@ where P: Projection {
             String::from("current_time"),
             String::from("model"),
             // Viewport uniforms
-            String::from("zoom_factor"),
+            String::from("ndc_to_clip"),
+            String::from("clip_zoom_factor"),
             String::from("aspect"),
             String::from("last_zoom_action"),
             // HiPS Sphere-specific uniforms
@@ -142,7 +143,8 @@ where P: Projection {
             String::from("current_time"),
             String::from("model"),
             // Viewport uniforms
-            String::from("zoom_factor"),
+            String::from("ndc_to_clip"),
+            String::from("clip_zoom_factor"),
             String::from("aspect"),
             String::from("last_zoom_action"),
             // Grid-specific uniforms
@@ -161,7 +163,8 @@ where P: Projection {
             String::from("current_time"),
             String::from("model"),
             // Viewport uniforms
-            String::from("zoom_factor"),
+            String::from("ndc_to_clip"),
+            String::from("clip_zoom_factor"),
             String::from("aspect"),
             String::from("last_zoom_action"),
             // Catalog-specific uniforms
@@ -181,7 +184,8 @@ where P: Projection {
             String::from("current_time"),
             String::from("model"),
             // Viewport uniforms
-            String::from("zoom_factor"),
+            String::from("ndc_to_clip"),
+            String::from("clip_zoom_factor"),
             String::from("aspect"),
             String::from("last_zoom_action"),
             // Heatmap-specific uniforms
@@ -202,7 +206,8 @@ where P: Projection {
             String::from("current_time"),
             String::from("model"),
             // Viewport uniforms
-            String::from("zoom_factor"),
+            String::from("ndc_to_clip"),
+            String::from("clip_zoom_factor"),
             String::from("aspect"),
             String::from("last_zoom_action"),
             // HiPS Ortho specific uniforms
@@ -229,13 +234,15 @@ where P: Projection {
 
         gl.enable(WebGl2RenderingContext::BLEND);
         gl.blend_func(WebGl2RenderingContext::SRC_ALPHA, WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA);
-        gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
-        //gl.enable(WebGl2RenderingContext::DEPTH_TEST);
+        //gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
         gl.enable(WebGl2RenderingContext::CULL_FACE);
         gl.cull_face(WebGl2RenderingContext::BACK);
 
+        // Viewport definition
+        let viewport = ViewPort::new::<P>(&gl);
+
         // HiPS Sphere definition
-        let hips_sphere_mesh = HiPSSphere::new::<P>(&gl);
+        let hips_sphere_mesh = HiPSSphere::new::<P>(&gl, &viewport);
         console::log_1(&format!("fffff sfs").into());
         let hips_sphere = Renderable::<HiPSSphere>::new(
             &gl,
@@ -251,8 +258,7 @@ where P: Projection {
             catalog_mesh
         );
         console::log_1(&format!("fffff sfs3").into());
-        // Viewport definition
-        let viewport = ViewPort::new::<P>(&gl, &hips_sphere);
+
         console::log_1(&format!("fffff sfs4").into());
         // Update the HiPS sphere 
         //(&mut hips_sphere).update(&projection, &viewport);
@@ -367,10 +373,10 @@ where P: Projection {
 
     fn set_projection<Q: Projection>(mut self) -> App::<Q> {
         // New HiPS sphere
-        let hips_sphere_mesh = HiPSSphere::new::<Q>(&self.gl);
+        let hips_sphere_mesh = HiPSSphere::new::<Q>(&self.gl, &self.viewport);
 
         // Update the scissor for the new projection
-        self.viewport.resize(&Q::size());
+        //self.viewport.resize(&Q::size());
         self.hips_sphere.update_mesh(&self.shaders["hips_sphere"], hips_sphere_mesh);
 
         App::<Q> {
@@ -466,10 +472,14 @@ where P: Projection {
         let catalog_mesh = Catalog::new(&self.gl, sources);
         self.catalog.update_mesh(&self.shaders["catalog"], catalog_mesh);
     }
+
+    fn resize_window(&mut self, width: f32, height: f32) {
+        self.viewport.resize_window::<P>(width, height);
+    }
 }
 
 lazy_static! {
-    static ref WIDTH_SCREEN: Arc<AtomicU32> = Arc::new(
+    /*static ref WIDTH_SCREEN: Arc<AtomicU32> = Arc::new(
         AtomicU32::new(
             web_sys::window().unwrap().inner_width()
                 .unwrap()
@@ -484,7 +494,7 @@ lazy_static! {
                 .as_f64()
                 .unwrap() as u32
         )
-    );
+    );*/
     static ref ENABLED_WIDGETS: Arc<Mutex<HashMap<&'static str, bool>>> = {
         let mut m = HashMap::new();
         m.insert("hips_sphere", true);
@@ -497,7 +507,7 @@ lazy_static! {
     static ref HIPS_NAME: Arc<Mutex<String>> = Arc::new(Mutex::new(String::from("http://alasky.u-strasbg.fr/DSS/DSSColor")));
     static ref MAX_DEPTH: Arc<AtomicU8> = Arc::new(AtomicU8::new(9));
 }
-
+/*
 fn set_window_size(new_width: u32, new_height: u32) {
     WIDTH_SCREEN.store(new_width, Ordering::Relaxed);
     HEIGHT_SCREEN.store(new_height, Ordering::Relaxed);
@@ -520,7 +530,7 @@ fn window_size_f64() -> (f64, f64) {
 
     (width as f64, height as f64)
 }
-
+*/
 #[derive(Clone)]
 pub struct WebGl2Context {
     inner: Rc<WebGl2RenderingContext>,
@@ -668,6 +678,22 @@ impl AppConfig {
             AppConfig::Ort(app) => app.add_catalog(sources),
         }
     }
+
+    pub fn reload_hips_sphere(&mut self, hips_url: String, max_depth: u8) {        
+        match self {
+            AppConfig::Ait(app) => app.reload_hips_sphere(hips_url, max_depth),
+            AppConfig::Mol(app) => app.reload_hips_sphere(hips_url, max_depth),
+            AppConfig::Ort(app) => app.reload_hips_sphere(hips_url, max_depth),
+        }
+    }
+
+    pub fn resize(&mut self, width: f32, height: f32) {        
+        match self {
+            AppConfig::Ait(app) => app.resize_window(width, height),
+            AppConfig::Mol(app) => app.resize_window(width, height),
+            AppConfig::Ort(app) => app.resize_window(width, height),
+        }
+    }
 }
 
 #[wasm_bindgen]
@@ -794,13 +820,13 @@ impl WebClient {
 
         Ok(())
     }
-
+    */
     /// Change HiPS
     pub fn change_hips(&mut self, hips_url: String, hips_depth: i32) -> Result<(), JsValue> {
-        self.app.reload_hips_sphere(hips_url, hips_depth as u8);
+        self.appconfig.reload_hips_sphere(hips_url, hips_depth as u8);
 
         Ok(())
-    }*/
+    }
 
     /// Start move
     pub fn initialize_move(&mut self, screen_pos_x: f32, screen_pos_y: f32) -> Result<(), JsValue> {
@@ -828,6 +854,13 @@ impl WebClient {
     /// Add new catalog
     pub fn add_catalog(&mut self, data: &JsValue) -> Result<(), JsValue> {
         self.appconfig.add_catalog(data);
+
+        Ok(())
+    }
+
+    /// Add new catalog
+    pub fn resize(&mut self, width: f32, height: f32) -> Result<(), JsValue> {
+        self.appconfig.resize(width, height);
 
         Ok(())
     }

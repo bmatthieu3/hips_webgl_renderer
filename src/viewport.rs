@@ -18,23 +18,15 @@ use crate::field_of_view::FieldOfView;
 use cgmath::Rad;
 use cgmath::Vector2;
 pub struct ViewPort {
-    gl: WebGl2Context,
-    canvas: Rc<web_sys::HtmlCanvasElement>,
-
     fov: FieldOfView,
 
-    aspect: f32,
-
-    fov_lookup_table: [Rad<f32>; NUM_WHEEL_PER_DEPTH * 30],
-    zoom_index: i16,
-
-    screen_scaling_factor: Vector2<f32>,
+    wheel_idx: i16,
     
     pub last_zoom_action: LastZoomAction,
     pub last_action: LastAction,
 
     // Store the size in pixels of the hips sphere
-    default_size_scissor: Vector2<f32>,
+    //default_size_scissor: Vector2<f32>,
 }
 
 use crate::shader::Shader;
@@ -42,13 +34,9 @@ use web_sys::WebGl2RenderingContext;
 
 use crate::WebGl2Context;
 
-use crate::{set_window_size, window_size_f32, window_size_u32};
-use wasm_bindgen::JsCast;
-
-
 /// Set the scissor knowing the size in pixel of the
 /// HiPS sphere
-fn set_gl_scissor(gl: &WebGl2Context, size: Vector2<f32>) {
+/*fn set_gl_scissor(gl: &WebGl2Context, size: Vector2<f32>) {
     // Update the scissor
     let (width_screen, height_screen) = window_size_f32();
 
@@ -56,26 +44,17 @@ fn set_gl_scissor(gl: &WebGl2Context, size: Vector2<f32>) {
     let yo = (height_screen / 2_f32) - size.y / 2_f32;
 
     gl.scissor(xo as i32, yo as i32, size.x as i32, size.y as i32);
-}
+}*/
 
 const NUM_WHEEL_PER_DEPTH: usize = 5;
-fn field_of_view_table() -> [Rad<f32>; NUM_WHEEL_PER_DEPTH * 30] {
-    let mut fov = [Rad(0_f32); NUM_WHEEL_PER_DEPTH * 30];
+use cgmath::Deg;
 
-    for depth in 0..30 {
-        let fov_max = math::depth_to_fov(depth as u8) * 2_f32;
-        let fov_min = math::depth_to_fov(depth as u8);
+fn fov(wheel_idx: i16) -> Rad<f32> {
+    let exp = (wheel_idx as f32) / (NUM_WHEEL_PER_DEPTH as f32);
+    let fov = 180_f32 / 2_f32.powf(exp);
+    console::log_1(&format!("FOV {:?}", fov).into());
 
-        let df = fov_min - fov_max;
-
-        let off = depth * NUM_WHEEL_PER_DEPTH;
-
-        for i in 0..NUM_WHEEL_PER_DEPTH {
-            fov[off + i] = fov_min + df*(i as f32)/(NUM_WHEEL_PER_DEPTH as f32);
-        }
-    }
-
-    fov
+    Deg(fov).into()
 }
 
 use web_sys::console;
@@ -91,61 +70,28 @@ use crate::renderable::grid::ProjetedGrid;
 use crate::mouse_inertia::MouseInertia;
 use crate::projection::Projection;
 impl ViewPort {
-    pub fn new<P: Projection>(gl: &WebGl2Context, hips_sphere: &Renderable<HiPSSphere>) -> ViewPort {
-        //let final_zoom = current_zoom;
-
-        let canvas = Rc::new(
-            gl.canvas().unwrap()
-                .dyn_into::<web_sys::HtmlCanvasElement>()
-                .unwrap()
-        );
-
+    pub fn new<P: Projection>(gl: &WebGl2Context) -> ViewPort {
         let last_zoom_action = LastZoomAction::Unzoom;
         let last_action = LastAction::Moving;
 
-        let default_size_scissor = P::size();
-        let (width, height) = window_size_f32();
-        let aspect = width / height;
+        let wheel_idx = 0;
 
-        let fov_lookup_table = field_of_view_table();
-        let zoom_index = 0;
-        
-        let mut fov = FieldOfView::new(&hips_sphere.mesh().get_buffer().borrow());
-        fov.set_aperture::<P>(fov_lookup_table[0], hips_sphere);
-        let gl = gl.clone();
+        let fov = FieldOfView::new::<P>(gl, fov(wheel_idx));
 
-        let screen_scaling_factor = *fov.get_scaling_screen_factor();
-        let mut viewport = ViewPort {
-            gl,
-            canvas,
-
+        let viewport = ViewPort {
             fov,
 
-            aspect,
-            fov_lookup_table,
-            zoom_index,
-
-            screen_scaling_factor,
+            wheel_idx,
 
             last_zoom_action,
             last_action,
-
-            default_size_scissor,
         };
-
-        viewport.resize(&default_size_scissor);
 
         viewport
     }
 
-    pub fn update_scissor(&self) {
-        let ref screen_scaling = self.fov.get_scaling_screen_factor();
-        // Take into account the zoom factor
-        let current_size_scissor = Vector2::new(
-            self.default_size_scissor.x / screen_scaling.x,
-            self.default_size_scissor.y / screen_scaling.y
-        );
-        set_gl_scissor(&self.gl, current_size_scissor);
+    pub fn resize_window<P: Projection>(&mut self, width: f32, height: f32) {
+        self.fov.resize_window::<P>(width, height);
     }
 
     pub fn zoom<P: Projection>(
@@ -156,23 +102,15 @@ impl ViewPort {
         self.last_zoom_action = LastZoomAction::Zoom;
         self.last_action = LastAction::Zooming;
 
-        if self.zoom_index < (self.fov_lookup_table.len() - 1) as i16 {
-            self.zoom_index += 1;
-        }
-
-        if self.zoom_index < 0 {
-            self.screen_scaling_factor = self.screen_scaling_factor / 1.1_f32;
-        } else {
-            self.fov.set_aperture::<P>(self.fov_lookup_table[self.zoom_index as usize], hips_sphere);
-            self.screen_scaling_factor = *self.fov.get_scaling_screen_factor();
-        }
+        self.wheel_idx += 1;
+        self.fov.set_aperture::<P>(fov(self.wheel_idx));
 
         // Update the HiPS sphere 
         hips_sphere.update::<P>(&self);
         // Update the catalog loaded
         catalog.update::<P>(&self);
 
-        self.update_scissor();
+        //self.update_scissor();
     }
 
     pub fn unzoom<P: Projection>(
@@ -183,19 +121,14 @@ impl ViewPort {
         self.last_zoom_action = LastZoomAction::Unzoom;
         self.last_action = LastAction::Zooming;
 
-        if self.zoom_index > 0 {
-            self.zoom_index -= 1;
+        if self.wheel_idx > 0 {
+            self.wheel_idx -= 1;
 
+            if self.wheel_idx < 0 {
+                self.wheel_idx = 0;
+            }
             // Update the aperture of the Field Of View
-            self.fov.set_aperture::<P>(
-                self.fov_lookup_table[self.zoom_index as usize],
-                hips_sphere
-            );
-            self.screen_scaling_factor =  *self.fov.get_scaling_screen_factor();
-        } else {
-            self.zoom_index -= 1;
-
-            self.screen_scaling_factor = self.screen_scaling_factor * 1.1_f32;
+            self.fov.set_aperture::<P>(fov(self.wheel_idx));
         }
 
         // Update the HiPS sphere 
@@ -203,7 +136,7 @@ impl ViewPort {
         // Update the catalog loaded
         catalog.update::<P>(&self);
 
-        self.update_scissor();
+        //self.update_scissor();
     }
 
     pub fn displacement<P: Projection>(
@@ -214,7 +147,7 @@ impl ViewPort {
         self.last_action = LastAction::Moving;
 
         // Translate the Field of View on the HiPS sphere
-        self.fov.translate(hips_sphere);
+        self.fov.set_rotation_mat(hips_sphere.get_model_mat());
 
         // Update the HiPS sphere 
         hips_sphere.update::<P>(&self);
@@ -226,22 +159,12 @@ impl ViewPort {
         &self.fov
     }
 
-    pub fn resize(&mut self, new_size_scissor: &Vector2<f32>) {
-        let (width, height) = window_size_u32();
-
-        set_window_size(width, height);
-        self.aspect = (width as f32) / (height as f32);
-
-        self.canvas.set_width(width);
-        self.canvas.set_height(height);
-        self.gl.viewport(0, 0, width as i32, height as i32);
-
-        self.default_size_scissor = *new_size_scissor;
-        self.update_scissor();
+    pub fn get_ndc_to_clip(&self) -> &Vector2<f32> {
+        self.fov.get_ndc_to_clip()
     }
 
-    pub fn get_scaling_screen_factor(&self) -> &Vector2<f32> {
-        &self.screen_scaling_factor
+    pub fn get_clip_zoom_factor(&self) -> f32 {
+        self.fov.get_clip_zoom_factor()
     }
 
     /// Warning: this is executed by all the shaders
@@ -249,13 +172,24 @@ impl ViewPort {
         // Send window size
         let location_aspect = shader.get_uniform_location("aspect");
 
-        gl.uniform1f(location_aspect, self.aspect);
-        // Send zoom factor
-        let zoom_factor_location = shader.get_uniform_location("zoom_factor");
-        gl.uniform2f(zoom_factor_location, self.screen_scaling_factor.x, self.screen_scaling_factor.y);
+        let aspect = self.fov.get_aspect();
+        gl.uniform1f(location_aspect, aspect);
+        // Send ndc to clip
+        let ndc_to_clip_location = shader.get_uniform_location("ndc_to_clip");
+        let ndc_to_clip = self.fov.get_ndc_to_clip();
+        gl.uniform2f(ndc_to_clip_location, ndc_to_clip.x, ndc_to_clip.y);
+        // Send clip zoom factor
+        let clip_zoom_factor_location = shader.get_uniform_location("clip_zoom_factor");
+        let clip_zoom_factor = self.fov.get_clip_zoom_factor();
+        gl.uniform1f(clip_zoom_factor_location, clip_zoom_factor);
 
         // Send last zoom action
         let last_zoom_action_location = shader.get_uniform_location("last_zoom_action");
         gl.uniform1i(last_zoom_action_location, self.last_zoom_action as i32);
+    }
+
+    pub fn get_window_size(&self) -> Vector2<f32> {
+        let (width, height) = self.fov.get_size_screen();
+        Vector2::new(width, height)
     }
 }

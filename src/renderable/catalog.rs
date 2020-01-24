@@ -240,8 +240,6 @@ use crate::utils;
 use std::collections::HashMap;
 use std::collections::BinaryHeap;
 
-use crate::window_size_u32;
-
 use crate::math;
 use crate::projection::Projection;
 impl Mesh for Catalog {
@@ -441,9 +439,9 @@ impl Mesh for Catalog {
         // Render to the heatmap to the screen
         {
             // Set the viewport
-            let (width_screen, height_screen) = window_size_u32();
-            gl.viewport(0, 0, width_screen as i32, height_screen as i32);
-            viewport.update_scissor();
+            let window_size = viewport.get_window_size();
+            gl.viewport(0, 0, window_size.x as i32, window_size.y as i32);
+            //viewport.update_scissor();
 
             let shader = &shaders["heatmap"];
             shader.bind(gl);

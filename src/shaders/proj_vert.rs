@@ -8,10 +8,11 @@ pub static CONTENT: &'static str = r#"#version 300 es
     out vec3 out_vert_pos;
 
     uniform mat4 model;
-    uniform float zoom_factor;
+    uniform vec2 ndc_to_clip;
+    uniform float clip_zoom_factor;
 
     void main() {
-        gl_Position = vec4((screen_position.xy / zoom_factor), 0.0, 1.0);
+        gl_Position = vec4((screen_position.xy / (ndc_to_clip * clip_zoom_factor)), 0.0, 1.0);
         out_vert_pos = vec3(model * vec4(position, 1.f));
     }
 "#;

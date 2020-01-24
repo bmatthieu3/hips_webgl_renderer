@@ -6,7 +6,9 @@ pub static CONTENT: &'static str = r#"#version 300 es
     uniform mat4 model;
     uniform mat4 view;
 
-    uniform float zoom_factor;
+    uniform vec2 ndc_to_clip;
+    uniform float clip_zoom_factor;
+
     uniform float resize_factor_x;
     uniform float resize_factor_y;
 

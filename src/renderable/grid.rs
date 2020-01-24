@@ -103,8 +103,6 @@ pub struct ProjetedGrid {
 use cgmath::{SquareMatrix, InnerSpace};
 use wasm_bindgen::JsCast;
 use crate::math::radec_to_xyz;
-use crate::{window_size_f32, window_size_f64};
-
 
 use crate::projection::Projection;
 impl ProjetedGrid {
@@ -201,9 +199,9 @@ impl ProjetedGrid {
             .get_element_by_id("labels_grid").unwrap()
             .dyn_into::<web_sys::HtmlCanvasElement>().unwrap();
 
-        let (mut width, mut height) = window_size_f32();
-        text_canvas.set_width(width as u32);
-        text_canvas.set_height(height as u32);
+        let window_size = viewport.get_window_size();
+        text_canvas.set_width(window_size.x as u32);
+        text_canvas.set_height(window_size.y as u32);
 
         let text_canvas = text_canvas.get_context("2d")
             .unwrap()
@@ -253,7 +251,7 @@ impl ProjetedGrid {
     }
 
     pub fn update_grid_positions<P: Projection>(&mut self, local_to_world_mat: &Matrix4<f32>) {
-        let (mut width_screen, _) = window_size_f32();
+        /*let (mut width_screen, _) = window_size_f32();
 
         self.pos_screen_space.clear();
         // UPDATE GRID VERTICES POSITIONS
@@ -316,11 +314,11 @@ impl ProjetedGrid {
                 }
             }
             idx_start += num_points_step;
-        }
+        }*/
     }
 
     pub fn update_label_positions<P: Projection>(&mut self, local_to_world_mat: &Matrix4<f32>, viewport: &ViewPort) {
-        let (mut width_screen, mut height_screen) = window_size_f32();
+        /*let (mut width_screen, mut height_screen) = window_size_f32();
         let viewport_zoom_factor = viewport.get_scaling_screen_factor();
 
         // UPDATE LABEL POSITIONS
@@ -340,22 +338,22 @@ impl ProjetedGrid {
             pos_screen_space += cgmath::Vector2::new(-offset_pos_screen / (2_f64 * (viewport_zoom_factor.x as f64)), self.font_size / (2_f64 * (viewport_zoom_factor.y as f64)));
 
             self.label_pos_screen_space.push(pos_screen_space);
-        }
+        }*/
     }
 
     pub fn draw_labels(&self) {
         // Clear the 2D canvas
-        let (mut width_screen, mut height_screen) = window_size_f64();
+        /*let (mut width_screen, mut height_screen) = window_size_f64();
         self.text_canvas.clear_rect(0_f64, 0_f64, width_screen, height_screen);
         // Fill
         for (label_text, pos_screen_space) in self.label_text.iter().zip(self.label_pos_screen_space.iter()) {
             self.text_canvas.fill_text(label_text, pos_screen_space.x as f64, pos_screen_space.y as f64).unwrap();
-        }
+        }*/
     }
 
     pub fn clear_canvas(&mut self) {
-        let (mut width_screen, mut height_screen) = window_size_f64();
-        self.text_canvas.clear_rect(0_f64, 0_f64, width_screen, height_screen); 
+        /*let (mut width_screen, mut height_screen) = window_size_f64();
+        self.text_canvas.clear_rect(0_f64, 0_f64, width_screen, height_screen); */
     }
 
     pub fn set_color_rgb(&mut self, red: f32, green: f32, blue: f32) {
@@ -464,7 +462,7 @@ use crate::renderable::DisableDrawing;
 impl DisableDrawing for ProjetedGrid {
     fn disable(&mut self) {
         // Clear the 2D canvas
-        let (width_screen, height_screen) = window_size_f64();
-        self.text_canvas.clear_rect(0_f64, 0_f64, width_screen, height_screen);
+        /*let (width_screen, height_screen) = window_size_f64();
+        self.text_canvas.clear_rect(0_f64, 0_f64, width_screen, height_screen);*/
     }
 }
