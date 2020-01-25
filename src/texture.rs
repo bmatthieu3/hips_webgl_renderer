@@ -606,7 +606,7 @@ pub fn load_base_tiles(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>) {
             let gl = gl.clone();
 
             Closure::wrap(Box::new(move || {
-                console::log_1(&format!("load new tile").into());
+                //console::log_1(&format!("load new tile").into());
                 // Add it to the loaded cells hashset
                 // Add the received tile to the buffer
                 let texture_idx = idx as u8;

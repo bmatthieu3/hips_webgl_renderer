@@ -174,7 +174,7 @@ impl Catalog {
             // Unbind the buffer
             .unbind();
 
-        let alpha = 0.2_f32;
+        let alpha = 0.7_f32;
         let strength = 1_f32;
 
         let cells = HashSet::new();
@@ -241,7 +241,8 @@ use std::collections::HashMap;
 use std::collections::BinaryHeap;
 
 use crate::math;
-use crate::projection::Projection;
+use crate::projection::Projection; 
+
 impl Mesh for Catalog {
     fn create_buffers(&mut self, gl: &WebGl2Context) {
         self.vertex_array_object.bind()
@@ -332,6 +333,19 @@ impl Mesh for Catalog {
                 sources.push(result);
             }
         }
+
+        let area_tile = area_clip_zoomed_space_healpix_tile::<P>(viewport, 7);
+        let max_num_sources = self.data.get_max_number_sources();
+        let max_source_density = (max_num_sources as f32) / area_tile;
+        //console::log_1(&format!("max_source_density: {:?}", max_source_density).into());
+
+        let scaling_cst = 20_f32; 
+        self.strength = scaling_cst / max_source_density.sqrt();
+        // Clamp the strength to 1_f32
+        if self.strength > 1_f32 {
+            self.strength = 1_f32;
+        }
+
         let mut sources = sources[..].concat();
 
         // Get a vector of sources from a f32 vector
@@ -471,6 +485,29 @@ impl<'a> DisableDrawing for Catalog {
     }
 }
 
+use cgmath::Vector2;
+fn area_clip_zoomed_space_healpix_tile<P: Projection>(viewport: &ViewPort, depth: u8) -> f32 {
+    let sphere_area = 4_f32 * std::f32::consts::PI;
+
+    let num_hpx_cells = 12_f32 * 4_f32.powf(depth as f32);
+    let hpx_cell_ang = Rad((sphere_area / num_hpx_cells).sqrt());
+
+    let half_hpx_ang = hpx_cell_ang * 2_f32.sqrt() / 2_f32;
+
+    // Vertex in the WCS of the FOV
+    let v0 = math::radec_to_xyz(half_hpx_ang, Rad(0_f32));
+    let v1 = math::radec_to_xyz(Rad(0_f32), half_hpx_ang);
+
+    // Project this vertex into the screen
+    let clip_zoom_factor = viewport.get_clip_zoom_factor();
+    let p0 = P::world_to_clip_space(v0) / clip_zoom_factor;
+    let p1 = P::world_to_clip_space(v1) / clip_zoom_factor;
+
+    let area_ndc_hpx_tile = p0.x * p0.x + p1.y * p1.y;
+
+    area_ndc_hpx_tile
+}
+
 const MAX_SOURCES: usize = 100000;
 
 use std::ops::Range;
@@ -478,8 +515,27 @@ struct Storage {
     // Sources data
     sources: Vec<f32>,
 
+    //healpix_idx: [Option<IdxSourceRange<u32>>; 196608], // depth 7
     healpix_idx: Box<[Option<Range<u32>>]>, // depth 7
+
+    max_num_sources: usize,
 }
+/*
+#[derive(Clone, Copy)]
+struct IdxSourceRange<T: Clone + Copy> {
+    start: T,
+    end: T,
+}
+
+impl<T> IdxSourceRange<T>
+where T: Clone + Copy {
+    fn new(start: T, end: T) -> IdxSourceRange<T> {
+        IdxSourceRange {
+            start,
+            end
+        }
+    }
+}*/
 
 use std::mem;
 impl Storage {
@@ -493,6 +549,7 @@ impl Storage {
         });
 
         let mut healpix_idx: Vec<Option<Range<u32>>> = vec![None; 196608];
+
         for (idx_source, s) in sources.iter().enumerate() {
             let idx = healpix::nested::hash(7, s.lon as f64, s.lat as f64) as usize;
 
@@ -504,8 +561,12 @@ impl Storage {
         }
 
         let mut idx_source = 0;
+        let mut max_num_sources = 0;
         for i in 0..healpix_idx.len() {
             if let Some(ref healpix_idx) = healpix_idx[i] {
+                let num_sources = healpix_idx.end - healpix_idx.start;
+                max_num_sources = std::cmp::max(max_num_sources, num_sources);
+
                 idx_source = healpix_idx.end;
             } else {
                 healpix_idx[i] = Some(idx_source..idx_source);
@@ -520,13 +581,16 @@ impl Storage {
             mem::forget(sources);
 
             unsafe { Vec::from_raw_parts(ptr as *mut f32, len, cap) }
-        };
+        };        
 
         let healpix_idx = healpix_idx.into_boxed_slice();
+        let max_num_sources = max_num_sources as usize;
         Storage {
             sources,
 
-            healpix_idx
+            healpix_idx,
+
+            max_num_sources,
         }
     }
 
@@ -568,5 +632,9 @@ impl Storage {
         sources_idx_range.start = sources_idx_range.start * size;
         sources_idx_range.end = sources_idx_range.end * size;
         &self.sources[sources_idx_range.start..sources_idx_range.end]
+    }
+
+    fn get_max_number_sources(&self) -> usize {
+        self.max_num_sources
     }
 }

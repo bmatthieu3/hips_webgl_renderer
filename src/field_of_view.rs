@@ -215,7 +215,7 @@ impl FieldOfView {
         // Compute the new clip zoom factor
         self.ndc_to_clip = Self::compute_ndc_to_clip_factor(width, height);
 
-        self.set_aperture::<P>(self.aperture_angle);
+        self.deproj_field_of_view::<P>();
     }
 
     fn compute_clip_zoom_factor<P: Projection>(fov: Rad<f32>) -> f32 {
@@ -235,9 +235,13 @@ impl FieldOfView {
 
     pub fn set_aperture<P: Projection>(&mut self, angle: Rad<f32>) {
         self.aperture_angle = angle;
-
         // Compute the new clip zoom factor
         self.clip_zoom_factor = Self::compute_clip_zoom_factor::<P>(angle);
+        
+        self.deproj_field_of_view::<P>();
+    }
+
+    fn deproj_field_of_view<P: Projection>(&mut self) {
         // Deproject the FOV from ndc to the world space
         let mut vertices_world_space = [Vector4::new(0_f32, 0_f32, 0_f32, 0_f32); NUM_VERTICES];
         let mut out_of_fov = false;

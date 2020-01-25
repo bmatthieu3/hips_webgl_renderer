@@ -21,6 +21,16 @@ pub fn screen_to_ndc_space(pos_screen_space: Vector2<f32>, viewport: &ViewPort) 
     let pos_normalized_device = Vector2::new(2_f32 * (origin.x/window_size.x), -2_f32 * (origin.y/window_size.y));
     pos_normalized_device
 }
+pub fn ndc_to_screen_space(pos_normalized_device: Vector2<f32>, viewport: &ViewPort) -> Vector2<f32> {
+    let window_size = viewport.get_window_size();
+
+    let pos_screen_space = Vector2::new(
+        (pos_normalized_device.x * 0.5_f32 + 0.5_f32) * window_size.x,
+        (pos_normalized_device.y * 0.5_f32 + 0.5_f32) * window_size.y,
+    );
+
+    pos_screen_space
+}
 
 pub fn screen_to_clip_space(pos_screen_space: Vector2<f32>, viewport: &ViewPort) -> Vector2<f32> {
     let pos_normalized_device = screen_to_ndc_space(pos_screen_space, viewport);
@@ -95,6 +105,10 @@ pub trait Projection {
         pos_normalized_device
     }
 
+    fn world_to_screen_space(pos_world_space: Vector4<f32>, viewport: &ViewPort) -> Vector2<f32> {
+        let pos_normalized_device = Self::world_to_normalized_device_space(pos_world_space, viewport);
+        crate::projection::ndc_to_screen_space(pos_normalized_device, viewport)
+    }
     /// World to the clipping space deprojection
     /// 
     /// # Arguments
