@@ -46,7 +46,7 @@ use crate::WebGl2Context;
     gl.scissor(xo as i32, yo as i32, size.x as i32, size.y as i32);
 }*/
 
-const NUM_WHEEL_PER_DEPTH: usize = 5;
+const NUM_WHEEL_PER_DEPTH: usize = 15;
 use cgmath::Deg;
 
 fn fov(wheel_idx: i16) -> Rad<f32> {

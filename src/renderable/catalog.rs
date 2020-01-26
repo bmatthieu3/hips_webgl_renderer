@@ -133,13 +133,42 @@ impl Catalog {
         let size = 0.01_f32;
 
         // Load the texture of the gaussian kernel
-        let kernel_texture = Texture2D::create(gl, "./textures/kernel.png");
-        let colormap_texture = Texture2D::create(gl, "./textures/magma_colormap.png");
+        let kernel_texture = Texture2D::create(gl, "./textures/kernel.png", &[
+            (WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::LINEAR),
+            (WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::LINEAR),
+            
+            // Prevents s-coordinate wrapping (repeating)
+            (WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE),
+            // Prevents t-coordinate wrapping (repeating)
+            (WebGl2RenderingContext::TEXTURE_WRAP_T, WebGl2RenderingContext::CLAMP_TO_EDGE),
+        ]);
+        let colormap_texture = Texture2D::create(gl, "./textures/magma_colormap.png", &[
+            (WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::LINEAR),
+            (WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::LINEAR),
+            
+            // Prevents s-coordinate wrapping (repeating)
+            (WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE),
+            // Prevents t-coordinate wrapping (repeating)
+            (WebGl2RenderingContext::TEXTURE_WRAP_T, WebGl2RenderingContext::CLAMP_TO_EDGE),
+        ]);
 
         // Initialize texture for framebuffer
         let fbo_texture_width = 768;
         let fbo_texture_height = 768;
-        let fbo_texture = Texture2D::create_empty(gl, fbo_texture_width, fbo_texture_height);
+        let fbo_texture = Texture2D::create_empty(
+            gl,
+            fbo_texture_width,
+            fbo_texture_height,
+            &[
+                (WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::LINEAR),
+                (WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::LINEAR),
+                
+                // Prevents s-coordinate wrapping (repeating)
+                (WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE),
+                // Prevents t-coordinate wrapping (repeating)
+                (WebGl2RenderingContext::TEXTURE_WRAP_T, WebGl2RenderingContext::CLAMP_TO_EDGE),
+            ]
+        );
         // Create and bind the framebuffer
         let fbo = gl.create_framebuffer();
         gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, fbo.as_ref());

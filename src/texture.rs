@@ -277,7 +277,6 @@ impl Ord for TileRequest {
     }
 }
 
-#[derive(Clone)]
 pub struct BufferTiles {
     gl: WebGl2Context,
 
@@ -291,7 +290,12 @@ pub struct BufferTiles {
 
     size_binary_heap: usize,
 
-    texture: Texture2D,
+    // Lots of machines are limited to a MAX_TEXTURE_SIZE of
+    // 4096x4096. We thus create more textures to size up the tile buffer.
+    // A further improve would be to take into account the MAX_TEXTURE_SIZE constant
+    // to make it work on more architectures.
+    texture_stack: [Texture2D; 2],
+    //texture: Texture2D,
 }
 
 use crate::utils;
@@ -301,14 +305,34 @@ impl BufferTiles {
     pub fn new(gl: &WebGl2Context) -> BufferTiles {
         // The buffer will always contain the 12 base cells of depth 0
         // Therefore there is size - 12 tiles to handle in the binary heap.
-        let size = 64;
+        let size = 128;
         let size_binary_heap = size - 12;
 
         let buffer = BinaryHeap::with_capacity(size_binary_heap);
         let loaded_tiles = HashSet::with_capacity(size_binary_heap);
         let requested_tiles = BinaryHeap::with_capacity(size_binary_heap);
 
-        let texture = Texture2D::create_empty(gl, WIDTH_TEXTURE * 8, HEIGHT_TEXTURE * 8);
+        let texture = Texture2D::create_empty(
+            gl,
+            WIDTH_TEXTURE * 8,
+            HEIGHT_TEXTURE * 8,
+            &[
+                // The HiPS tiles sampling is NEAREST
+                (WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::NEAREST),
+                (WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::NEAREST),
+                
+                // Prevents s-coordinate wrapping (repeating)
+                (WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE),
+                // Prevents t-coordinate wrapping (repeating)
+                (WebGl2RenderingContext::TEXTURE_WRAP_T, WebGl2RenderingContext::CLAMP_TO_EDGE),
+            ]
+        );
+        let texture_cloned = texture.clone();
+
+        let texture_stack = [
+            texture,
+            texture_cloned,
+        ];
 
         // Load base tiles
         let base_tiles = [Tile::new(HEALPixCell(0, 0)); 12];
@@ -325,7 +349,7 @@ impl BufferTiles {
 
             size_binary_heap,
 
-            texture,
+            texture_stack,
         };
 
         buffer_tiles
@@ -522,20 +546,28 @@ impl BufferTiles {
     }
 
     fn send_texture(&self, shader: &Shader) {
-        let (texture_unit, webgl_texture) = (self.texture.idx_texture_unit, self.texture.texture.clone());
+        console::log_1(&format!("get uniform textures").into());
 
-        let location_sampler_3d = shader.get_uniform_location("textures");
-        self.gl.active_texture(texture_unit);
-        //self.gl.bind_texture(WebGl2RenderingContext::TEXTURE_3D, self.texture.as_ref());
-        self.gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, webgl_texture.borrow().as_ref());
+        for (i, texture) in self.texture_stack.iter().enumerate() {
+            let mut location_tex_name = String::from("textures");
+            location_tex_name += "[";
+            location_tex_name += &i.to_string();
+            location_tex_name += "]";
+            let location_texture = shader.get_uniform_location(&location_tex_name);
 
-        let idx_sampler: i32 = (texture_unit - WebGl2RenderingContext::TEXTURE0).try_into().unwrap();
-        self.gl.uniform1i(location_sampler_3d, idx_sampler);
+            let (texture_unit, webgl_texture) = (texture.idx_texture_unit, texture.texture.clone());
+
+            self.gl.active_texture(texture_unit);
+            self.gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, webgl_texture.borrow().as_ref());
+    
+            let idx_texture = (texture_unit - WebGl2RenderingContext::TEXTURE0).try_into().unwrap();
+            self.gl.uniform1i(location_texture, idx_texture);
+        }
     }
 
     pub fn send_to_shader(&self, shader: &Shader) {
         self.send_texture(shader);
-        let tiles = self.uniq_ordered_tiles();
+        /*let tiles = self.uniq_ordered_tiles();
         for (i, tile) in tiles.iter().enumerate() {
             let mut name = String::from("textures");
             name += "_tiles";
@@ -553,7 +585,7 @@ impl BufferTiles {
 
             let location_time_request = shader.get_uniform_location(&(name + "time_request"));
             self.gl.uniform1f(location_time_request, tile.time_request);
-        }
+        }*/
     }
 
     pub fn len(&self) -> usize {
@@ -622,7 +654,7 @@ pub fn load_base_tiles(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>) {
                     time_received,
                 };
 
-                replace_texture_sampler_2d(&gl, &buffer.borrow().texture, texture_idx as i32, &image.borrow());
+                replace_texture_sampler_2d(&gl, &buffer.borrow().texture_stack, texture_idx as i32, &image.borrow());
             }) as Box<dyn Fn()>)
         };
 
@@ -716,7 +748,7 @@ fn load_healpix_tile(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>, tile:
             // Add the received tile to the buffer
             let texture_idx = buffer.add(tile, time_request);
             //buffer.borrow().replace_texture_sampler_3d(idx_texture as i32, &image.borrow());
-            replace_texture_sampler_2d(&gl, &buffer.texture, texture_idx as i32, &image.borrow());
+            replace_texture_sampler_2d(&gl, &buffer.texture_stack, texture_idx as i32, &image.borrow());
 
             // Tell the app to render the next frame
             // because a a new has been received
@@ -734,14 +766,19 @@ fn load_healpix_tile(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>, tile:
     onerror.forget();
 }
 
-fn replace_texture_sampler_2d(gl: &WebGl2Context, texture: &Texture2D, idx: i32, image: &HtmlImageElement) {
+fn replace_texture_sampler_2d(gl: &WebGl2Context, texture_slack: &[Texture2D; 2], idx: i32, image: &HtmlImageElement) {
+    // Get the slice to act on
+    let idx_texture = idx / 64;
+
+    let texture = &texture_slack[idx_texture as usize];
     let texture_unit = texture.idx_texture_unit;
     let webgl_texture = texture.texture.borrow();
-    gl.active_texture(texture.idx_texture_unit);
+
+    gl.active_texture(texture_unit);
     gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, webgl_texture.as_ref());
 
-    let idx_row = idx / 8;
-    let idx_col = idx % 8;
+    let idx_row = (idx - idx_texture * 64) / 8;
+    let idx_col = (idx - idx_texture * 64) % 8;
 
     let xoffset = idx_col * WIDTH_TEXTURE;
     let yoffset = idx_row * HEIGHT_TEXTURE;
@@ -759,24 +796,39 @@ fn replace_texture_sampler_2d(gl: &WebGl2Context, texture: &Texture2D, idx: i32,
 }
 
 use web_sys::WebGlTexture;
-#[derive(Clone)]
 pub struct Texture2D {
     texture: Rc<RefCell<Option<WebGlTexture>>>,
     idx_texture_unit: u32,
+
+    gl: WebGl2Context,
+    tex_params: &'static [(u32, u32)],
+
+    origin: Origin,
+}
+
+enum Origin {
+    FromFile(&'static str),
+    Empty(i32, i32),
+}
+
+impl Clone for Texture2D {
+    fn clone(&self) -> Self {
+        match self.origin {
+            Origin::Empty(width, height) => {
+                Texture2D::create_empty(&self.gl, width, height, self.tex_params)
+            },
+            Origin::FromFile(src) => {
+                Texture2D::create(&self.gl, src, self.tex_params)
+            }
+        }
+    }
 }
 
 impl Texture2D {
-    fn new(texture: Rc<RefCell<Option<WebGlTexture>>>, idx_texture_unit: u32) -> Texture2D {
-        Texture2D {
-            texture,
-            idx_texture_unit
-        }
-    }
-
-    pub fn create(gl: &WebGl2Context, src: &'static str) -> Texture2D {
+    pub fn create(gl: &WebGl2Context, src: &'static str, tex_params: &'static [(u32, u32)]) -> Texture2D {
         let image = Rc::new(RefCell::new(HtmlImageElement::new().unwrap()));
 
-        let webgl_texture = Rc::new(RefCell::new(gl.create_texture()));
+        let texture = Rc::new(RefCell::new(gl.create_texture()));
         let idx_texture_unit = unsafe { NUM_TEXTURE_UNIT };
         unsafe {
             NUM_TEXTURE_UNIT += 1;
@@ -790,18 +842,15 @@ impl Texture2D {
         let onload = {
             let image = image.clone();
             let gl = gl.clone();
-            let webgl_texture = webgl_texture.clone();
+            let texture = texture.clone();
 
             Closure::wrap(Box::new(move || {
                 gl.active_texture(idx_texture_unit);
-                gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, webgl_texture.borrow().as_ref());
+                gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, texture.borrow().as_ref());
 
-                gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::LINEAR as i32);
-
-                // Prevents s-coordinate wrapping (repeating)
-                gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
-                // Prevents t-coordinate wrapping (repeating)
-                gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_WRAP_T, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
+                for (pname, param) in tex_params.iter() {
+                    gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, *pname, *param as i32);
+                }
 
                 gl.tex_image_2d_with_u32_and_u32_and_html_image_element(
                     WebGl2RenderingContext::TEXTURE_2D,
@@ -823,27 +872,33 @@ impl Texture2D {
 
         onload.forget();
         onerror.forget();
+        
+        let origin = Origin::FromFile(src);
+        let gl = gl.clone();
+        Texture2D {
+            texture,
+            idx_texture_unit,
 
-        Texture2D::new(webgl_texture, idx_texture_unit)
+            gl,
+            tex_params,
+
+            origin
+        }
     }
 
-    pub fn create_empty(gl: &WebGl2Context, width: i32, height: i32) -> Texture2D {
-        let webgl_texture = gl.create_texture();
+    pub fn create_empty(gl: &WebGl2Context, width: i32, height: i32, tex_params: &'static [(u32, u32)]) -> Texture2D {
+        let texture = Rc::new(RefCell::new(gl.create_texture()));
         let idx_texture_unit = unsafe { NUM_TEXTURE_UNIT };
         unsafe {
             NUM_TEXTURE_UNIT += 1;
         }
         gl.active_texture(idx_texture_unit);
 
-        gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, webgl_texture.as_ref());
+        gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, texture.borrow().as_ref());
 
-        gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::NEAREST as i32);
-        gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::NEAREST as i32);
-
-        // Prevents s-coordinate wrapping (repeating)
-        gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
-        // Prevents t-coordinate wrapping (repeating)
-        gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, WebGl2RenderingContext::TEXTURE_WRAP_T, WebGl2RenderingContext::CLAMP_TO_EDGE as i32);
+        for (pname, param) in tex_params.iter() {
+            gl.tex_parameteri(WebGl2RenderingContext::TEXTURE_2D, *pname, *param as i32);
+        }
 
         gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
             WebGl2RenderingContext::TEXTURE_2D,
@@ -858,7 +913,17 @@ impl Texture2D {
         ).expect("Texture 2D");
         //gl.generate_mipmap(WebGl2RenderingContext::TEXTURE_2D);
 
-        Texture2D::new(Rc::new(RefCell::new(webgl_texture)), idx_texture_unit)
+        let origin = Origin::Empty(width, height);
+        let gl = gl.clone();
+        Texture2D {
+            texture,
+            idx_texture_unit,
+
+            gl,
+            tex_params,
+
+            origin
+        }
     }
 
     pub fn attach_to_framebuffer(&self, gl: &WebGl2Context) {

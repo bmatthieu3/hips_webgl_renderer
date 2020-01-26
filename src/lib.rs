@@ -109,6 +109,9 @@ use cgmath::Vector2;
 impl<P> App<P>
 where P: Projection {
     fn new(gl: &WebGl2Context) -> Result<App<P>, JsValue> {
+
+        console::log_1(&format!("Init").into());
+
         // Shader definition
         // HiPS sphere shader
         // uniforms definition
@@ -126,8 +129,8 @@ where P: Projection {
             String::from("max_depth"),
         ];
 
-        add_tile_buffer_uniforms("textures", 64, &mut uniforms_2d_proj);
-        add_tile_buffer_uniforms("textures_0", 12, &mut uniforms_2d_proj);
+        add_tile_buffer_uniforms("textures", 128, &mut uniforms_2d_proj);
+        console::log_1(&format!("Init2").into());
 
         let shader_2d_proj = Shader::new(&gl,
             shaders::proj_vert::CONTENT,
@@ -198,6 +201,7 @@ where P: Projection {
             shaders::heatmap_frag::CONTENT,
             uniforms_heatmap
         );
+        console::log_1(&format!("BB").into());
 
         // HiPS Ortho shader
         // uniforms definition
@@ -213,17 +217,20 @@ where P: Projection {
             // HiPS Ortho specific uniforms
             String::from("current_depth"),
             String::from("max_depth"),
+            // Textures
+            String::from("textures[0]"),
+            String::from("textures[1]"),
         ];
 
-        add_tile_buffer_uniforms("textures", 64, &mut uniforms_ortho_hips);
-        add_tile_buffer_uniforms("textures_0", 12, &mut uniforms_ortho_hips);
-        //add_tile_buffer_uniforms("textures_0", 12, &mut uniforms_ortho_hips);
+        //add_tile_buffer_uniforms("textures", 128, &mut uniforms_ortho_hips);
+        console::log_1(&format!("CC").into());
 
         let shader_ortho_hips = Shader::new(&gl,
             shaders::hips_sphere_small_fov_vert::CONTENT,
             shaders::hips_sphere_small_fov_frag::CONTENT,
             uniforms_ortho_hips
         );
+        console::log_1(&format!("DD").into());
 
         let mut shaders = HashMap::new();
         shaders.insert("hips_sphere", shader_2d_proj);
@@ -430,10 +437,8 @@ where P: Projection {
                     &mut self.catalog,
                 );
 
-                console::log_1(&format!("moves").into());
                 // Moves the viewport
                 self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog);
-                console::log_1(&format!("moves2").into());
             }
         }
     }
@@ -479,22 +484,6 @@ where P: Projection {
 }
 
 lazy_static! {
-    /*static ref WIDTH_SCREEN: Arc<AtomicU32> = Arc::new(
-        AtomicU32::new(
-            web_sys::window().unwrap().inner_width()
-                .unwrap()
-                .as_f64()
-                .unwrap() as u32
-        )
-    );
-    static ref HEIGHT_SCREEN: Arc<AtomicU32> = Arc::new(
-        AtomicU32::new(
-            web_sys::window().unwrap().inner_height()
-                .unwrap()
-                .as_f64()
-                .unwrap() as u32
-        )
-    );*/
     static ref ENABLED_WIDGETS: Arc<Mutex<HashMap<&'static str, bool>>> = {
         let mut m = HashMap::new();
         m.insert("hips_sphere", true);
@@ -507,30 +496,7 @@ lazy_static! {
     static ref HIPS_NAME: Arc<Mutex<String>> = Arc::new(Mutex::new(String::from("http://alasky.u-strasbg.fr/DSS/DSSColor")));
     static ref MAX_DEPTH: Arc<AtomicU8> = Arc::new(AtomicU8::new(9));
 }
-/*
-fn set_window_size(new_width: u32, new_height: u32) {
-    WIDTH_SCREEN.store(new_width, Ordering::Relaxed);
-    HEIGHT_SCREEN.store(new_height, Ordering::Relaxed);
-}
-fn window_size_u32() -> (u32, u32) {
-    let width = WIDTH_SCREEN.load(Ordering::Relaxed);
-    let height = HEIGHT_SCREEN.load(Ordering::Relaxed);
 
-    (width, height)
-}
-fn window_size_f32() -> (f32, f32) {
-    let width = WIDTH_SCREEN.load(Ordering::Relaxed);
-    let height = HEIGHT_SCREEN.load(Ordering::Relaxed);
-
-    (width as f32, height as f32)
-}
-fn window_size_f64() -> (f64, f64) {
-    let width = WIDTH_SCREEN.load(Ordering::Relaxed);
-    let height = HEIGHT_SCREEN.load(Ordering::Relaxed);
-
-    (width as f64, height as f64)
-}
-*/
 #[derive(Clone)]
 pub struct WebGl2Context {
     inner: Rc<WebGl2RenderingContext>,

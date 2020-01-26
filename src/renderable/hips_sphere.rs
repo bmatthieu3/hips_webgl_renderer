@@ -60,14 +60,15 @@ impl SmallFieldOfViewRenderingMode {
         vertex_array_object.bind()
             // Store the projeted and 3D vertex positions in a VBO
             .add_array_buffer(
-                10 * mem::size_of::<f32>(),
-                &[2, 3, 2, 2, 1],
+                12 * mem::size_of::<f32>(),
+                &[2, 3, 2, 2, 1, 2],
                 &[
                     0 * mem::size_of::<f32>(),
                     2 * mem::size_of::<f32>(),
                     5 * mem::size_of::<f32>(),
                     7 * mem::size_of::<f32>(),
                     9 * mem::size_of::<f32>(),
+                    10 * mem::size_of::<f32>(),
                 ],
                 WebGl2RenderingContext::DYNAMIC_DRAW,
                 BufferData::VecData(vertices.as_ref()),
@@ -82,7 +83,16 @@ impl SmallFieldOfViewRenderingMode {
         }
     }
 
-    fn add_vertex(vertex_array: &mut Vec<f32>, lonlat: &[(f64, f64)], idx: usize, uv_start: Vector2<f32>, uv_end: Vector2<f32>, blending_factor: f32) {
+    fn add_vertex(
+        vertex_array: &mut Vec<f32>,
+        lonlat: &[(f64, f64)],
+        idx: usize,
+        uv_start: Vector2<f32>,
+        uv_end: Vector2<f32>,
+        idx_texture_start: f32,
+        idx_texture_end: f32,
+        blending_factor: f32
+    ) {
         let vertex = lonlat[idx];
         let (theta, delta) = (Rad(vertex.0 as f32), Rad(vertex.1 as f32));
 
@@ -101,7 +111,10 @@ impl SmallFieldOfViewRenderingMode {
             uv_end.x,
             uv_end.y,
 
-            blending_factor
+            blending_factor,
+
+            idx_texture_start,
+            idx_texture_end,
         ]);
     }
 }
@@ -111,6 +124,8 @@ fn add_vertices_grid(
     depth: u8, idx: u64, n_segments: u16,
     uv_start: &[Vector2<f32>; 4],
     uv_end: &[Vector2<f32>; 4],
+    idx_texture_start: u8,
+    idx_texture_end: u8,
     blending_factor: f32
 ) {
     let lonlat = healpix::nested::grid(depth, idx, n_segments);
@@ -171,15 +186,17 @@ fn add_vertices_grid(
                 uv_e_vertex_2,
                 uv_e_vertex_3,
             ];
-            //console::log_1(&format!("UV: {:?} {:?} {:?}", uv_start_quad, d01s, d02s).into());
 
-            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 0, uv_start_quad[0], uv_end_quad[0], blending_factor);
-            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 1, uv_start_quad[1], uv_end_quad[1], blending_factor);
-            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 2, uv_start_quad[2], uv_end_quad[2], blending_factor);
+            let idx_texture_start = (idx_texture_start / 64) as f32;
+            let idx_texture_end = (idx_texture_end / 64) as f32;
 
-            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 1, uv_start_quad[1], uv_end_quad[1], blending_factor);
-            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 3, uv_start_quad[3], uv_end_quad[3], blending_factor);
-            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 2, uv_start_quad[2], uv_end_quad[2], blending_factor);
+            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 0, uv_start_quad[0], uv_end_quad[0], idx_texture_start, idx_texture_end, blending_factor);
+            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 1, uv_start_quad[1], uv_end_quad[1], idx_texture_start, idx_texture_end, blending_factor);
+            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 2, uv_start_quad[2], uv_end_quad[2], idx_texture_start, idx_texture_end, blending_factor);
+
+            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 1, uv_start_quad[1], uv_end_quad[1], idx_texture_start, idx_texture_end, blending_factor);
+            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 3, uv_start_quad[3], uv_end_quad[3], idx_texture_start, idx_texture_end, blending_factor);
+            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 2, uv_start_quad[2], uv_end_quad[2], idx_texture_start, idx_texture_end, blending_factor);
 
         }
     }
@@ -203,7 +220,7 @@ impl RenderingMode for SmallFieldOfViewRenderingMode {
 
         //vertices_data.extend(vec![0_f32; 8480]);
         */
-        vec![0_f32; 40000]
+        vec![0_f32; 40008]
     }
 
     fn create_index_array() -> Option<Vec<u16>> {
@@ -224,7 +241,7 @@ impl RenderingMode for SmallFieldOfViewRenderingMode {
         gl.draw_arrays(
             WebGl2RenderingContext::TRIANGLES,
             0,
-            (self.vertices.len() as i32) / 10,
+            (self.vertices.len() as i32) / 12,
         );
     }
 }
@@ -445,8 +462,8 @@ use crate::field_of_view::HEALPixCell;
 use crate::viewport::{LastZoomAction, LastAction};
 
 fn get_uv_in_parent(tile: &Tile, parent_tile: &Tile) -> [Vector2<f32>; 4] {
-    let texture_parent_idx = parent_tile.texture_idx as i32;
-        
+    let texture_parent_idx = (parent_tile.texture_idx as i32) % 64;
+
     let parent_idx_row = (texture_parent_idx / 8) as f32; // in [0; 7]
     let parent_idx_col = (texture_parent_idx % 8) as f32; // in [0; 7]
 
@@ -476,7 +493,7 @@ fn get_uv_in_parent(tile: &Tile, parent_tile: &Tile) -> [Vector2<f32>; 4] {
     ]
 }
 fn get_uv(tile: &Tile) -> [Vector2<f32>; 4] {
-    let texture_idx = tile.texture_idx as i32;
+    let texture_idx = (tile.texture_idx as i32) % 64;
         
     let idx_row = (texture_idx / 8) as f32; // in [0; 7]
     let idx_col = (texture_idx % 8) as f32; // in [0; 7]
@@ -551,8 +568,13 @@ impl Mesh for HiPSSphere {
                     let tile = HEALPixCell(current_depth, current_idx);
                     if let Some(tile_buffer) = buffer.get(&tile) {
                         let blending_factor = tile_buffer.blending_factor();
-                        let uv_start = if blending_factor == 1_f32 {
-                            [Vector2::new(0_f32, 0_f32); 4]
+                        let idx_texture_end = tile_buffer.texture_idx;
+
+                        let (uv_start, idx_texture_start) = if blending_factor == 1_f32 {
+                            let uv_start = [Vector2::new(0_f32, 0_f32); 4];
+                            let idx_texture_start = 0;
+
+                            (uv_start, idx_texture_start)
                         } else {
                             let (mut parent_depth, mut parent_idx) = if current_depth == 0 {
                                 (0, current_idx)
@@ -579,7 +601,10 @@ impl Mesh for HiPSSphere {
                                 buffer.get(&parent_tile).unwrap().clone()
                             };
 
-                            get_uv_in_parent(&current_tile, &parent_tile_buffer)
+                            let uv_start = get_uv_in_parent(&current_tile, &parent_tile_buffer);
+                            let idx_texture_start = parent_tile_buffer.texture_idx;
+
+                            (uv_start, idx_texture_start)
                         };
 
                         let uv_end = if blending_factor == 0_f32 {
@@ -589,21 +614,28 @@ impl Mesh for HiPSSphere {
                         };
 
                         let mut vertex_array = Vec::with_capacity(10 * 6);
-                        add_vertices_grid(&mut vertex_array, 2, idx, 1, &uv_start, &uv_end, blending_factor);
+                        add_vertices_grid(&mut vertex_array,
+                            2,
+                            idx,
+                            1,
+                            &uv_start, &uv_end,
+                            idx_texture_start, idx_texture_end,
+                            blending_factor
+                        );
 
                         vertices.extend(vertex_array.iter());
                     } else {
                         let blending_factor = 0_f32;
                         let uv_end = [Vector2::new(0_f32, 0_f32); 4];
+                        let idx_texture_end = 0;
+
                         let (mut parent_depth, mut parent_idx) = if current_depth == 0 {
                             (0, current_idx)
                         } else {
                             (current_depth - 1, current_idx >> 2)
                         };                          
-                        //console::log_1(&format!("aaahaQQA {:?}", parent_depth).into());
 
                         let mut parent_tile = HEALPixCell(parent_depth, parent_idx);
-                        //console::log_1(&format!("aaahaQQ {:?}", parent_tile).into());
 
                         while parent_depth > 0 {
                             if let Some(parent_tile) = buffer.get(&parent_tile) {
@@ -615,17 +647,21 @@ impl Mesh for HiPSSphere {
     
                             parent_tile = HEALPixCell(parent_depth, parent_idx);
                         }
-                        //console::log_1(&format!("aaaha {:?}, current_depth {:?}", blending_factor, parent_depth).into());
                         let parent_tile_buffer = if parent_depth == 0 {
                             get_root_parent(&Tile::new(tile))
                         } else { 
                             buffer.get(&parent_tile).unwrap().clone()
                         };
-                        //console::log_1(&format!("aaahauuu {:?}", blending_factor).into());
                         let uv_start = get_uv_in_parent(&current_tile, &parent_tile_buffer);
+                        let idx_texture_start = parent_tile_buffer.texture_idx;
                         
                         let mut vertex_array = Vec::with_capacity(10 * 6);
-                        add_vertices_grid(&mut vertex_array, 2, idx, 1, &uv_start, &uv_end, blending_factor);
+                        add_vertices_grid(&mut vertex_array,
+                            2, idx, 1,
+                            &uv_start, &uv_end,
+                            idx_texture_start, idx_texture_end,
+                            blending_factor
+                        );
 
                         vertices.extend(vertex_array.iter());
                     }
@@ -660,20 +696,31 @@ impl Mesh for HiPSSphere {
                     let parent_tile_buffer = buffer.get(&parent_tile).unwrap();
 
                     let uv_start = get_uv_in_parent(&Tile::new(*tile), parent_tile_buffer);
+                    let idx_texture_start = parent_tile_buffer.texture_idx;
 
-                    let (uv_end, blending_factor) = if let Some(tile_buffer) = buffer.get(tile) {
+                    let mut blending_factor = 0_f32;
+                    let mut idx_texture_end = 0;
+                    let uv_end = if let Some(tile_buffer) = buffer.get(tile) {
                         let uv_end = get_uv(tile_buffer);
-                        let blending_factor = tile_buffer.blending_factor();
-                        (uv_end, blending_factor)
+
+                        idx_texture_end = tile_buffer.texture_idx;
+                        blending_factor = tile_buffer.blending_factor();
+                        uv_end
                     } else {
                         let uv_end = [Vector2::new(0_f32, 0_f32); 4];
-                        let blending_factor = 0_f32;
 
-                        (uv_end, blending_factor)
+                        uv_end
                     };
 
                     let mut vertex_array = Vec::with_capacity(10 * 6);
-                    add_vertices_grid(&mut vertex_array, depth, idx, 1, &uv_start, &uv_end, blending_factor);
+                    add_vertices_grid(
+                        &mut vertex_array,
+                        depth, idx,
+                        1,
+                        &uv_start, &uv_end,
+                        idx_texture_start, idx_texture_end,
+                        blending_factor
+                    );
 
                     // tile has been found in the buffer, we will
                     // render it
@@ -687,16 +734,23 @@ impl Mesh for HiPSSphere {
                         let blending_factor = tile_buffer.blending_factor();
 
                         let (depth, idx) = (tile_buffer.cell.0, tile_buffer.cell.1);
-                        let texture_idx = tile_buffer.texture_idx;
-                        let idx_row = (texture_idx / 8) as f32; // in [0; 7]
-                        let idx_col = (texture_idx % 8) as f32; // in [0; 7]
 
                         if blending_factor == 1_f32 {
                             let uv_end = get_uv(tile_buffer);
                             let uv_start = [Vector2::new(0_f32, 0_f32); 4];
 
                             let mut vertex_array = Vec::with_capacity(10 * 6);
-                            add_vertices_grid(&mut vertex_array, depth, idx, 4, &uv_start, &uv_end, blending_factor);
+
+                            let idx_texture_start = 0;
+                            let idx_texture_end = tile_buffer.texture_idx;
+                            add_vertices_grid(
+                                &mut vertex_array,
+                                depth, idx,
+                                4,
+                                &uv_start, &uv_end,
+                                idx_texture_start, idx_texture_end,
+                                blending_factor
+                            );
 
                             // tile has been found in the buffer, we will render it
                             vertices.extend(vertex_array.iter());
@@ -717,10 +771,19 @@ impl Mesh for HiPSSphere {
                                     // Find in which position the child tile is in the
                                     // parent to get the uv_end
                                     let uv_end = get_uv_in_parent(child_tile_buffer, tile_buffer);
+                                    let idx_texture_end = tile_buffer.texture_idx;
+
                                     let uv_start = get_uv(child_tile_buffer);
+                                    let idx_texture_start = child_tile_buffer.texture_idx;
 
                                     let mut vertex_array = Vec::with_capacity(10 * 6);
-                                    add_vertices_grid(&mut vertex_array, child_depth, child_idx, 1 << (depth + 2 - child_depth), &uv_start, &uv_end, blending_factor);
+                                    add_vertices_grid(&mut vertex_array,
+                                        child_depth,
+                                        child_idx,
+                                        1 << (depth + 2 - child_depth),
+                                        &uv_start, &uv_end,
+                                        idx_texture_start, idx_texture_end,
+                                        blending_factor);
 
                                     // tile has been found in the buffer, we will render it
                                     vertices.extend(vertex_array.iter());
@@ -732,14 +795,24 @@ impl Mesh for HiPSSphere {
 
                                         // Find in which base cell the child tile is located
                                         let tile_buffer_base = get_root_parent(&tile_child);
+
                                         let uv_start = get_uv_in_parent(&tile_child, &tile_buffer_base);
+                                        let idx_texture_start = tile_buffer_base.texture_idx;
 
                                         // Find in which position the child tile is located in the current fov tile
                                         let uv_end = get_uv_in_parent(&tile_child, tile_buffer);
+                                        let idx_texture_end = tile_buffer.texture_idx;
 
                                         let mut vertex_array = Vec::with_capacity(10 * 6);
 
-                                        add_vertices_grid(&mut vertex_array, child_depth, child_idx, 1, &uv_start, &uv_end, blending_factor);
+                                        add_vertices_grid(&mut vertex_array,
+                                            child_depth,
+                                            child_idx,
+                                            1,
+                                            &uv_start, &uv_end,
+                                            idx_texture_start, idx_texture_end,
+                                            blending_factor
+                                        );
 
                                         // tile has been found in the buffer, we will render it
                                         vertices.extend(vertex_array.iter());
@@ -773,11 +846,23 @@ impl Mesh for HiPSSphere {
                                 // Find in which position the child tile is in the
                                 // parent to get the uv_end
                                 let uv_end = [Vector2::new(0_f32, 0_f32); 4];
+                                let idx_texture_end = 0;
+
                                 let uv_start = get_uv(child_tile_buffer);
+                                let idx_texture_start = child_tile_buffer.texture_idx;
 
                                 let mut vertex_array = Vec::with_capacity(10 * 6);
 
-                                add_vertices_grid(&mut vertex_array, child_depth, child_idx, 1 << (depth + 2 - child_depth), &uv_start, &uv_end, blending_factor);
+                                add_vertices_grid(&mut vertex_array,
+                                    child_depth,
+                                    child_idx,
+                                    1 << (depth + 2 - child_depth),
+                                    &uv_start,
+                                    &uv_end,
+                                    idx_texture_start,
+                                    idx_texture_end,
+                                    blending_factor
+                                );
 
                                 // tile has been found in the buffer, we will render it
                                 vertices.extend(vertex_array.iter());
@@ -789,12 +874,23 @@ impl Mesh for HiPSSphere {
                                     // Find in which base cell the child tile is located
                                     let tile_buffer_base = get_root_parent(&tile_child);
                                     let uv_start = get_uv_in_parent(&tile_child, &tile_buffer_base);
+                                    let idx_texture_start = tile_buffer_base.texture_idx;
 
                                     // Find in which position the child tile is located in the current fov tile
                                     let uv_end = [Vector2::new(0_f32, 0_f32); 4];
+                                    let idx_texture_end = 0;
 
                                     let mut vertex_array = Vec::with_capacity(10 * 6);
-                                    add_vertices_grid(&mut vertex_array, child_depth, child_idx, 1, &uv_start, &uv_end, blending_factor);
+                                    add_vertices_grid(&mut vertex_array,
+                                        child_depth,
+                                        child_idx,
+                                        1,
+                                        &uv_start,
+                                        &uv_end,
+                                        idx_texture_start,
+                                        idx_texture_end,
+                                        blending_factor
+                                    );
                                     vertices.extend(vertex_array.iter());
                                 } else {
                                     // Split the child cell in its 4 children (e.g. grand children of the tile 
@@ -818,7 +914,6 @@ impl Mesh for HiPSSphere {
             self.fov_rendering_mode.vertices = vertices;
         }
     }
-
 
     fn draw<T: Mesh + DisableDrawing>(
         &self,

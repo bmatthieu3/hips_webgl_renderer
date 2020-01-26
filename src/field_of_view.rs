@@ -322,7 +322,7 @@ impl FieldOfView {
 
                     // Stop when the number of tiles for this depth
                     // can be contained in the tile buffer
-                    if num_tiles <= 52 {
+                    if num_tiles <= 116 {
                         cells = moc.flat_iter()
                             .map(|idx| {
                                 HEALPixCell(depth, idx)
