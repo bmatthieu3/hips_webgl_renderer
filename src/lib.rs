@@ -474,6 +474,14 @@ where P: Projection {
         }
     }
 
+    fn set_heatmap_opacity(&mut self, opacity: f32) {
+        self.catalog.mesh_mut().set_alpha(opacity);
+    }
+
+    fn set_kernel_strength(&mut self, strength: f32) {
+        self.catalog.mesh_mut().set_kernel_strength::<P>(strength, &self.viewport);
+    }
+
     fn resize_window(&mut self, width: f32, height: f32) {
         self.viewport.resize_window::<P>(width, height);
     }
@@ -664,6 +672,22 @@ impl AppConfig {
             AppConfig::Ort(app) => app.resize_window(width, height),
         }
     }
+
+    pub fn set_kernel_strength(&mut self, strength: f32) {        
+        match self {
+            AppConfig::Ait(app) => app.set_kernel_strength(strength),
+            AppConfig::Mol(app) => app.set_kernel_strength(strength),
+            AppConfig::Ort(app) => app.set_kernel_strength(strength),
+        }
+    }
+
+    pub fn set_heatmap_opacity(&mut self, opacity: f32) {        
+        match self {
+            AppConfig::Ait(app) => app.set_heatmap_opacity(opacity),
+            AppConfig::Mol(app) => app.set_heatmap_opacity(opacity),
+            AppConfig::Ort(app) => app.set_heatmap_opacity(opacity),
+        }
+    }
 }
 
 #[wasm_bindgen]
@@ -775,28 +799,6 @@ impl WebClient {
 
         Ok(())
     }
-    /// Change grid opacity
-    pub fn set_catalog_opacity(&mut self, alpha: f32) -> Result<(), JsValue> {
-        self.app.catalog
-            .mesh_mut()
-            .set_alpha(alpha);
-
-        //RENDER_FRAME.lock().unwrap().set(true);
-        //UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
-
-        Ok(())
-    }
-    /// Change grid opacity
-    pub fn set_kernel_strength(&mut self, strength: f32) -> Result<(), JsValue> {
-        self.app.catalog
-            .mesh_mut()
-            .set_kernel_strength(strength);
-
-        //RENDER_FRAME.lock().unwrap().set(true);
-        //UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
-
-        Ok(())
-    }
     */
     /// Change HiPS
     pub fn change_hips(&mut self, hips_url: String, hips_depth: i32) -> Result<(), JsValue> {
@@ -835,9 +837,23 @@ impl WebClient {
         Ok(())
     }
 
-    /// Add new catalog
+    /// Resize the window
     pub fn resize(&mut self, width: f32, height: f32) -> Result<(), JsValue> {
         self.appconfig.resize(width, height);
+
+        Ok(())
+    }
+
+    /// Set the kernel strength
+    pub fn set_kernel_strength(&mut self, strength: f32) -> Result<(), JsValue> {
+        self.appconfig.set_kernel_strength(strength);
+
+        Ok(())
+    }
+
+    /// Set the heatmap global opacity
+    pub fn set_heatmap_opacity(&mut self, opacity: f32) -> Result<(), JsValue> {
+        self.appconfig.set_heatmap_opacity(opacity);
 
         Ok(())
     }

@@ -17,6 +17,7 @@ pub struct Catalog {
 
     alpha: f32,
     strength: f32,
+    strength_coeff: f32,
 
     kernel_texture: Texture2D,
 
@@ -219,6 +220,7 @@ impl Catalog {
         let vertex_array_object = VertexArrayObject::new(gl);
 
         let colormap_shader_key = BluePastelRed::name();
+        let strength_coeff = 20_f32;
 
         Catalog {
             num_instances, 
@@ -229,6 +231,7 @@ impl Catalog {
             size,
             alpha,
             strength,
+            strength_coeff,
 
             kernel_texture,
 
@@ -261,8 +264,20 @@ impl Catalog {
         self.alpha = alpha;
     }
 
-    pub fn set_kernel_strength(&mut self, strength: f32) {
-        self.strength = strength;
+    pub fn set_kernel_strength<P: Projection>(&mut self, strength: f32, viewport: &ViewPort) {
+        self.strength_coeff = strength;
+
+        // Recompute kernel density
+        let area_tile = area_clip_zoomed_space_healpix_tile::<P>(viewport, 7);
+        let max_num_sources = self.data.get_max_number_sources();
+        let max_source_density = (max_num_sources as f32) / area_tile;
+        //console::log_1(&format!("max_source_density: {:?}", max_source_density).into());
+
+        self.strength = self.strength_coeff / max_source_density.sqrt();
+        // Clamp the strength to 1_f32
+        if self.strength > 1_f32 {
+            self.strength = 1_f32;
+        }
     }
 }
 
@@ -381,8 +396,7 @@ impl Mesh for Catalog {
         let max_source_density = (max_num_sources as f32) / area_tile;
         //console::log_1(&format!("max_source_density: {:?}", max_source_density).into());
 
-        let scaling_cst = 20_f32; 
-        self.strength = scaling_cst / max_source_density.sqrt();
+        self.strength = self.strength_coeff / max_source_density.sqrt();
         // Clamp the strength to 1_f32
         if self.strength > 1_f32 {
             self.strength = 1_f32;

@@ -155,7 +155,7 @@ window.addEventListener('load', function () {
             catalog_opacity.addEventListener("input", (event) => {
                 let opacity = event.target.value;
 
-                webClient.set_catalog_opacity(opacity);
+                webClient.set_heatmap_opacity(opacity);
             }, false);
 
             // Alpha catalog
