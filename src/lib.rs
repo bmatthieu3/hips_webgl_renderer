@@ -130,7 +130,6 @@ where P: Projection {
         ];
 
         add_tile_buffer_uniforms("textures", 128, &mut uniforms_2d_proj);
-        console::log_1(&format!("Init2").into());
 
         let shader_2d_proj = Shader::new(&gl,
             shaders::proj_vert::CONTENT,
@@ -198,7 +197,7 @@ where P: Projection {
         ];
         let shader_heatmap = Shader::new(&gl,
             shaders::heatmap_vert::CONTENT,
-            shaders::heatmap_frag::CONTENT,
+            shaders::heatmap::heatmap_frag::CONTENT,
             uniforms_heatmap
         );
         console::log_1(&format!("BB").into());

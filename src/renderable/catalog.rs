@@ -6,6 +6,11 @@ use crate::field_of_view::HEALPixCell;
 
 use crate::renderable::buffers::vertex_array_object::VertexArrayObject;
 
+use std::collections::HashMap;
+trait ColorMap {
+    fn load_shader(shaders: &mut HashMap<&'static str, Shader>);
+}
+
 pub struct Catalog {
     num_instances: usize,
 
@@ -266,11 +271,10 @@ use crate::viewport::ViewPort;
 
 use crate::renderable::Renderable;
 use crate::utils;
-use std::collections::HashMap;
 use std::collections::BinaryHeap;
 
 use crate::math;
-use crate::projection::Projection; 
+use crate::projection::Projection;
 
 impl Mesh for Catalog {
     fn create_buffers(&mut self, gl: &WebGl2Context) {
@@ -484,7 +488,6 @@ impl Mesh for Catalog {
             // Set the viewport
             let window_size = viewport.get_window_size();
             gl.viewport(0, 0, window_size.x as i32, window_size.y as i32);
-            //viewport.update_scissor();
 
             let shader = &shaders["heatmap"];
             shader.bind(gl);
