@@ -46,7 +46,7 @@ use crate::WebGl2Context;
     gl.scissor(xo as i32, yo as i32, size.x as i32, size.y as i32);
 }*/
 
-const NUM_WHEEL_PER_DEPTH: usize = 15;
+const NUM_WHEEL_PER_DEPTH: usize = 5;
 use cgmath::Deg;
 
 fn fov(wheel_idx: i16) -> Rad<f32> {
@@ -66,9 +66,11 @@ use crate::renderable::hips_sphere::HiPSSphere;
 use crate::renderable::Renderable;
 
 use crate::renderable::catalog::Catalog;
+
 use crate::renderable::grid::ProjetedGrid;
 use crate::mouse_inertia::MouseInertia;
 use crate::projection::Projection;
+
 impl ViewPort {
     pub fn new<P: Projection>(gl: &WebGl2Context) -> ViewPort {
         let last_zoom_action = LastZoomAction::Unzoom;

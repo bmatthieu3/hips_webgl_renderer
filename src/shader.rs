@@ -59,6 +59,7 @@ use crate::WebGl2Context;
 use web_sys::console;
 impl Shader {
     pub fn new(gl: &WebGl2Context, vert_src: &str, frag_src: &str, name_uniforms: Vec<String>) -> Shader {
+        console::log_1(&format!("vert_src: {:?}", vert_src).into());
         let vert_shader = compile_shader(
             gl,
             WebGl2RenderingContext::VERTEX_SHADER,
@@ -98,5 +99,42 @@ impl Shader {
 
     pub fn get_uniform_location(&self, name: &str) -> Option<&WebGlUniformLocation> {
         self.uniform_locations.get(name).unwrap().as_ref()
+    }
+}
+
+pub trait Shaderize {
+    fn create_shader(gl: &WebGl2Context, shaders: &mut HashMap<&'static str, Shader>) {
+        let key = Self::name();
+        if shaders.contains_key(key) {
+            return;
+        }
+
+        let shader = Shader::new(&gl,
+            &Self::vertex_shader_content(),
+            &Self::fragment_shader_content(),
+            Self::shader_uniforms()
+        );
+
+        shaders.insert(key, shader);
+    }
+    fn name() -> &'static str;
+    fn vertex_shader_content() -> String;
+    fn fragment_shader_content() -> String;
+
+    fn shader_uniforms() -> Vec<String> {
+        vec![
+            // General uniforms
+            String::from("current_time"),
+            String::from("model"),
+            // Viewport uniforms
+            String::from("ndc_to_clip"),
+            String::from("clip_zoom_factor"),
+            String::from("aspect"),
+            String::from("last_zoom_action"),
+            // Heatmap-specific uniforms
+            String::from("texture_fbo"),
+            String::from("colormap"),
+            String::from("alpha"),
+        ]
     }
 }

@@ -91,9 +91,14 @@
                 <p>Catalog:</p>
                 <div class="container">
                     <label for="catalog-alpha">Opacity:</label>
-                    <input id="catalog-alpha" type="range" value="0.2" min="0" max="1.0" step="any"></input>
+                    <input id="catalog-alpha" type="range" value="0.2" min="0" max="1.0" step="any"></input><br />
                     <label for="kernel-strength">Strength kernel:</label>
-                    <input id="kernel-strength" type="range" value="1.0" min="0" max="1.0" step="any"></input>
+                    <input id="kernel-strength" type="range" value="1.0" min="0" max="1.0" step="any"></input><br />
+                    <label for="colormap-select">Colormap:</label>
+                    <select name="colormap" id="colormap-select">
+                        <option value="BluePastelRed" selected>BluePastelRed</option>
+                        <option value="IDL_CB_BrBG">IDL_CB_BrBG</option>
+                    </select>
                 </div>
 
                 <label for="enable-inertia">Mouse inertia:</label>

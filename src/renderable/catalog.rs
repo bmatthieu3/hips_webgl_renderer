@@ -7,9 +7,6 @@ use crate::field_of_view::HEALPixCell;
 use crate::renderable::buffers::vertex_array_object::VertexArrayObject;
 
 use std::collections::HashMap;
-trait ColorMap {
-    fn load_shader(shaders: &mut HashMap<&'static str, Shader>);
-}
 
 pub struct Catalog {
     num_instances: usize,
@@ -40,6 +37,8 @@ pub struct Catalog {
     sources: BinaryHeap<Source>,
 
     vertex_array_object: VertexArrayObject,
+
+    colormap_shader_key: &'static str,
 }
 
 use cgmath::Rad;
@@ -109,6 +108,8 @@ impl From<&[f32]> for Source {
 }
 
 use web_sys::console;
+use crate::renderable::colormap::BluePastelRed;
+use crate::shader::Shaderize;
 impl Catalog {
     pub fn new(gl: &WebGl2Context, sources: Vec<Source>) -> Catalog {
         // Build the quadtree from the list of sources
@@ -217,6 +218,8 @@ impl Catalog {
         let sources = BinaryHeap::with_capacity(MAX_SOURCES);
         let vertex_array_object = VertexArrayObject::new(gl);
 
+        let colormap_shader_key = BluePastelRed::name();
+
         Catalog {
             num_instances, 
 
@@ -244,8 +247,14 @@ impl Catalog {
 
             sources,
 
-            vertex_array_object
+            vertex_array_object,
+
+            colormap_shader_key,
         }
+    }
+
+    pub fn set_colormap<K: Shaderize>(&mut self, gl: &WebGl2Context) {
+        self.colormap_shader_key = K::name();
     }
 
     pub fn set_alpha(&mut self, alpha: f32) {
@@ -489,7 +498,7 @@ impl Mesh for Catalog {
             let window_size = viewport.get_window_size();
             gl.viewport(0, 0, window_size.x as i32, window_size.y as i32);
 
-            let shader = &shaders["heatmap"];
+            let shader = &shaders[self.colormap_shader_key];
             shader.bind(gl);
 
             self.vao_screen.bind_ref();

@@ -182,55 +182,6 @@ impl From<&Tile> for TilePerPixelGPU {
     }
 }
 
-struct TileSmallFOVGPU {
-    cell: HEALPixCell,
-
-    pub texture_idx: i32,
-
-    pub time_request: f32,
-    pub time_received: f32,
-}
-
-impl PartialEq for TileSmallFOVGPU {
-    fn eq(&self, other: &Self) -> bool {
-        self.cell == other.cell
-    }
-}
-
-impl Eq for TileSmallFOVGPU {}
-
-impl PartialOrd for TileSmallFOVGPU {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        // Order by UNIQ notation
-        self.cell.partial_cmp(&other.cell)
-    }
-}
-
-impl Ord for TileSmallFOVGPU {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(&other).unwrap()
-    }
-}
-
-impl From<Tile> for TileSmallFOVGPU {
-    fn from(tile: Tile) -> Self {
-        let cell = tile.cell;
-
-        let texture_idx = tile.texture_idx as i32;
-
-        let time_request = tile.time_request;
-        let time_received = tile.time_received.unwrap();
-
-        TileSmallFOVGPU {
-            cell,
-
-            texture_idx,
-
-            time_request,
-            time_received,
-        }
-    }
-}
 
 #[derive(Clone)]
 #[derive(Debug)]

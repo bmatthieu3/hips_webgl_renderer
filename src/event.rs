@@ -6,6 +6,7 @@ use cgmath::Rad;
 use crate::renderable::Renderable;
 use crate::renderable::hips_sphere::HiPSSphere;
 use crate::renderable::grid::ProjetedGrid;
+
 use crate::renderable::catalog::Catalog;
 
 pub struct Move {

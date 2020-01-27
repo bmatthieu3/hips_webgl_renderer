@@ -7,6 +7,7 @@ pub mod hips_sphere;
 pub mod projection;
 pub mod grid;
 pub mod catalog;
+pub mod colormap;
 
 trait VertexBufferObject {
     fn bind(&self);

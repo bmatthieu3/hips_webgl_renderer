@@ -63,6 +63,11 @@ use crate::event::Move;
 
 use crate::projection::Projection;
 
+#[macro_use]
+extern crate aladinlite_derive;
+
+use crate::renderable::colormap::*;
+
 struct App<P>
 where P: Projection {
     gl: WebGl2Context,
@@ -104,6 +109,8 @@ fn add_tile_buffer_uniforms(name: &'static str, size: usize, uniforms: &mut Vec<
         uniforms.push(time_request);
     }
 }
+
+use crate::shader::Shaderize;
 
 use cgmath::Vector2;
 impl<P> App<P>
@@ -179,29 +186,6 @@ where P: Projection {
             uniforms_catalog
         );
 
-        // Heatmap shader
-        // uniforms definition
-        let uniforms_heatmap = vec![
-            // General uniforms
-            String::from("current_time"),
-            String::from("model"),
-            // Viewport uniforms
-            String::from("ndc_to_clip"),
-            String::from("clip_zoom_factor"),
-            String::from("aspect"),
-            String::from("last_zoom_action"),
-            // Heatmap-specific uniforms
-            String::from("texture_fbo"),
-            String::from("colormap"),
-            String::from("alpha"),
-        ];
-        let shader_heatmap = Shader::new(&gl,
-            shaders::heatmap_vert::CONTENT,
-            shaders::heatmap::heatmap_frag::CONTENT,
-            uniforms_heatmap
-        );
-        console::log_1(&format!("BB").into());
-
         // HiPS Ortho shader
         // uniforms definition
         let mut uniforms_ortho_hips = vec![
@@ -235,7 +219,10 @@ where P: Projection {
         shaders.insert("hips_sphere", shader_2d_proj);
         shaders.insert("grid", shader_grid);
         shaders.insert("catalog", shader_catalog);
-        shaders.insert("heatmap", shader_heatmap);
+
+        BluePastelRed::create_shader(&gl, &mut shaders);
+        IDL_CB_BrBG::create_shader(&gl, &mut shaders);
+        
         shaders.insert("hips_sphere_small_fov", shader_ortho_hips);
 
         gl.enable(WebGl2RenderingContext::BLEND);
