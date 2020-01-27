@@ -222,6 +222,7 @@ where P: Projection {
 
         BluePastelRed::create_shader(&gl, &mut shaders);
         IDL_CB_BrBG::create_shader(&gl, &mut shaders);
+        IDL_CB_YIGnBu::create_shader(&gl, &mut shaders);
         
         shaders.insert("hips_sphere_small_fov", shader_ortho_hips);
 
@@ -464,6 +465,15 @@ where P: Projection {
         self.catalog.update_mesh(&self.shaders["catalog"], catalog_mesh);
     }
 
+    fn set_colormap(&mut self, colormap: String) {
+        match colormap.as_str() {
+            "BluePastelRed" => self.catalog.mesh_mut().set_colormap::<BluePastelRed>(),
+            "IDL_CB_BrBG" => self.catalog.mesh_mut().set_colormap::<IDL_CB_BrBG>(),
+            "IDL_CB_YIGnBu"=> self.catalog.mesh_mut().set_colormap::<IDL_CB_YIGnBu>(),
+            _ => panic!("{:?} colormap not recognized!", colormap)
+        }
+    }
+
     fn resize_window(&mut self, width: f32, height: f32) {
         self.viewport.resize_window::<P>(width, height);
     }
@@ -560,6 +570,14 @@ impl AppConfig {
             },
             _ => unreachable!()
         }
+    }
+
+    fn set_colormap(&mut self, colormap: String) {
+        match self {
+            AppConfig::Ait(app) => app.set_colormap(colormap),
+            AppConfig::Mol(app) => app.set_colormap(colormap),
+            AppConfig::Ort(app) => app.set_colormap(colormap),
+        };
     }
 
     fn update(&mut self, dt: f32) {
@@ -689,6 +707,13 @@ impl WebClient {
         self.appconfig = self.appconfig.set_projection(&name);
 
         Ok(self)
+    }
+
+    /// Change the current projection of the HiPS
+    pub fn set_colormap(&mut self, name: String) -> Result<(), JsValue> {
+        self.appconfig.set_colormap(name);
+
+        Ok(())
     }
 
     /*/// Enable equatorial grid

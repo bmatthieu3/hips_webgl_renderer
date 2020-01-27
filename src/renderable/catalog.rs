@@ -253,7 +253,7 @@ impl Catalog {
         }
     }
 
-    pub fn set_colormap<K: Shaderize>(&mut self, gl: &WebGl2Context) {
+    pub fn set_colormap<K: Shaderize>(&mut self) {
         self.colormap_shader_key = K::name();
     }
 
@@ -499,6 +499,7 @@ impl Mesh for Catalog {
             gl.viewport(0, 0, window_size.x as i32, window_size.y as i32);
 
             let shader = &shaders[self.colormap_shader_key];
+
             shader.bind(gl);
 
             self.vao_screen.bind_ref();

@@ -64,6 +64,8 @@ window.addEventListener('load', function () {
             let grid_opacity = document.getElementById("grid-alpha");
             let catalog_opacity = document.getElementById("catalog-alpha");
             let kernel_strength = document.getElementById("kernel-strength");
+            let colormap_selector = document.getElementById("colormap-select");
+
             let canvas = document.getElementById("canvas");
             canvas.focus();
 
@@ -161,6 +163,12 @@ window.addEventListener('load', function () {
                 let strength = event.target.value;
 
                 webClient.set_kernel_strength(strength);
+            }, false);
+
+            // Alpha catalog
+            colormap_selector.addEventListener("change", () => {
+                let colormap = colormap_selector.value;
+                webClient.set_colormap(colormap);
             }, false);
 
             // Change HiPS
