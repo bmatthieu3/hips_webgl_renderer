@@ -5,7 +5,8 @@ pub static CONTENT: &'static str = r#"#version 300 es
 
     layout (location = 2) in vec3 center;
     layout (location = 3) in vec2 center_lonlat;
-    layout (location = 4) in float score;
+    layout (location = 4) in float mag;
+    layout (location = 5) in float plx;
 
     uniform float current_time;
     uniform mat4 model;
@@ -46,8 +47,8 @@ pub static CONTENT: &'static str = r#"#version 300 es
 
     void main() {
         vec3 p = vec3(model * vec4(center, 1.0f));
-
-        vec2 pos_clip_space = world2screen_orthographic(p) + offset * (0.02f * clip_zoom_factor);
+        vec2 center_pos_clip_space = world2screen_orthographic(p);
+        vec2 pos_clip_space = center_pos_clip_space + offset * (0.02f * clip_zoom_factor);
         gl_Position = vec4(pos_clip_space / (ndc_to_clip * clip_zoom_factor), 0.f, 1.f);
         //gl_Position = vec4(screen_pos, 0.f, 1.f);
         out_uv = uv;

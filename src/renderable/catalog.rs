@@ -55,12 +55,14 @@ pub struct Source {
     lat: f32,
 
     mag: f32,
+
+    parallax: f32,
 }
 
 impl Eq for Source {}
 
 impl Source {
-    pub fn new(lon: Rad<f32>, lat: Rad<f32>, mag: f32) -> Source {
+    pub fn new(lon: Rad<f32>, lat: Rad<f32>, mag: f32, parallax: f32) -> Source {
         let world_pos = math::radec_to_xyz(lon, lat);
 
         let x = world_pos.x;
@@ -78,7 +80,9 @@ impl Source {
             lon,
             lat,
 
-            mag
+            mag,
+
+            parallax
         }
     }
 }
@@ -102,9 +106,10 @@ impl From<&[f32]> for Source {
     fn from(data: &[f32]) -> Source {
         let lon = Deg(data[0]).into();
         let lat = Deg(data[1]).into();
-        let score = data[2];
+        let mag = data[2];
+        let plx = data[3];
 
-        Source::new(lon, lat, score)
+        Source::new(lon, lat, mag, plx)
     }
 }
 
@@ -314,8 +319,8 @@ impl Mesh for Catalog {
             // Store the cartesian position of the center of the source in the a instanced VBO
             .add_instanced_array_buffer(
                 std::mem::size_of::<Source>(),
-                &[3, 2, 1],
-                &[0 * mem::size_of::<f32>(), 3 * mem::size_of::<f32>(), 5 * mem::size_of::<f32>()],
+                &[3, 2, 1, 1],
+                &[0 * mem::size_of::<f32>(), 3 * mem::size_of::<f32>(), 5 * mem::size_of::<f32>(), 6 * mem::size_of::<f32>()],
                 WebGl2RenderingContext::DYNAMIC_DRAW,
                 BufferData::VecData(self.data.sources.as_ref()),
             )
@@ -393,7 +398,14 @@ impl Mesh for Catalog {
 
         let area_tile = area_clip_zoomed_space_healpix_tile::<P>(viewport, 7);
         let max_num_sources = self.data.get_max_number_sources();
+        // TODO accessor here
+        let min_num_sources = 0;
         let max_source_density = (max_num_sources as f32) / area_tile;
+        let min_source_density = (min_num_sources as f32) / area_tile;
+
+        //let mean_source_density = (min_num_sources as f32) / area_tile;
+
+        //let strength = max_source_density - 
         //console::log_1(&format!("max_source_density: {:?}", max_source_density).into());
 
         self.strength = self.strength_coeff / max_source_density.sqrt();
@@ -407,8 +419,8 @@ impl Mesh for Catalog {
         // Get a vector of sources from a f32 vector
         let sources = { 
             let ptr = sources.as_mut_ptr();
-            let len = sources.len() / 6;
-            let cap = sources.capacity() / 6;
+            let len = sources.len() / 7;
+            let cap = sources.capacity() / 7;
 
             mem::forget(sources);
 
@@ -435,10 +447,10 @@ impl Mesh for Catalog {
         self.num_instances = sources.len();
 
         // Get back a vector of f32 from the vec of Sources for drawing purposes
-        let sources = { 
+        let sources = {
             let ptr = sources.as_mut_ptr();
-            let len = sources.len() * 6;
-            let cap = sources.capacity() * 6;
+            let len = sources.len() * 7;
+            let cap = sources.capacity() * 7;
 
             mem::forget(sources);
 
@@ -551,15 +563,18 @@ fn area_clip_zoomed_space_healpix_tile<P: Projection>(viewport: &ViewPort, depth
     let half_hpx_ang = hpx_cell_ang * 2_f32.sqrt() / 2_f32;
 
     // Vertex in the WCS of the FOV
-    let v0 = math::radec_to_xyz(half_hpx_ang, Rad(0_f32));
-    let v1 = math::radec_to_xyz(Rad(0_f32), half_hpx_ang);
+    let v0 = math::radec_to_xyz(half_hpx_ang, half_hpx_ang);
+    //let v1 = math::radec_to_xyz(-half_hpx_ang, -half_hpx_ang);
+    //let v0 = math::radec_to_xyz(half_hpx_ang, Rad(0_f32));
+    //let v1 = math::radec_to_xyz(Rad(0_f32), half_hpx_ang);
 
     // Project this vertex into the screen
     let clip_zoom_factor = viewport.get_clip_zoom_factor();
     let p0 = P::world_to_clip_space(v0) / clip_zoom_factor;
-    let p1 = P::world_to_clip_space(v1) / clip_zoom_factor;
+    //let p1 = P::world_to_clip_space(v1) / clip_zoom_factor;
 
-    let area_ndc_hpx_tile = p0.x * p0.x + p1.y * p1.y;
+    //let area_ndc_hpx_tile = p0.x * p0.x + p1.y * p1.y;
+    let area_ndc_hpx_tile = p0.x.abs() * p0.y.abs() * 4_f32;
 
     area_ndc_hpx_tile
 }
@@ -692,5 +707,9 @@ impl Storage {
 
     fn get_max_number_sources(&self) -> usize {
         self.max_num_sources
+    }
+
+    fn num_sources(&self) -> usize {
+        self.sources.len()
     }
 }

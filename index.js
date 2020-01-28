@@ -2,7 +2,12 @@ const autoComplete = require('./js/auto-complete.js');
 
 window.addEventListener('load', function () {
     import('./pkg/webgl')
-        .then((webgl) => {
+        .then(async (webgl) => {
+            // Start our Rust application. You can find `WebClient` in `src/lib.rs`
+            const webClient = new webgl.WebClient();
+            retrieveCatalog('J/A+A/566/A43/table2', colnames=['RAJ2000', 'DEJ2000', 'Bmag', 'Per'])
+                .then(sources => webClient.add_catalog(sources));
+
             let hipsesArray = [];
             let hipsesMap = new Map();
             new autoComplete({
@@ -24,6 +29,13 @@ window.addEventListener('load', function () {
                     var re = new RegExp("(" + search.split(' ').join('|') + ")", "gi");
                     return '<div class="autocomplete-suggestion" data-val="' + item + '">' + item.replace(re, "<b>$1</b>") + '</div>';
                 },
+                onSelect: function(e, term, item){
+                    let hips_id = term;
+    
+                    let hips_url = hipsesMap[hips_id].hips_service_url;
+                    let max_depth = hipsesMap[hips_id].max_depth;
+                    webClient.change_hips(hips_url, max_depth);
+                }
             });
 
             const url = 'https://alasky.u-strasbg.fr/MocServer/query?hips_service_url*=*alasky*&&dataproduct_type=image&&hips_tile_format=*jpeg*&get=record&fmt=json';
@@ -51,14 +63,75 @@ window.addEventListener('load', function () {
             
             // Load a source catalog from vizier
             // Do the Ajax query
+            let catalogArray = [];
+            let catalogMap = new Map();
+            new autoComplete({
+                selector: '#catalog-selector',
+                minChars: 2,
+                source: function(term, suggest) {
+                    term = term.toLowerCase();
+                    var choices = catalogArray;
+                    var matches = [];
+                    for (i=0; i<choices.length; i++) {
+                        if (choices[i].toLowerCase().indexOf(term)>=0) {
+                            matches.push(choices[i]);
+                        }
+                    }
+                    suggest(matches);
+                },
+                renderItem: function (item, search) {
+                    search = search.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+                    var re = new RegExp("(" + search.split(' ').join('|') + ")", "gi");
+                    return '<div class="autocomplete-suggestion" data-val="' + item + '">' + item.replace(re, "<b>$1</b>") + '</div>';
+                },
+                onSelect: async function(e, term, item){
+                    let cat_id = term;
+    
+                    let parallax_column_name = await getTableColumnName(cat_id, "pos.parallax");
+                    console.log('parallax column name: ', parallax_column_name);
+                    let phot_mag_column_name = await getTableColumnName(cat_id, "phot.mag");
+                    console.log('phot mag column name: ', phot_mag_column_name);
+
+                    let pos_ra_column_name = await getTableColumnName(cat_id, "pos.eq.ra");
+                    let pos_dec_column_name = await getTableColumnName(cat_id, "pos.eq.dec");
+
+                    let table_obs_id = cat_id.substring(4);
+                    retrieveCatalog(table_obs_id, [pos_ra_column_name, pos_dec_column_name, phot_mag_column_name, parallax_column_name])
+                        .then(sources => {
+                            console.log('sources: ', sources);
+                            webClient.add_catalog(sources);
+                        });
+
+                }
+            });
+            const url_catalogs = 'https://alasky.u-strasbg.fr/MocServer/query?expr=dataproduct_type%3Dcatalog%26%26nb_rows<%3D500000%26%26nb_rows>%3D50000%26%26data_ucd%3Dpos.parallax*%26%26data_ucd%3Dphot.mag*&get=record&fmt=json';
+            // Create our request constructor with all the parameters we need
+            var request = {
+                method: 'GET',
+                headers: new Headers(),
+                mode: 'cors',
+                cache: 'default'
+            };
+            fetch(url_catalogs, request)
+                .then(response => response.json())
+                .then((catalogs) => {
+                    for (var k = 0; k < catalogs.length; k++) {
+                        var cat_id = catalogs[k].ID;
+
+                        catalogMap[cat_id] = {
+                            'obs_id': catalogs[k].obs_id,
+                        };
+                        catalogArray.push(cat_id);
+                    }
+                    console.log('catalogs found!: ', catalogArray);
+                    console.log('num catalogs found!: ', catalogArray.length);
+                });
 
             // Add the UI event listeners
 
             let select_projection = document.getElementById("proj-select");
             let equatorial_grid = document.getElementById("enable-grid");
             let inertia = document.getElementById("enable-inertia");
-            let hips_selector = document.getElementById("hips-selector");
-            let hips_selector_validate = document.getElementById("hips-selector-validate");
             let fps_counter = document.getElementById("fps-counter");
             let grid_color_picker = document.getElementById("grid-color");
             let grid_opacity = document.getElementById("grid-alpha");
@@ -67,11 +140,7 @@ window.addEventListener('load', function () {
             let colormap_selector = document.getElementById("colormap-select");
 
             let canvas = document.getElementById("canvas");
-            canvas.focus();
-
-            // Start our Rust application. You can find `WebClient` in `src/lib.rs`
-            const webClient = new webgl.WebClient();
-            retrieveCatalogSources(webClient);
+            //canvas.focus();
 
             let time = Date.now();
             let time_last_fps = time;
@@ -169,16 +238,6 @@ window.addEventListener('load', function () {
             colormap_selector.addEventListener("change", () => {
                 let colormap = colormap_selector.value;
                 webClient.set_colormap(colormap);
-            }, false);
-
-            // Change HiPS
-            hips_selector_validate.addEventListener("click", () => {
-                let hips_id = hips_selector.value;
-                console.log(hips_id, hipsesMap);
-
-                let hips_url = hipsesMap[hips_id].hips_service_url;
-                let max_depth = hipsesMap[hips_id].max_depth;
-                webClient.change_hips(hips_url, max_depth);
             }, false);
             
             // Touchpad event
@@ -324,8 +383,37 @@ function touchpad_events(webClient) {
     })
 }
 
-function retrieveCatalogSources(webClient) {
-    let url = 'http://tapvizier.u-strasbg.fr/TAPVizieR/tap/sync?phase=RUN&lang=adql&format=json&request=doQuery&query=SELECT%22J%2FA%2BA%2F566%2FA43%2Ftable2%22.RAJ2000%2C%20%20%22J%2FA%2BA%2F566%2FA43%2Ftable2%22.DEJ2000%2C%20%22J%2FA%2BA%2F566%2FA43%2Ftable2%22.Bmag%20FROM%20%22J%2FA%2BA%2F566%2FA43%2Ftable2%22%20ORDER%20BY%20Bmag';
+function getTableColumnName(table_name, ucd) {
+    let table_obs_id = table_name.substring(4);
+    let url = 'http://tapvizier.u-strasbg.fr/TAPVizieR/tap/sync?phase=RUN&lang=adql&format=json&request=doQuery&query=SELECT%20TOP%201%20table_name%2C%20column_name%2C%20ucd%20FROM%20TAP_SCHEMA.columns%20WHERE%20table_name%3D%27' + encodeURIComponent(table_obs_id) + '%27%20AND%20ucd%20LIKE%20%27' + encodeURIComponent(ucd) + '%25%27';
+    var request = {
+        method: 'GET',
+        headers: new Headers(),
+        mode: 'cors',
+        cache: 'default'
+    };
+    return fetch(url, request)
+        .then(response => response.json())
+        .then(table => {
+            // Return the column name of the first row corresponding to ucd
+            console.log(table_name, ucd, ": here are the data", table.data);
+            return table.data[0][1];
+        });
+}
+
+function retrieveCatalog(table_obs_id, colnames, max_rows="*") {
+    let cols = [];
+    colnames.forEach(col => {
+        console.log(col);
+        cols.push('"' + table_obs_id + '"."' + encodeURIComponent(col) + '"');
+    });
+
+    let cols_query = cols.join(", ");
+
+    let sql_query = 'SELECT ' + cols_query + ' FROM "' + table_obs_id + '"';
+    console.log(sql_query);
+    
+    let url = 'http://tapvizier.u-strasbg.fr/TAPVizieR/tap/sync?phase=RUN&lang=adql&format=json&request=doQuery&query=' + encodeURIComponent(sql_query);
 
     var request = {
         method: 'GET',
@@ -333,10 +421,10 @@ function retrieveCatalogSources(webClient) {
         mode: 'cors',
         cache: 'default'
     };
-    fetch(url, request)
+    return fetch(url, request)
         .then(response => response.json())
         .then((votable) => {
             let sources = votable.data;
-            webClient.add_catalog(sources);
+            return sources;
         });
 }

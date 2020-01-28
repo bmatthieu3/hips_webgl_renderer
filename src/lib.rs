@@ -642,13 +642,21 @@ impl AppConfig {
     }
 
     pub fn add_catalog(&mut self, data: &JsValue) {
-        let data: Vec<[f32; 3]> = data.into_serde().unwrap();
+        let array: &js_sys::Array = data
+            .dyn_ref().unwrap();
+        let mut sources: Vec<Source> = vec![];
 
-        let sources: Vec<Source> = data.into_iter()
-            .map(|ref source| {
-                (source as &[f32]).into()
-            })
-            .collect::<Vec<_>>();
+        // Deserialize row by row. Rows that cannot be
+        // deserialized are removed!
+        for source in array.iter() {
+            let source = source.into_serde::<[f32; 4]>().ok();
+
+            if let Some(ref source) = source {
+                sources.push((source as &[f32]).into());
+            } else {
+                console::log_1(&format!("invalid row").into());
+            }
+        }
 
         match self {
             AppConfig::Ait(app) => app.add_catalog(sources),

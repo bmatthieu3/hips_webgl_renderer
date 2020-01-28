@@ -82,7 +82,10 @@ use crate::shader::Shaderize;
 
         float o = smoothstep(0.f, 0.1f, opacity);
 
-        //color = texture(colormap, vec2(opacity, 0.5f));
+        /*if (opacity < 0.01f) {
+            discard;
+        }*/
+
         color = colormap_f(opacity);
         color.a = alpha * o;
     }
