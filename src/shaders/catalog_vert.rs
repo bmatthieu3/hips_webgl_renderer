@@ -17,6 +17,11 @@ pub static CONTENT: &'static str = r#"#version 300 es
 
     uniform float strength;
 
+    uniform float min_plx;
+    const float min_size_source = 0.02f;
+    uniform float max_plx;
+    const float max_size_source = 0.04f;
+
     const float PI = 3.1415926535897932384626433832795f;
 
     out vec2 out_uv;
@@ -48,7 +53,11 @@ pub static CONTENT: &'static str = r#"#version 300 es
     void main() {
         vec3 p = vec3(model * vec4(center, 1.0f));
         vec2 center_pos_clip_space = world2screen_orthographic(p);
-        vec2 pos_clip_space = center_pos_clip_space + offset * (0.02f * clip_zoom_factor);
+
+        float a = clamp((plx - min_plx)/(max_plx - min_plx), 0.f, 1.f);
+        float size_source = mix(min_size_source, max_size_source, a);
+
+        vec2 pos_clip_space = center_pos_clip_space + offset * (size_source * clip_zoom_factor);
         gl_Position = vec4(pos_clip_space / (ndc_to_clip * clip_zoom_factor), 0.f, 1.f);
         //gl_Position = vec4(screen_pos, 0.f, 1.f);
         out_uv = uv;

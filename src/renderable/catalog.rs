@@ -40,6 +40,10 @@ pub struct Catalog {
     vertex_array_object: VertexArrayObject,
 
     colormap_shader_key: &'static str,
+
+    // min and max plx
+    min_plx: f32,
+    max_plx: f32,
 }
 
 use cgmath::Rad;
@@ -123,6 +127,19 @@ impl Catalog {
         //let quadtree = QuadTree::new(sources);
         //console::log_1(&format!("Quadtree BUILT").into());
         let num_instances = sources.len();
+        // Compute the min and max parallax
+        let mut max_plx = std::f32::MIN;
+        let mut min_plx = std::f32::MAX;
+
+        for source in &sources {
+            if max_plx < source.parallax {
+                max_plx = source.parallax;
+            }
+            if min_plx > source.parallax {
+                min_plx = source.parallax;
+            }
+        }
+
         let data = Storage::new(sources);
 
         /*let num_instances_max = MAX_SOURCES * 64;
@@ -258,6 +275,10 @@ impl Catalog {
             vertex_array_object,
 
             colormap_shader_key,
+
+            // min and max parallax
+            min_plx,
+            max_plx,
         }
     }
 
@@ -496,6 +517,11 @@ impl Mesh for Catalog {
             // Send the max strength of one kernel
             let location_strength = shader.get_uniform_location("strength");
             gl.uniform1f(location_strength, self.strength);
+            // Send the min and max plx
+            let location_plx_max = shader.get_uniform_location("max_plx");
+            gl.uniform1f(location_plx_max, self.max_plx);
+            let location_plx_min = shader.get_uniform_location("min_plx");
+            gl.uniform1f(location_plx_min, self.min_plx);
 
             // Send model matrix
             let model_mat_location = shader.get_uniform_location("model");

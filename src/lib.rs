@@ -179,6 +179,8 @@ where P: Projection {
             // Catalog-specific uniforms
             String::from("kernel_texture"),
             String::from("strength"),
+            String::from("max_plx"),
+            String::from("min_plx"),
         ];
         let shader_catalog = Shader::new(&gl,
             shaders::catalog_vert::CONTENT,
@@ -641,9 +643,9 @@ impl AppConfig {
         }
     }
 
-    pub fn add_catalog(&mut self, data: &JsValue) {
-        let array: &js_sys::Array = data
-            .dyn_ref().unwrap();
+    pub fn add_catalog(&mut self, data: JsValue) {
+        let array: js_sys::Array = data
+            .dyn_into().unwrap();
         let mut sources: Vec<Source> = vec![];
 
         // Deserialize row by row. Rows that cannot be
@@ -839,7 +841,7 @@ impl WebClient {
     }
 
     /// Add new catalog
-    pub fn add_catalog(&mut self, data: &JsValue) -> Result<(), JsValue> {
+    pub fn add_catalog(&mut self, data: JsValue) -> Result<(), JsValue> {
         self.appconfig.add_catalog(data);
 
         Ok(())
