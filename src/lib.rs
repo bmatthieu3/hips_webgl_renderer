@@ -181,6 +181,8 @@ where P: Projection {
             String::from("strength"),
             String::from("max_plx"),
             String::from("min_plx"),
+            String::from("min_size_source"),
+            String::from("max_size_source"),
         ];
         let shader_catalog = Shader::new(&gl,
             shaders::catalog_vert::CONTENT,
@@ -207,7 +209,7 @@ where P: Projection {
             String::from("textures[1]"),
         ];
 
-        //add_tile_buffer_uniforms("textures", 128, &mut uniforms_ortho_hips);
+        add_tile_buffer_uniforms("textures", 128, &mut uniforms_ortho_hips);
         console::log_1(&format!("CC").into());
 
         let shader_ortho_hips = Shader::new(&gl,
@@ -484,6 +486,11 @@ where P: Projection {
         self.catalog.mesh_mut().set_kernel_strength::<P>(strength, &self.viewport);
     }
 
+    fn set_range_source_size(&mut self, source_size: std::ops::Range<f32>) {
+        self.catalog.mesh_mut().set_min_size_source(source_size.start);
+        self.catalog.mesh_mut().set_max_size_source(source_size.end);
+    }
+
     fn resize_window(&mut self, width: f32, height: f32) {
         self.viewport.resize_window::<P>(width, height);
     }
@@ -698,6 +705,14 @@ impl AppConfig {
             AppConfig::Ort(app) => app.set_heatmap_opacity(opacity),
         }
     }
+
+    pub fn set_range_source_size(&mut self, source_size_range: std::ops::Range<f32>) {
+        match self {
+            AppConfig::Ait(app) => app.set_range_source_size(source_size_range),
+            AppConfig::Mol(app) => app.set_range_source_size(source_size_range),
+            AppConfig::Ort(app) => app.set_range_source_size(source_size_range),
+        }
+    }
 }
 
 #[wasm_bindgen]
@@ -864,6 +879,12 @@ impl WebClient {
     /// Set the heatmap global opacity
     pub fn set_heatmap_opacity(&mut self, opacity: f32) -> Result<(), JsValue> {
         self.appconfig.set_heatmap_opacity(opacity);
+
+        Ok(())
+    }
+
+    pub fn set_range_source_size(&mut self, min_size_source: f32, max_size_source: f32) -> Result<(), JsValue> {
+        self.appconfig.set_range_source_size(min_size_source..max_size_source);
 
         Ok(())
     }

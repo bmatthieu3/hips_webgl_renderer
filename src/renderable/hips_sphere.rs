@@ -852,7 +852,7 @@ impl Mesh for HiPSSphere {
                 }
             }
 
-            console::log_1(&format!("len33 {:?}", vertices.len()).into());
+            //console::log_1(&format!("len33 {:?}", vertices.len()).into());
             // Update the buffers
             self.fov_rendering_mode.vertex_array_object.bind()
                 .update_array(0, BufferData::VecData(&vertices));

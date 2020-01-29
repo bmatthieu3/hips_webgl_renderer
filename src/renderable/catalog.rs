@@ -44,6 +44,10 @@ pub struct Catalog {
     // min and max plx
     min_plx: f32,
     max_plx: f32,
+
+    // min and max size source
+    min_size_source: f32,
+    max_size_source: f32,
 }
 
 use cgmath::Rad;
@@ -139,7 +143,7 @@ impl Catalog {
                 min_plx = source.parallax;
             }
         }
-
+        console::log_1(&format!("MIN/MAX plx: {:?} {:?}", min_plx, max_plx).into());
         let data = Storage::new(sources);
 
         /*let num_instances_max = MAX_SOURCES * 64;
@@ -244,6 +248,9 @@ impl Catalog {
         let colormap_shader_key = BluePastelRed::name();
         let strength_coeff = 20_f32;
 
+        let min_size_source = 0.02_f32;
+        let max_size_source = 0.02_f32;
+
         Catalog {
             num_instances, 
 
@@ -279,7 +286,17 @@ impl Catalog {
             // min and max parallax
             min_plx,
             max_plx,
+
+            min_size_source,
+            max_size_source,
         }
+    }
+
+    pub fn set_max_size_source(&mut self, max_size_source: f32) {
+        self.max_size_source = max_size_source;
+    }
+    pub fn set_min_size_source(&mut self, min_size_source: f32) {
+        self.min_size_source = min_size_source;
     }
 
     pub fn set_colormap<K: Shaderize>(&mut self) {
@@ -522,6 +539,11 @@ impl Mesh for Catalog {
             gl.uniform1f(location_plx_max, self.max_plx);
             let location_plx_min = shader.get_uniform_location("min_plx");
             gl.uniform1f(location_plx_min, self.min_plx);
+            // Send min/max size source
+            let location_max_size_source = shader.get_uniform_location("max_size_source");
+            gl.uniform1f(location_max_size_source, self.max_size_source);
+            let location_min_size_source = shader.get_uniform_location("min_size_source");
+            gl.uniform1f(location_min_size_source, self.min_size_source);
 
             // Send model matrix
             let model_mat_location = shader.get_uniform_location("model");
@@ -586,7 +608,7 @@ fn area_clip_zoomed_space_healpix_tile<P: Projection>(viewport: &ViewPort, depth
     let num_hpx_cells = 12_f32 * 4_f32.powf(depth as f32);
     let hpx_cell_ang = Rad((sphere_area / num_hpx_cells).sqrt());
 
-    let half_hpx_ang = hpx_cell_ang * 2_f32.sqrt() / 2_f32;
+    let half_hpx_ang = hpx_cell_ang / 2_f32;
 
     // Vertex in the WCS of the FOV
     let v0 = math::radec_to_xyz(half_hpx_ang, half_hpx_ang);
@@ -616,6 +638,7 @@ struct Storage {
     healpix_idx: Box<[Option<Range<u32>>]>, // depth 7
 
     max_num_sources: usize,
+    min_num_sources: usize,
 }
 /*
 #[derive(Clone, Copy)]
@@ -659,15 +682,18 @@ impl Storage {
 
         let mut idx_source = 0;
         let mut max_num_sources = 0;
+        let mut min_num_sources = std::u32::MAX;
         for i in 0..healpix_idx.len() {
-            if let Some(ref healpix_idx) = healpix_idx[i] {
-                let num_sources = healpix_idx.end - healpix_idx.start;
-                max_num_sources = std::cmp::max(max_num_sources, num_sources);
-
+            let num_sources = if let Some(ref healpix_idx) = healpix_idx[i] {
                 idx_source = healpix_idx.end;
+                healpix_idx.end - healpix_idx.start
             } else {
                 healpix_idx[i] = Some(idx_source..idx_source);
-            }
+                0
+            };
+
+            max_num_sources = std::cmp::max(max_num_sources, num_sources);
+            min_num_sources = std::cmp::min(min_num_sources, num_sources);
         }
 
         let sources = {            
@@ -682,12 +708,14 @@ impl Storage {
 
         let healpix_idx = healpix_idx.into_boxed_slice();
         let max_num_sources = max_num_sources as usize;
+        let min_num_sources = min_num_sources as usize;
         Storage {
             sources,
 
             healpix_idx,
 
             max_num_sources,
+            min_num_sources,
         }
     }
 
@@ -733,6 +761,10 @@ impl Storage {
 
     fn get_max_number_sources(&self) -> usize {
         self.max_num_sources
+    }
+    
+    fn get_min_number_sources(&self) -> usize {
+        self.min_num_sources
     }
 
     fn num_sources(&self) -> usize {

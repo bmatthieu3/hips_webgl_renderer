@@ -18,9 +18,9 @@ pub static CONTENT: &'static str = r#"#version 300 es
     uniform float strength;
 
     uniform float min_plx;
-    const float min_size_source = 0.02f;
+    uniform float min_size_source;
     uniform float max_plx;
-    const float max_size_source = 0.04f;
+    uniform float max_size_source;
 
     const float PI = 3.1415926535897932384626433832795f;
 

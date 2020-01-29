@@ -241,6 +241,17 @@ impl FieldOfView {
         self.deproj_field_of_view::<P>();
     }
 
+    pub fn area_clip_zoomed_space(&self) -> f32 {
+        let pos_normalized_device = Vector2::new(1_f32, 1_f32);
+
+        let pos_clip_space = Vector2::new(
+            pos_normalized_device.x * self.ndc_to_clip.x * self.clip_zoom_factor,
+            pos_normalized_device.y * self.ndc_to_clip.y * self.clip_zoom_factor,
+        );
+
+        pos_clip_space.x.abs() * pos_clip_space.y.abs() * 4_f32
+    }
+
     fn deproj_field_of_view<P: Projection>(&mut self) {
         // Deproject the FOV from ndc to the world space
         let mut vertices_world_space = [Vector4::new(0_f32, 0_f32, 0_f32, 0_f32); NUM_VERTICES];

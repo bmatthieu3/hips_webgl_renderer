@@ -47,6 +47,7 @@
 
             overflow-y: scroll;
             scrollbar-width: thin;
+            overflow: hidden; /* Hide scrollbars */
         }
 
         p {
@@ -67,6 +68,17 @@
             padding: 5px 0px 5px 0px;
         }
 
+        #slider-handles {
+            width: 100%;
+            margin: 20px 0px 20px 0px;
+        }
+        .noUi-tooltip {
+            display: none;
+        }
+        .noUi-active .noUi-tooltip {
+            display: block;
+        }
+    /*
         .aladin-logo-large {
             position: relative;
             top: 100px;
@@ -79,8 +91,12 @@
             background-repeat: no-repeat;
             z-index: -1;
         }
+    */
 		</style>
         <link rel="stylesheet" href="./css/auto-complete.css">
+        <link href='https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/14.0.3/nouislider.min.css' rel="stylesheet">
+        <script src='https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/14.0.3/nouislider.min.js'></script>
+
 	</head>
 	<body>
 		<div class="webgl_view">
@@ -122,6 +138,9 @@
                     <input id="catalog-alpha" type="range" value="0.2" min="0" max="1.0" step="any"></input><br />
                     <label for="kernel-strength">Strength kernel:</label>
                     <input id="kernel-strength" type="range" value="20.0" min="0" max="100.0" step="any"></input><br />
+                    <label for="slider-handles">Size source (scaled by the plx)</label>
+                    <div id="slider-handles"></div>
+
                     <label for="colormap-select">Colormap:</label>
                     <select name="colormap" id="colormap-select">
                         <option value="BluePastelRed" selected>BluePastelRed</option>

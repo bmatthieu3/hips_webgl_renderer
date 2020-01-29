@@ -1,4 +1,5 @@
 const autoComplete = require('./js/auto-complete.js');
+var noUiSlider = require('nouislider');
 
 window.addEventListener('load', function () {
     import('./pkg/webgl')
@@ -126,6 +127,22 @@ window.addEventListener('load', function () {
                     console.log('catalogs found!: ', catalogArray);
                     console.log('num catalogs found!: ', catalogArray.length);
                 });
+
+            // Init the noUI range slider
+            let sizeSourceSlider = document.getElementById('slider-handles');
+
+            noUiSlider.create(sizeSourceSlider, {
+                start: [0.02, 0.02],
+                connect: true,
+                range: {
+                    'min': 0.01,
+                    'max': 0.06
+                },
+                tooltips: [true, true],
+            });
+            sizeSourceSlider.noUiSlider.on('update', function (values) {
+                webClient.set_range_source_size(values[0], values[1]);
+            });
 
             // Add the UI event listeners
 

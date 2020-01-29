@@ -35,6 +35,10 @@ pub fn ndc_to_screen_space(pos_normalized_device: Vector2<f32>, viewport: &ViewP
 pub fn screen_to_clip_space(pos_screen_space: Vector2<f32>, viewport: &ViewPort) -> Vector2<f32> {
     let pos_normalized_device = screen_to_ndc_space(pos_screen_space, viewport);
 
+    ndc_to_clip_space(pos_normalized_device, viewport)
+}
+
+pub fn ndc_to_clip_space(pos_normalized_device: Vector2<f32>, viewport: &ViewPort) -> Vector2<f32> {
     let ndc_to_clip = viewport.get_ndc_to_clip();
     let clip_zoom_factor = viewport.get_clip_zoom_factor();
 

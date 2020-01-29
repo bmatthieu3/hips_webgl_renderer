@@ -497,7 +497,7 @@ impl BufferTiles {
     }
 
     fn send_texture(&self, shader: &Shader) {
-        console::log_1(&format!("get uniform textures").into());
+        //console::log_1(&format!("get uniform textures").into());
 
         for (i, texture) in self.texture_stack.iter().enumerate() {
             let mut location_tex_name = String::from("textures");
@@ -518,7 +518,7 @@ impl BufferTiles {
 
     pub fn send_to_shader(&self, shader: &Shader) {
         self.send_texture(shader);
-        /*let tiles = self.uniq_ordered_tiles();
+        let tiles = self.uniq_ordered_tiles();
         for (i, tile) in tiles.iter().enumerate() {
             let mut name = String::from("textures");
             name += "_tiles";
@@ -536,7 +536,7 @@ impl BufferTiles {
 
             let location_time_request = shader.get_uniform_location(&(name + "time_request"));
             self.gl.uniform1f(location_time_request, tile.time_request);
-        }*/
+        }
     }
 
     pub fn len(&self) -> usize {
