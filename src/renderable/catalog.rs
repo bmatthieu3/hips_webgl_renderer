@@ -612,9 +612,6 @@ fn area_clip_zoomed_space_healpix_tile<P: Projection>(viewport: &ViewPort, depth
 
     // Vertex in the WCS of the FOV
     let v0 = math::radec_to_xyz(half_hpx_ang, half_hpx_ang);
-    //let v1 = math::radec_to_xyz(-half_hpx_ang, -half_hpx_ang);
-    //let v0 = math::radec_to_xyz(half_hpx_ang, Rad(0_f32));
-    //let v1 = math::radec_to_xyz(Rad(0_f32), half_hpx_ang);
 
     // Project this vertex into the screen
     let clip_zoom_factor = viewport.get_clip_zoom_factor();

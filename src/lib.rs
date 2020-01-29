@@ -227,6 +227,9 @@ where P: Projection {
         BluePastelRed::create_shader(&gl, &mut shaders);
         IDL_CB_BrBG::create_shader(&gl, &mut shaders);
         IDL_CB_YIGnBu::create_shader(&gl, &mut shaders);
+        IDL_CB_GnBu::create_shader(&gl, &mut shaders);
+        Red_Temperature::create_shader(&gl, &mut shaders);
+        Black_White_Linear::create_shader(&gl, &mut shaders);
         
         shaders.insert("hips_sphere_small_fov", shader_ortho_hips);
 
@@ -473,7 +476,10 @@ where P: Projection {
         match colormap.as_str() {
             "BluePastelRed" => self.catalog.mesh_mut().set_colormap::<BluePastelRed>(),
             "IDL_CB_BrBG" => self.catalog.mesh_mut().set_colormap::<IDL_CB_BrBG>(),
-            "IDL_CB_YIGnBu"=> self.catalog.mesh_mut().set_colormap::<IDL_CB_YIGnBu>(),
+            "IDL_CB_YIGnBu" => self.catalog.mesh_mut().set_colormap::<IDL_CB_YIGnBu>(),
+            "IDL_CB_GnBu" => self.catalog.mesh_mut().set_colormap::<IDL_CB_GnBu>(),
+            "Red_Temperature" => self.catalog.mesh_mut().set_colormap::<Red_Temperature>(),
+            "Black_White_Linear" => self.catalog.mesh_mut().set_colormap::<Black_White_Linear>(),
             _ => panic!("{:?} colormap not recognized!", colormap)
         }
     }
