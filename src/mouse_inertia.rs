@@ -17,6 +17,7 @@ use crate::event::Move;
 use crate::utils;
 use web_sys::console;
 const DURATION: f32 = 10_f32;
+
 impl MouseInertia {
     pub fn new(
         event: &Move,

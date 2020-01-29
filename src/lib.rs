@@ -249,6 +249,7 @@ where P: Projection {
         ];
         Catalog_Orthographic::create_shader(&gl, &mut shaders, catalog_shader_uniforms);
         Catalog_Aitoff::create_shader(&gl, &mut shaders, catalog_shader_uniforms);
+        Catalog_MollWeide::create_shader(&gl, &mut shaders, catalog_shader_uniforms);
 
         shaders.insert("hips_sphere_small_fov", shader_ortho_hips);
 
@@ -266,7 +267,7 @@ where P: Projection {
         console::log_1(&format!("fffff sfs").into());
         let mut hips_sphere = Renderable::<HiPSSphere>::new(
             &gl,
-            &shaders["hips_sphere"],
+            &shaders,
             hips_sphere_mesh,
         );
         hips_sphere.update::<P>(&viewport);
@@ -275,7 +276,7 @@ where P: Projection {
         let catalog_mesh = Catalog::new(&gl, vec![]);
         let catalog = Renderable::<Catalog>::new(
             &gl,
-            &shaders["Catalog_Aitoff"],
+            &shaders,
             catalog_mesh
         );
         console::log_1(&format!("fffff sfs3").into());
@@ -292,7 +293,7 @@ where P: Projection {
         let projeted_grid_mesh = ProjetedGrid::new::<P>(&gl, cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, &viewport);
         let grid = Renderable::<ProjetedGrid>::new(
             &gl,
-            &shaders["grid"],
+            &shaders,
             projeted_grid_mesh,
         );
 
@@ -396,11 +397,14 @@ where P: Projection {
         // Reset viewport first
         self.viewport.reset_zoom_level::<Q>();
 
-        // New HiPS sphere
+        // New HiPS sphere & update
         let hips_sphere_mesh = HiPSSphere::new::<Q>(&self.gl, &self.viewport);
-        self.hips_sphere.update_mesh(&self.shaders["hips_sphere"], hips_sphere_mesh);
-
+        self.hips_sphere.update_mesh(&self.shaders, hips_sphere_mesh);
         self.hips_sphere.update::<Q>(&self.viewport);
+
+        // Change projection of the catalog & update
+        self.catalog.mesh_mut().set_projection::<Q>();
+        self.catalog.update::<Q>(&self.viewport);
 
         App::<Q> {
             gl: self.gl,
@@ -490,8 +494,10 @@ where P: Projection {
     }
 
     fn add_catalog(&mut self, sources: Vec<Source>) {
-        let catalog_mesh = Catalog::new(&self.gl, sources);
-        self.catalog.update_mesh(&self.shaders["Catalog_Aitoff"], catalog_mesh);
+        let mut catalog_mesh = Catalog::new(&self.gl, sources);
+        catalog_mesh.set_projection::<P>();
+
+        self.catalog.update_mesh(&self.shaders, catalog_mesh);
     }
 
     fn set_colormap(&mut self, colormap: String) {

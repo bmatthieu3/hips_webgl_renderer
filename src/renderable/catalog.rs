@@ -124,12 +124,12 @@ impl From<&[f32]> for Source {
 
 use web_sys::console;
 use crate::shaders::colormap::BluePastelRed;
-use crate::shaders::catalog::Catalog_Aitoff;
+use crate::shaders::catalog::*;
 
 use crate::shader::Shaderize;
 
 
-impl Catalog {
+impl Catalog{
     pub fn new(gl: &WebGl2Context, sources: Vec<Source>) -> Catalog {
         // Build the quadtree from the list of sources
         //console::log_1(&format!("BEGIN quadtree build").into());
@@ -310,8 +310,14 @@ impl Catalog {
         self.colormap_shader_key = K::name();
     }
 
-    pub fn set_projection<K: Shaderize>(&mut self) {
-        self.catalog_shader_key = K::name();
+    pub fn set_projection<P: Projection>(&mut self) {
+        let catalog_shader_key = match P::name() {
+            "Aitoff" => Catalog_Aitoff::name(),
+            "Orthographic" => Catalog_Orthographic::name(),
+            "MollWeide" => Catalog_MollWeide::name(),
+            _ => unreachable!()
+        };
+        self.catalog_shader_key = catalog_shader_key;
     }
 
     pub fn set_alpha(&mut self, alpha: f32) {
@@ -355,6 +361,10 @@ use crate::math;
 use crate::projection::Projection;
 
 impl Mesh for Catalog {
+    fn get_shader<'a>(&self, shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader {
+        &shaders[self.catalog_shader_key]
+    }
+
     fn create_buffers(&mut self, gl: &WebGl2Context) {
         self.vertex_array_object.bind()
             // Store the UV and the offsets of the billboard in a VBO
@@ -607,7 +617,7 @@ impl Mesh for Catalog {
 }
 
 use crate::renderable::DisableDrawing;
-impl<'a> DisableDrawing for Catalog {
+impl DisableDrawing for Catalog {
     fn disable(&mut self) {
     }
 }

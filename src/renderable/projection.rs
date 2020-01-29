@@ -52,6 +52,10 @@ pub fn ndc_to_clip_space(pos_normalized_device: Vector2<f32>, viewport: &ViewPor
 
 use cgmath::Vector4;
 use cgmath::InnerSpace;
+
+use std::collections::BTreeSet;
+use crate::field_of_view::HEALPixCell;
+use crate::field_of_view::{ALLSKY_ZERO_DEPTH, ALLSKY_ONE_DEPTH};
 pub trait Projection {
     /// Screen to world space deprojection
 
@@ -129,6 +133,10 @@ pub trait Projection {
     // - 180 degrees for the 3D projections (i.e. ortho)
     // - 360 degrees for the 2D projections (i.e. mollweide, arc, aitoff...)
     fn aperture_start() -> f32;
+
+    fn name() -> &'static str;
+
+    fn check_for_allsky_fov(depth: u8) -> Option<BTreeSet<HEALPixCell>>;
 }
 
 #[derive(Clone, Copy)]
@@ -145,6 +153,19 @@ use crate::renderable::hips_sphere::NUM_STEPS;
 
 use crate::math::is_inside_ellipse;
 impl Projection for Aitoff {
+    fn check_for_allsky_fov(depth: u8) -> Option<BTreeSet<HEALPixCell>> {
+        if depth == 0 {
+            Some(ALLSKY_ZERO_DEPTH.lock().unwrap().clone())
+        } else if depth == 1 {
+            Some(ALLSKY_ONE_DEPTH.lock().unwrap().clone())
+        } else {
+            None
+        }
+    }
+
+    fn name() -> &'static str {
+        "Aitoff"
+    }
     fn build_screen_map(viewport: &ViewPort) -> Vec<Vector2<f32>> {
         let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
 
@@ -253,6 +274,20 @@ impl Projection for Aitoff {
 use cgmath::Vector3;
 use crate::math;
 impl Projection for MollWeide {
+    fn check_for_allsky_fov(depth: u8) -> Option<BTreeSet<HEALPixCell>> {
+        if depth == 0 {
+            Some(ALLSKY_ZERO_DEPTH.lock().unwrap().clone())
+        } else if depth == 1 {
+            Some(ALLSKY_ONE_DEPTH.lock().unwrap().clone())
+        } else {
+            None
+        }
+    }
+
+    fn name() -> &'static str {
+        "MollWeide"
+    }
+
     fn build_screen_map(viewport: &ViewPort) -> Vec<cgmath::Vector2<f32>> {
         let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
 
@@ -324,7 +359,6 @@ impl Projection for MollWeide {
     fn world_to_clip_space(pos_world_space: cgmath::Vector4<f32>) -> cgmath::Vector2<f32> {
         // X in [-1, 1]
         // Y in [-1/2; 1/2] and scaled by the screen width/height ratio
-        //return vec3(X / PI, aspect * Y / PI, 0.f);
         let epsilon = 1e-3;
         let max_iter = 10;
 
@@ -360,6 +394,18 @@ impl Projection for MollWeide {
 }
 
 impl Projection for Orthographic {
+    fn check_for_allsky_fov(depth: u8) -> Option<BTreeSet<HEALPixCell>> {
+        if depth == 0 {
+            Some(ALLSKY_ZERO_DEPTH.lock().unwrap().clone())
+        } else {
+            None
+        }
+    }
+
+    fn name() -> &'static str {
+        "Orthographic"
+    }
+
     fn build_screen_map(viewport: &ViewPort) -> Vec<Vector2<f32>> {
         let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
 

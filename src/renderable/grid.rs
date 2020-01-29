@@ -456,6 +456,9 @@ impl Mesh for ProjetedGrid {
             0,
         );
     }
+    fn get_shader<'a>(&self, shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader {
+        &shaders["grid"]
+    }
 }
 
 use crate::renderable::DisableDrawing;

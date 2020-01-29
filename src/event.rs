@@ -22,6 +22,8 @@ use crate::viewport::ViewPort;
 use crate::math;
 use crate::utils;
 
+use crate::projection::Projection;
+
 impl Move {
     pub fn new(start_world_pos: Vector4<f32>) -> Move {
         let axis = Vector3::new(0_f32, 0_f32, 0_f32);

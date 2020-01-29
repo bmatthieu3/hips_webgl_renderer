@@ -34,6 +34,8 @@ pub trait Mesh {
         shaders: &HashMap<&'static str, Shader>,
         viewport: &ViewPort
     );
+
+    fn get_shader<'a>(&self, shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader;
 }
 
 pub trait DisableDrawing {
@@ -59,7 +61,8 @@ use cgmath::SquareMatrix;
 
 impl<T> Renderable<T>
 where T: Mesh + DisableDrawing {
-    pub fn new(gl: &WebGl2Context, shader: &Shader, mut mesh: T) -> Renderable<T> {
+    pub fn new(gl: &WebGl2Context, shaders: &HashMap<&'static str, Shader>, mut mesh: T) -> Renderable<T> {
+        let shader = mesh.get_shader(shaders);
         shader.bind(gl);
         mesh.create_buffers(gl);
 
@@ -85,7 +88,8 @@ where T: Mesh + DisableDrawing {
         }
     }
 
-    pub fn update_mesh(&mut self, shader: &Shader, mut mesh: T) {
+    pub fn update_mesh(&mut self, shaders: &HashMap<&'static str, Shader>, mut mesh: T) {
+        let shader = mesh.get_shader(shaders);
         shader.bind(&self.gl);
         mesh.create_buffers(&self.gl);
 

@@ -534,6 +534,10 @@ fn get_nearest_parent<'a>(tile: &HEALPixCell, buffer: &'a BufferTiles) -> Tile {
 }
 
 impl Mesh for HiPSSphere {
+    fn get_shader<'a>(&self, shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader {
+        &shaders["hips_sphere"]
+    }
+
     fn create_buffers(&mut self, gl: &WebGl2Context) {}
 
     fn update<P: Projection>(

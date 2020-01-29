@@ -81,20 +81,19 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 lazy_static! {
-    pub static ref ALLSKY: Arc<Mutex<BTreeSet<HEALPixCell>>> = {
+    pub static ref ALLSKY_ZERO_DEPTH: Arc<Mutex<BTreeSet<HEALPixCell>>> = {
         let mut allsky = BTreeSet::new();
-        allsky.insert(HEALPixCell(0, 0));
-        allsky.insert(HEALPixCell(0, 1));
-        allsky.insert(HEALPixCell(0, 2));
-        allsky.insert(HEALPixCell(0, 3));
-        allsky.insert(HEALPixCell(0, 4));
-        allsky.insert(HEALPixCell(0, 5));
-        allsky.insert(HEALPixCell(0, 6));
-        allsky.insert(HEALPixCell(0, 7));
-        allsky.insert(HEALPixCell(0, 8));
-        allsky.insert(HEALPixCell(0, 9));
-        allsky.insert(HEALPixCell(0, 10));
-        allsky.insert(HEALPixCell(0, 11));
+        for idx in 0..12 {
+            allsky.insert(HEALPixCell(0, idx));
+        }
+
+        Arc::new(Mutex::new(allsky))
+    };
+    pub static ref ALLSKY_ONE_DEPTH: Arc<Mutex<BTreeSet<HEALPixCell>>> = {
+        let mut allsky = BTreeSet::new();
+        for idx in 0..48 {
+            allsky.insert(HEALPixCell(1, idx));
+        }
 
         Arc::new(Mutex::new(allsky))
     };
@@ -138,7 +137,7 @@ impl FieldOfView {
         let pos_world_space = None;
         let pos_transformed_space = None;
 
-        let cells = ALLSKY.lock()
+        let cells = ALLSKY_ZERO_DEPTH.lock()
             .unwrap()
             .clone();
 
@@ -279,16 +278,16 @@ impl FieldOfView {
         }
 
         // Rotate the FOV
-        self.rotate();
+        self.rotate::<P>();
     }
 
-    pub fn set_rotation_mat(&mut self, r: &Matrix4<f32>) {
+    pub fn set_rotation_mat<P: Projection>(&mut self, r: &Matrix4<f32>) {
         self.r = *r;
 
-        self.rotate();
+        self.rotate::<P>();
     }
 
-    fn rotate(&mut self) {
+    fn rotate<P: Projection>(&mut self) {
         if let Some(pos_world_space) = self.pos_world_space {
             let mut pos_transformed_space = [Vector4::new(0_f32, 0_f32, 0_f32, 0_f32); NUM_VERTICES];
             for idx_vertex in 0..NUM_VERTICES {
@@ -300,12 +299,12 @@ impl FieldOfView {
             self.pos_transformed_space = None;
         }
 
-        self.compute_healpix_cells();
+        self.compute_healpix_cells::<P>();
     }
 
-    fn compute_healpix_cells(&mut self) {
+    fn compute_healpix_cells<P: Projection>(&mut self) {
         // The field of view has changed (zoom or translation, so we recompute the cells)
-        let allsky = ALLSKY.lock().unwrap();
+        //let allsky = ;
 
         if let Some(pos_transformed_space) = self.pos_transformed_space {
             // Compute the depth corresponding to the angular resolution of a pixel
@@ -314,52 +313,58 @@ impl FieldOfView {
                 math::fov_to_depth(self.aperture_angle, self.width),
                 MAX_DEPTH.load(atomic::Ordering::Relaxed)
             );
-            let cells = if depth == 0 {
-                allsky.clone()
-            } else {
-                // The fov is not too big so we can get the HEALPix cells
-                // being in the fov
-                let lon_lat_world_space = pos_transformed_space.iter()
-                    .map(|pos_transformed_space| {
-                        let (ra, dec) = math::xyzw_to_radec(*pos_transformed_space);
-                        (ra as f64, dec as f64)
-                    })
-                    .collect::<Vec<_>>();
 
-                let mut cells = BTreeSet::new();
-                while depth > 0 {
-                    let moc = healpix::nested::polygon_coverage(depth, &lon_lat_world_space, true);
-                    let num_tiles = moc.entries.len();
+            if let Some(allsky) = P::check_for_allsky_fov(depth) {
+                self.cells = allsky;
+                self.current_depth = depth;
+                console::log_1(&format!("current depth {:?}", self.current_depth).into());
+                return;
+            }
 
-                    // Stop when the number of tiles for this depth
-                    // can be contained in the tile buffer
-                    if num_tiles <= 116 {
-                        cells = moc.flat_iter()
-                            .map(|idx| {
-                                HEALPixCell(depth, idx)
-                            })
-                            .collect::<BTreeSet<_>>();
-                        break;
-                    }
-                    console::log_1(&format!("buffer too small!").into());
+            // It is not an allsky fov at this point
+            // We can get the HEALPix cells being in the fov
+            let lon_lat_world_space = pos_transformed_space.iter()
+                .map(|pos_transformed_space| {
+                    let (ra, dec) = math::xyzw_to_radec(*pos_transformed_space);
+                    (ra as f64, dec as f64)
+                })
+                .collect::<Vec<_>>();
 
+            let mut cells = BTreeSet::new();
+            while depth > 0 {
+                let moc = healpix::nested::polygon_coverage(depth, &lon_lat_world_space, true);
+                let num_tiles = moc.entries.len();
 
-                    depth -= 1;
+                // Stop when the number of tiles for this depth
+                // can be contained in the tile buffer
+                if num_tiles <= 116 {
+                    cells = moc.flat_iter()
+                        .map(|idx| {
+                            HEALPixCell(depth, idx)
+                        })
+                        .collect::<BTreeSet<_>>();
+                    break;
                 }
+                console::log_1(&format!("buffer too small!").into());
 
-                if depth == 0 {
-                    cells = allsky.clone();
-                }
-                
-                cells
-            };
+
+                depth -= 1;
+            }
+
+            if depth == 0 {
+                cells = ALLSKY_ZERO_DEPTH.lock().unwrap().clone();
+            }
 
             self.current_depth = depth;
             self.cells = cells;
-        } else {
-            self.current_depth = 0;
-            self.cells = allsky.clone();
+            console::log_1(&format!("current depth {:?}", self.current_depth).into());
+
+            return;
         }
+
+        // We are out of the FOV
+        self.current_depth = 0;
+        self.cells = ALLSKY_ZERO_DEPTH.lock().unwrap().clone();
 
         console::log_1(&format!("current depth {:?}", self.current_depth).into());
     }

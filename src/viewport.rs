@@ -154,7 +154,7 @@ impl ViewPort {
         self.last_action = LastAction::Moving;
 
         // Translate the Field of View on the HiPS sphere
-        self.fov.set_rotation_mat(hips_sphere.get_model_mat());
+        self.fov.set_rotation_mat::<P>(hips_sphere.get_model_mat());
 
         // Update the HiPS sphere 
         hips_sphere.update::<P>(&self);
