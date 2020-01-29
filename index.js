@@ -5,7 +5,7 @@ window.addEventListener('load', function () {
     import('./pkg/webgl')
         .then(async (webgl) => {
             // Start our Rust application. You can find `WebClient` in `src/lib.rs`
-            const webClient = new webgl.WebClient();
+            let webClient = new webgl.WebClient();
             retrieveCatalog('J/A+A/566/A43/table2', colnames=['RAJ2000', 'DEJ2000', 'Bmag', 'Per'])
                 .then(sources => webClient.add_catalog(sources));
 
@@ -195,10 +195,10 @@ window.addEventListener('load', function () {
             select_projection.addEventListener("change", () => {
                 let projection = select_projection.value;
 
-                webClient.set_projection(projection);
+                webClient = webClient.set_projection(projection);
                 console.log("change projection to: ", projection);
 
-                onchange_equatorial_grid();
+                //onchange_equatorial_grid();
             }, false);
 
             // Enable equatorial grid checkbox
@@ -257,12 +257,117 @@ window.addEventListener('load', function () {
                 webClient.set_colormap(colormap);
             }, false);
             
-            // Touchpad event
-            touchpad_events(webClient);
+            // Touchpad events
+            (() => {
+                let canvas = document.getElementById("canvas");
+                let ongoingTouches = new Array();
+            
+                function ongoingTouchIndexById(id) {
+                    for(let idx = 0; idx < ongoingTouches.length; idx++) {
+                        let touch = ongoingTouches[idx];
+                        if (touch.identifier == id) {
+                            return idx;
+                        }
+                    }
+            
+                    return -1;
+                }
+            
+                // Test via a getter in the options object to see if the passive property is accessed
+                /*var supportsPassive = false;
+                try {
+                    var opts = Object.defineProperty({}, 'passive', {
+                        get: function() {
+                            supportsPassive = true;
+                        }
+                    });
+                    window.addEventListener("testPassive", null, opts);
+                    window.removeEventListener("testPassive", null, opts);
+                } catch (e) {}*/
+                canvas.addEventListener("touchstart", (evt) => {
+                    evt.preventDefault();
+                    var touches = evt.changedTouches;
+            
+                    for (var i = 0; i < touches.length; i++) {
+                        ongoingTouches.push(touches[i]);
+                    }
+                    let touche = ongoingTouches[0];
+                    if (ongoingTouches.length == 1) {
+                        webClient.initialize_move(touche.pageX, touche.pageY);
+                    } else {
+                        // If more touches are present, we stop the current move
+                        webClient.stop_move(touche.pageX, touche.pageY);
+                        console.log('stop moving');
+                    }
+                }, false);
+            
+                let handleCancel = (evt) => {
+                    evt.preventDefault();
+                    if (ongoingTouches.length == 1) {
+                        // move event
+                        // Stop moving
+                        let touche = ongoingTouches[0];
+                        webClient.stop_move(touche.pageX, touche.pageY);
+                        console.log('stop moving');
+                    } else {
+                        // zoom event
+                    }
+            
+                    ongoingTouches = [];
+                };
+                canvas.addEventListener("touchend", handleCancel, false);
+                canvas.addEventListener("touchcancel", handleCancel, false);
+                canvas.addEventListener("touchleave", handleCancel, false);
+                canvas.addEventListener("touchmove", (evt) => {
+                    evt.preventDefault();
+                    var touches = evt.changedTouches;
+            
+                    // Update the touches
+                    for (var i = 0; i < touches.length; i++) {
+                        let idx = ongoingTouchIndexById(touches[i].identifier);
+                        ongoingTouches.splice(idx, 1, touches[i]);
+                    }
+            
+                    if (ongoingTouches.length == 1) {
+                        // Move event
+                        let touche = ongoingTouches[0];
+                        webClient.moves(touche.pageX, touche.pageY);
+            
+                        console.log("move!!");
+                    } else {
+                        console.log("zoom!!");
+                        // zoom event
+                    }
+                }, false);
+            })();
             // Mouse events
-            mouse_events(webClient);
+            (() => { 
+                canvas.addEventListener("mousedown", (evt) => {
+                    webClient.initialize_move(evt.clientX, evt.clientY);
+                });
+                canvas.addEventListener("mouseup", (evt) => {
+                    webClient.stop_move(evt.clientX, evt.clientY);
+                });
+                canvas.addEventListener("mousemove", (evt) => {
+                    webClient.moves(evt.clientX, evt.clientY);
+                });
+            })();
             // Wheel events
-            wheel_events(webClient);
+            (() => {
+                let canvas = document.getElementById("canvas");
+
+                canvas.addEventListener("wheel", (evt) => {
+                    webClient.zoom(evt.deltaY);
+                }, false);
+            })();
+
+            // Resize event
+            window.addEventListener('resize', () => {
+                let width = window.innerWidth;
+                let height = window.innerHeight;
+        
+                webClient.resize(width, height);
+            });
 
             // Render
             time = Date.now();
@@ -270,135 +375,6 @@ window.addEventListener('load', function () {
         })
         .catch(console.error);
   })
-
-// Mouse EVENT
-function mouse_events(webClient) {
-    let canvas = document.getElementById("canvas");
-
-    canvas.addEventListener("mousedown", (evt) => {
-        webClient.initialize_move(evt.clientX, evt.clientY);
-    });
-    canvas.addEventListener("mouseup", (evt) => {
-        webClient.stop_move(evt.clientX, evt.clientY);
-    });
-    canvas.addEventListener("mousemove", (evt) => {
-        webClient.moves(evt.clientX, evt.clientY);
-    });
-}
-
-// Wheel EVENT
-function wheel_events(webClient) {
-    let canvas = document.getElementById("canvas");
-
-    // Test via a getter in the options object to see if the passive property is accessed
-    /*let supportsPassive = false;
-    try {
-        var opts = Object.defineProperty({}, 'passive', {
-            get: function() {
-                supportsPassive = true;
-            }
-        });
-        window.addEventListener("testPassive", null, opts);
-        window.removeEventListener("testPassive", null, opts);
-    } catch (e) {}
-
-    console.log("support passive: ", supportsPassive);*/
-    canvas.addEventListener("wheel", (evt) => {
-        webClient.zoom(evt.deltaY);
-    }, false);
-}
-
-// Touchpad EVENT
-function touchpad_events(webClient) {
-    let canvas = document.getElementById("canvas");
-    let ongoingTouches = new Array();
-
-    function ongoingTouchIndexById(id) {
-        for(let idx = 0; idx < ongoingTouches.length; idx++) {
-            let touch = ongoingTouches[idx];
-            if (touch.identifier == id) {
-                return idx;
-            }
-        }
-
-        return -1;
-    }
-
-    // Test via a getter in the options object to see if the passive property is accessed
-    /*var supportsPassive = false;
-    try {
-        var opts = Object.defineProperty({}, 'passive', {
-            get: function() {
-                supportsPassive = true;
-            }
-        });
-        window.addEventListener("testPassive", null, opts);
-        window.removeEventListener("testPassive", null, opts);
-    } catch (e) {}*/
-    canvas.addEventListener("touchstart", (evt) => {
-        evt.preventDefault();
-        var touches = evt.changedTouches;
-
-        for (var i = 0; i < touches.length; i++) {
-            ongoingTouches.push(touches[i]);
-        }
-        let touche = ongoingTouches[0];
-        if (ongoingTouches.length == 1) {
-            webClient.initialize_move(touche.pageX, touche.pageY);
-        } else {
-            // If more touches are present, we stop the current move
-            webClient.stop_move(touche.pageX, touche.pageY);
-            console.log('stop moving');
-        }
-    }, false);
-
-    let handleCancel = (evt) => {
-        evt.preventDefault();
-        if (ongoingTouches.length == 1) {
-            // move event
-            // Stop moving
-            let touche = ongoingTouches[0];
-            webClient.stop_move(touche.pageX, touche.pageY);
-            console.log('stop moving');
-        } else {
-            // zoom event
-        }
-
-        ongoingTouches = [];
-    };
-    canvas.addEventListener("touchend", handleCancel, false);
-    canvas.addEventListener("touchcancel", handleCancel, false);
-    canvas.addEventListener("touchleave", handleCancel, false);
-    canvas.addEventListener("touchmove", (evt) => {
-        evt.preventDefault();
-        var touches = evt.changedTouches;
-
-        // Update the touches
-        for (var i = 0; i < touches.length; i++) {
-            let idx = ongoingTouchIndexById(touches[i].identifier);
-            ongoingTouches.splice(idx, 1, touches[i]);
-        }
-
-        if (ongoingTouches.length == 1) {
-            // Move event
-            let touche = ongoingTouches[0];
-            webClient.moves(touche.pageX, touche.pageY);
-
-            console.log("move!!");
-        } else {
-            console.log("zoom!!");
-            // zoom event
-        }
-    }, false);
-
-    // Resize event
-    window.addEventListener('resize', () => {
-        let width = window.innerWidth;
-        let height = window.innerHeight;
-
-        webClient.resize(width, height);
-    })
-}
 
 function getTableColumnName(table_name, ucd) {
     let table_obs_id = table_name.substring(4);

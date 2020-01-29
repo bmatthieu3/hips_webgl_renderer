@@ -66,7 +66,8 @@ use crate::projection::Projection;
 #[macro_use]
 extern crate aladinlite_derive;
 
-use crate::renderable::colormap::*;
+use crate::shaders::colormap::*;
+use crate::shaders::catalog::*;
 
 struct App<P>
 where P: Projection {
@@ -87,15 +88,14 @@ where P: Projection {
     // Move event
     moving: Option<Move>,
 }
+/*
+fn add_tile_buffer_uniforms(name: &'static str, size: usize, uniforms: &mut Vec<&'static str>) {
 
-fn add_tile_buffer_uniforms(name: &'static str, size: usize, uniforms: &mut Vec<String>) {
-    let texture = String::from(name);
-    uniforms.push(texture.clone());
-
-    let base_texture = texture + "_tiles[";
+    //uniforms.push(texture.clone());
+    /*let base_texture = "textures_tiles[";
 
     for i in 0..size {
-        let mut tile = base_texture.clone() + &i.to_string();
+        let mut tile = concat!(base_texture, &i.to_string());
         tile += "].";
 
         let uniq = tile.clone() + "uniq";
@@ -103,12 +103,16 @@ fn add_tile_buffer_uniforms(name: &'static str, size: usize, uniforms: &mut Vec<
         let time_received = tile.clone() + "time_received";
         let time_request = tile + "time_request";
 
-        uniforms.push(uniq);
-        uniforms.push(texture_idx);
-        uniforms.push(time_received);
-        uniforms.push(time_request);
-    }
-}
+        uniforms.push(uniq.as_str());
+        uniforms.push(texture_idx.as_str());
+        uniforms.push(time_received.as_str());
+        uniforms.push(time_request.as_str());
+    }*/
+
+    let aa = hpx_tiles_uniforms! {0, 1, 2};
+
+    uniforms.extend(aa.iter());
+}*/
 
 use crate::shader::Shaderize;
 
@@ -124,113 +128,128 @@ where P: Projection {
         // uniforms definition
         let mut uniforms_2d_proj = vec![
             // General uniforms
-            String::from("current_time"),
-            String::from("model"),
+            "current_time",
+            "model",
             // Viewport uniforms
-            String::from("ndc_to_clip"),
-            String::from("clip_zoom_factor"),
-            String::from("aspect"),
-            String::from("last_zoom_action"),
+            "ndc_to_clip",
+            "clip_zoom_factor",
+            "aspect",
+            "last_zoom_action",
             // HiPS Sphere-specific uniforms
-            String::from("current_depth"),
-            String::from("max_depth"),
+            "current_depth",
+            "max_depth",
+            // Textures
+            "textures[0]",
+            "textures[1]",
         ];
+        uniforms_2d_proj.extend(crate::shaders::uniform_healpix_tiles::HPX_TILES_BUFFER_UNIFORMS);
 
-        add_tile_buffer_uniforms("textures", 128, &mut uniforms_2d_proj);
+        //add_tile_buffer_uniforms("textures", 128, &mut uniforms_2d_proj);
 
         let shader_2d_proj = Shader::new(&gl,
             shaders::proj_vert::CONTENT,
             shaders::proj_frag::CONTENT,
             // uniform list
-            uniforms_2d_proj
+            &uniforms_2d_proj[..]
         );
 
         // Grid shader
         // uniforms definition
         let uniforms_grid = vec![
             // General uniforms
-            String::from("current_time"),
-            String::from("model"),
+            "current_time",
+            "model",
             // Viewport uniforms
-            String::from("ndc_to_clip"),
-            String::from("clip_zoom_factor"),
-            String::from("aspect"),
-            String::from("last_zoom_action"),
+            "ndc_to_clip",
+            "clip_zoom_factor",
+            "aspect",
+            "last_zoom_action",
             // Grid-specific uniforms
-            String::from("location_color"),
+            "location_color",
         ];
         let shader_grid = Shader::new(&gl,
             shaders::grid_projeted_vert::CONTENT,
             shaders::grid_frag::CONTENT,
-            uniforms_grid
-        );
-
-        // Catalog shader
-        // uniforms definition
-        let uniforms_catalog = vec![
-            // General uniforms
-            String::from("current_time"),
-            String::from("model"),
-            // Viewport uniforms
-            String::from("ndc_to_clip"),
-            String::from("clip_zoom_factor"),
-            String::from("aspect"),
-            String::from("last_zoom_action"),
-            // Catalog-specific uniforms
-            String::from("kernel_texture"),
-            String::from("strength"),
-            String::from("max_plx"),
-            String::from("min_plx"),
-            String::from("min_size_source"),
-            String::from("max_size_source"),
-        ];
-        let shader_catalog = Shader::new(&gl,
-            shaders::catalog_vert::CONTENT,
-            shaders::catalog_frag::CONTENT,
-            uniforms_catalog
+            &uniforms_grid[..]
         );
 
         // HiPS Ortho shader
         // uniforms definition
         let mut uniforms_ortho_hips = vec![
             // General uniforms
-            String::from("current_time"),
-            String::from("model"),
+            "current_time",
+            "model",
             // Viewport uniforms
-            String::from("ndc_to_clip"),
-            String::from("clip_zoom_factor"),
-            String::from("aspect"),
-            String::from("last_zoom_action"),
+            "ndc_to_clip",
+            "clip_zoom_factor",
+            "aspect",
+            "last_zoom_action",
             // HiPS Ortho specific uniforms
-            String::from("current_depth"),
-            String::from("max_depth"),
+            "current_depth",
+            "max_depth",
             // Textures
-            String::from("textures[0]"),
-            String::from("textures[1]"),
+            "textures[0]",
+            "textures[1]",
         ];
-
-        add_tile_buffer_uniforms("textures", 128, &mut uniforms_ortho_hips);
+        uniforms_ortho_hips.extend(crate::shaders::uniform_healpix_tiles::HPX_TILES_BUFFER_UNIFORMS);
+        //add_tile_buffer_uniforms("textures", 128, &mut uniforms_ortho_hips);
         console::log_1(&format!("CC").into());
 
         let shader_ortho_hips = Shader::new(&gl,
             shaders::hips_sphere_small_fov_vert::CONTENT,
             shaders::hips_sphere_small_fov_frag::CONTENT,
-            uniforms_ortho_hips
+            &uniforms_ortho_hips[..]
         );
         console::log_1(&format!("DD").into());
 
         let mut shaders = HashMap::new();
         shaders.insert("hips_sphere", shader_2d_proj);
         shaders.insert("grid", shader_grid);
-        shaders.insert("catalog", shader_catalog);
+        //shaders.insert("catalog", shader_catalog);
 
-        BluePastelRed::create_shader(&gl, &mut shaders);
-        IDL_CB_BrBG::create_shader(&gl, &mut shaders);
-        IDL_CB_YIGnBu::create_shader(&gl, &mut shaders);
-        IDL_CB_GnBu::create_shader(&gl, &mut shaders);
-        Red_Temperature::create_shader(&gl, &mut shaders);
-        Black_White_Linear::create_shader(&gl, &mut shaders);
-        
+        // Colormap shaders definition
+        let colormap_shader_uniforms = &[
+            // General uniforms
+            "current_time",
+            "model",
+            // Viewport uniforms
+            "ndc_to_clip",
+            "clip_zoom_factor",
+            "aspect",
+            "last_zoom_action",
+            // Heatmap-specific uniforms
+            "texture_fbo",
+            "colormap",
+            "alpha",
+        ];
+        BluePastelRed::create_shader(&gl, &mut shaders, colormap_shader_uniforms);
+        IDL_CB_BrBG::create_shader(&gl, &mut shaders, colormap_shader_uniforms);
+        IDL_CB_YIGnBu::create_shader(&gl, &mut shaders, colormap_shader_uniforms);
+        IDL_CB_GnBu::create_shader(&gl, &mut shaders, colormap_shader_uniforms);
+        Red_Temperature::create_shader(&gl, &mut shaders, colormap_shader_uniforms);
+        Black_White_Linear::create_shader(&gl, &mut shaders,colormap_shader_uniforms);
+
+        // Catalog shaders definition
+        let catalog_shader_uniforms = &[
+            // General uniforms
+            "current_time",
+            "model",
+            // Viewport uniforms
+            "ndc_to_clip",
+            "clip_zoom_factor",
+            "aspect",
+            "last_zoom_action",
+            // Catalog-specific uniforms
+            "kernel_texture",
+            "strength",
+            "max_plx",
+            "min_plx",
+            "min_size_source",
+            "max_size_source",
+        ];
+        Catalog_Orthographic::create_shader(&gl, &mut shaders, catalog_shader_uniforms);
+        Catalog_Aitoff::create_shader(&gl, &mut shaders, catalog_shader_uniforms);
+
         shaders.insert("hips_sphere_small_fov", shader_ortho_hips);
 
         gl.enable(WebGl2RenderingContext::BLEND);
@@ -245,17 +264,18 @@ where P: Projection {
         // HiPS Sphere definition
         let hips_sphere_mesh = HiPSSphere::new::<P>(&gl, &viewport);
         console::log_1(&format!("fffff sfs").into());
-        let hips_sphere = Renderable::<HiPSSphere>::new(
+        let mut hips_sphere = Renderable::<HiPSSphere>::new(
             &gl,
             &shaders["hips_sphere"],
             hips_sphere_mesh,
         );
+        hips_sphere.update::<P>(&viewport);
         console::log_1(&format!("fffff sfs").into());
         // Catalog definition
         let catalog_mesh = Catalog::new(&gl, vec![]);
         let catalog = Renderable::<Catalog>::new(
             &gl,
-            &shaders["catalog"],
+            &shaders["Catalog_Aitoff"],
             catalog_mesh
         );
         console::log_1(&format!("fffff sfs3").into());
@@ -373,12 +393,14 @@ where P: Projection {
     }
 
     fn set_projection<Q: Projection>(mut self) -> App::<Q> {
+        // Reset viewport first
+        self.viewport.reset_zoom_level::<Q>();
+
         // New HiPS sphere
         let hips_sphere_mesh = HiPSSphere::new::<Q>(&self.gl, &self.viewport);
-
-        // Update the scissor for the new projection
-        //self.viewport.resize(&Q::size());
         self.hips_sphere.update_mesh(&self.shaders["hips_sphere"], hips_sphere_mesh);
+
+        self.hips_sphere.update::<Q>(&self.viewport);
 
         App::<Q> {
             gl: self.gl,
@@ -469,7 +491,7 @@ where P: Projection {
 
     fn add_catalog(&mut self, sources: Vec<Source>) {
         let catalog_mesh = Catalog::new(&self.gl, sources);
-        self.catalog.update_mesh(&self.shaders["catalog"], catalog_mesh);
+        self.catalog.update_mesh(&self.shaders["Catalog_Aitoff"], catalog_mesh);
     }
 
     fn set_colormap(&mut self, colormap: String) {
@@ -733,8 +755,8 @@ impl WebClient {
     pub fn new() -> WebClient {
         let gl = WebGl2Context::new();
 
-        let app: App<Orthographic> = App::new(&gl).unwrap();
-        let appconfig = AppConfig::Ort(app);
+        let app: App<Aitoff> = App::new(&gl).unwrap();
+        let appconfig = AppConfig::Ait(app);
 
         WebClient {
             appconfig,

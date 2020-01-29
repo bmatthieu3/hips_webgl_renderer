@@ -49,18 +49,14 @@ use crate::WebGl2Context;
 const NUM_WHEEL_PER_DEPTH: usize = 5;
 use cgmath::Deg;
 
-fn fov(wheel_idx: i16) -> Rad<f32> {
+fn fov<P: Projection>(wheel_idx: i16) -> Rad<f32> {
     let exp = (wheel_idx as f32) / (NUM_WHEEL_PER_DEPTH as f32);
-    let fov = 180_f32 / 2_f32.powf(exp);
-    console::log_1(&format!("FOV {:?}", fov).into());
+    let fov = P::aperture_start() / 2_f32.powf(exp);
 
     Deg(fov).into()
 }
 
 use web_sys::console;
-use crate::math;
-use std::sync::atomic::Ordering;
-use crate::MAX_DEPTH;
 use cgmath::Matrix4;
 use crate::renderable::hips_sphere::HiPSSphere;
 use crate::renderable::Renderable;
@@ -78,7 +74,7 @@ impl ViewPort {
 
         let wheel_idx = 0;
 
-        let fov = FieldOfView::new::<P>(gl, fov(wheel_idx));
+        let fov = FieldOfView::new::<P>(gl, fov::<P>(wheel_idx));
 
         let viewport = ViewPort {
             fov,
@@ -90,6 +86,13 @@ impl ViewPort {
         };
 
         viewport
+    }
+
+    pub fn reset_zoom_level<P: Projection>(&mut self) {
+        self.wheel_idx = 0;
+        // Update the aperture of the Field Of View
+        let aperture = fov::<P>(self.wheel_idx);
+        self.fov.set_aperture::<P>(aperture);
     }
 
     pub fn resize_window<P: Projection>(&mut self, width: f32, height: f32) {
@@ -105,7 +108,8 @@ impl ViewPort {
         self.last_action = LastAction::Zooming;
 
         self.wheel_idx += 1;
-        self.fov.set_aperture::<P>(fov(self.wheel_idx));
+        let aperture = fov::<P>(self.wheel_idx);
+        self.fov.set_aperture::<P>(aperture);
 
         // Update the HiPS sphere 
         hips_sphere.update::<P>(&self);
@@ -130,7 +134,8 @@ impl ViewPort {
                 self.wheel_idx = 0;
             }
             // Update the aperture of the Field Of View
-            self.fov.set_aperture::<P>(fov(self.wheel_idx));
+            let aperture = fov::<P>(self.wheel_idx);
+            self.fov.set_aperture::<P>(aperture);
         }
 
         // Update the HiPS sphere 

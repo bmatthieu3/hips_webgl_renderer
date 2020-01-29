@@ -52,13 +52,13 @@ fn link_program(
 use std::collections::HashMap;
 pub struct Shader {
     program: WebGlProgram,
-    uniform_locations: HashMap<String, Option<WebGlUniformLocation>>,
+    uniform_locations: HashMap<&'static str, Option<WebGlUniformLocation>>,
 }
 
 use crate::WebGl2Context;
 use web_sys::console;
 impl Shader {
-    pub fn new(gl: &WebGl2Context, vert_src: &str, frag_src: &str, name_uniforms: Vec<String>) -> Shader {
+    pub fn new(gl: &WebGl2Context, vert_src: &str, frag_src: &str, name_uniforms: &[&'static str]) -> Shader {
         console::log_1(&format!("vert_src: {:?}", vert_src).into());
         let vert_shader = compile_shader(
             gl,
@@ -74,7 +74,7 @@ impl Shader {
         let program = link_program(gl, &vert_shader, &frag_shader).unwrap();
 
         let uniform_locations = name_uniforms.into_iter()
-            .map(|name| {
+            .map(|&name| {
                 let location_uniform = gl.get_uniform_location(&program, &name);
                 //console::log_1(&format!("{:?}", *name).into());
                 (name, location_uniform)
@@ -103,7 +103,7 @@ impl Shader {
 }
 
 pub trait Shaderize {
-    fn create_shader(gl: &WebGl2Context, shaders: &mut HashMap<&'static str, Shader>) {
+    fn create_shader(gl: &WebGl2Context, shaders: &mut HashMap<&'static str, Shader>, uniforms: &[&'static str]) {
         let key = Self::name();
         if shaders.contains_key(key) {
             return;
@@ -112,7 +112,7 @@ pub trait Shaderize {
         let shader = Shader::new(&gl,
             &Self::vertex_shader_content(),
             &Self::fragment_shader_content(),
-            Self::shader_uniforms()
+            uniforms
         );
 
         shaders.insert(key, shader);
@@ -120,21 +120,21 @@ pub trait Shaderize {
     fn name() -> &'static str;
     fn vertex_shader_content() -> String;
     fn fragment_shader_content() -> String;
-
-    fn shader_uniforms() -> Vec<String> {
-        vec![
+    /*
+    fn shader_uniforms() -> &'static[&'static str] {
+        &[
             // General uniforms
-            String::from("current_time"),
-            String::from("model"),
+            "current_time",
+            "model",
             // Viewport uniforms
-            String::from("ndc_to_clip"),
-            String::from("clip_zoom_factor"),
-            String::from("aspect"),
-            String::from("last_zoom_action"),
+            "ndc_to_clip",
+            "clip_zoom_factor",
+            "aspect",
+            "last_zoom_action",
             // Heatmap-specific uniforms
-            String::from("texture_fbo"),
-            String::from("colormap"),
-            String::from("alpha"),
+            "texture_fbo",
+            "colormap",
+            "alpha",
         ]
-    }
+    }*/
 }

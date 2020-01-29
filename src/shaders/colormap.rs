@@ -314,6 +314,8 @@ pub struct IDL_CB_YIGnBu;
 "#]
 pub struct IDL_CB_GnBu;
 
+use crate::shaders::uniform_healpix_tiles::HPX_TILES_BUFFER_UNIFORMS;
+
 #[derive(Shaderize)]
 #[VertexShader = r#"#version 300 es
     precision lowp float;

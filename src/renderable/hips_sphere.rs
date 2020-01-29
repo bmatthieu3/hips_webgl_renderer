@@ -296,13 +296,13 @@ impl RenderingMode for PerPixelRenderingMode {
             if j == 0 {
                 for i in 1..NUM_VERTICES_PER_STEP {
                     indices.push(0 as u16);
-                    indices.push(i as u16);
                     indices.push((i + 1) as u16);
+                    indices.push(i as u16);
                 }
                 
                 indices.push(0 as u16);
-                indices.push(NUM_VERTICES_PER_STEP as u16);
                 indices.push(1 as u16);
+                indices.push(NUM_VERTICES_PER_STEP as u16);
             } else {
                 for i in 0..NUM_VERTICES_PER_STEP {
                     let start_p_idx = (j - 1) * NUM_VERTICES_PER_STEP + i + 1;
@@ -380,8 +380,8 @@ impl HiPSSphere {
         let per_pixel_rendering_mode = PerPixelRenderingMode::new::<P>(gl, viewport, buffer.clone());
 
         let gl = gl.clone();
-        //let fov_mode = false;
-        let fov_mode = true;
+        let fov_mode = false;
+        //let fov_mode = true;
 
         HiPSSphere {
             buffer: buffer,

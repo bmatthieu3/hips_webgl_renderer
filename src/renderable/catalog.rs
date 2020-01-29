@@ -40,6 +40,7 @@ pub struct Catalog {
     vertex_array_object: VertexArrayObject,
 
     colormap_shader_key: &'static str,
+    catalog_shader_key: &'static str,
 
     // min and max plx
     min_plx: f32,
@@ -122,8 +123,12 @@ impl From<&[f32]> for Source {
 }
 
 use web_sys::console;
-use crate::renderable::colormap::BluePastelRed;
+use crate::shaders::colormap::BluePastelRed;
+use crate::shaders::catalog::Catalog_Aitoff;
+
 use crate::shader::Shaderize;
+
+
 impl Catalog {
     pub fn new(gl: &WebGl2Context, sources: Vec<Source>) -> Catalog {
         // Build the quadtree from the list of sources
@@ -246,6 +251,7 @@ impl Catalog {
         let vertex_array_object = VertexArrayObject::new(gl);
 
         let colormap_shader_key = BluePastelRed::name();
+        let catalog_shader_key = Catalog_Aitoff::name();
         let strength_coeff = 20_f32;
 
         let min_size_source = 0.02_f32;
@@ -282,6 +288,7 @@ impl Catalog {
             vertex_array_object,
 
             colormap_shader_key,
+            catalog_shader_key,
 
             // min and max parallax
             min_plx,
@@ -301,6 +308,10 @@ impl Catalog {
 
     pub fn set_colormap<K: Shaderize>(&mut self) {
         self.colormap_shader_key = K::name();
+    }
+
+    pub fn set_projection<K: Shaderize>(&mut self) {
+        self.catalog_shader_key = K::name();
     }
 
     pub fn set_alpha(&mut self, alpha: f32) {
@@ -521,7 +532,7 @@ impl Mesh for Catalog {
             gl.clear_color(0.0, 0.0, 0.0, 1.0);
             gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
 
-            let shader = &shaders["catalog"];
+            let shader = &shaders[self.catalog_shader_key];
             shader.bind(gl);
 
             self.vertex_array_object.bind_ref();

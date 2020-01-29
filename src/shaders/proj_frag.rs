@@ -194,8 +194,8 @@ pub static CONTENT: &'static str = r#"#version 300 es
 
     uniform int current_depth;
     
-    uniform sampler2D textures;
-    uniform Tile textures_tiles[64];
+    uniform sampler2D textures[2];
+    uniform Tile textures_tiles[128];
 
     uniform float current_time; // current time in ms
     struct TileColor {
@@ -222,14 +222,21 @@ pub static CONTENT: &'static str = r#"#version 300 es
             if (uniq == textures_tiles[i].uniq) {
                 Tile tile = textures_tiles[i];
 
-                float idx_row = float(tile.texture_idx / 8); // in [0; 7]
-                float idx_col = float(tile.texture_idx % 8); // in [0; 7]
+                int idx_texture = tile.texture_idx / 64;
+                int idx_in_texture = tile.texture_idx % 64;
+
+                float idx_row = float(idx_in_texture / 8); // in [0; 7]
+                float idx_col = float(idx_in_texture % 8); // in [0; 7]
 
                 vec2 offset = (vec2(idx_col, idx_row) + uv)/8.f;
 
-                vec3 color = texture(textures, offset).rgb;
+                vec3 color = vec3(0.f);
+                if (idx_texture == 0) {
+                    color = texture(textures[0], offset).rgb;
+                } else {
+                    color = texture(textures[1], offset).rgb;
+                }
 
-                //return TileColor(tile, vec3(float(tile.texture_idx)/64.f), true);
                 return TileColor(tile, color, true);
             } else if (uniq < textures_tiles[i].uniq) {
                 // go to left
@@ -253,7 +260,8 @@ pub static CONTENT: &'static str = r#"#version 300 es
         vec3 frag_pos = normalize(out_vert_pos);
         // Get the HEALPix cell idx and the uv in the texture
 
-        TileColor current_tile = get_tile_color(frag_pos, 64.f, current_depth);
+        TileColor current_tile = get_tile_color(frag_pos, 128.f, current_depth);
+        out_frag_color = vec4(current_tile.color, 1.f);
         if (!current_tile.found) {
             vec3 out_color = vec3(0.f);
             int depth = 0;
@@ -265,18 +273,18 @@ pub static CONTENT: &'static str = r#"#version 300 es
                 depth = min(max_depth, current_depth + 1);
             }
 
-            TileColor prev_tile = get_tile_color(frag_pos, 64.f, depth);
+            TileColor prev_tile = get_tile_color(frag_pos, 128.f, depth);
             float alpha = clamp((current_time - prev_tile.tile.time_received) / duration, 0.f, 1.f);
             if (alpha == 1.f) {
                 out_frag_color = vec4(prev_tile.color, 1.f);
                 return;
             }
 
-            TileColor base_tile = get_tile_color(frag_pos, 64.f, 0);
+            TileColor base_tile = get_tile_color(frag_pos, 128.f, 0);
 
             out_color = mix(base_tile.color, prev_tile.color, alpha);
             out_frag_color = vec4(out_color, 1.f);
-
+            //out_frag_color = vec4(1.f, 0.f, 0.f, 1.f);
             return;
         }
 
@@ -298,9 +306,9 @@ pub static CONTENT: &'static str = r#"#version 300 es
             depth = min(max_depth, current_depth + 1);
         }
 
-        TileColor tile = get_tile_color(frag_pos, 64.f, depth);
+        TileColor tile = get_tile_color(frag_pos, 128.f, depth);
         if (!tile.found) {
-            tile = get_tile_color(frag_pos, 64.f, 0);
+            tile = get_tile_color(frag_pos, 128.f, 0);
         }
 
         out_color = mix(tile.color, current_tile.color, alpha);

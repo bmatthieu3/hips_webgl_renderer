@@ -97,7 +97,7 @@ impl Ord for Tile {
 }
 
 #[derive(Debug)]
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct TilePerPixelGPU {
     pub uniq: u32,
 
@@ -105,6 +105,21 @@ pub struct TilePerPixelGPU {
 
     pub time_request: f32,
     pub time_received: f32,
+}
+
+impl TilePerPixelGPU {
+    fn new() -> TilePerPixelGPU {
+        let uniq = std::u32::MAX;
+        let texture_idx = 0;
+        let time_request = std::f32::MIN;
+        let time_received = std::f32::MIN;
+        TilePerPixelGPU {
+            uniq,
+            texture_idx,
+            time_request,
+            time_received,
+        }
+    }
 }
 
 impl PartialEq for TilePerPixelGPU {
@@ -441,7 +456,7 @@ impl BufferTiles {
         false
     }
 
-    pub fn tiles(&self) -> BTreeSet<TilePerPixelGPU> {
+    /*pub fn tiles(&self) -> BTreeSet<TilePerPixelGPU> {
         let refreshed_tiles: BTreeSet<TilePerPixelGPU> = self.buffer
             .iter()
             .map(|tile| {
@@ -459,7 +474,7 @@ impl BufferTiles {
         refreshed_tiles.union(&base_tiles)
             .cloned()
             .collect::<BTreeSet<_>>()
-    }
+    }*/
 
     pub fn get(&self, tile: &HEALPixCell) -> Option<&Tile> {
         let tile_buffer = Tile::new(*tile);
@@ -477,8 +492,19 @@ impl BufferTiles {
         }
     }
 
-    fn uniq_ordered_tiles(&self) -> Vec<TilePerPixelGPU> {
-        let mut tiles = self.buffer
+    fn uniq_ordered_tiles(&self) -> [TilePerPixelGPU; 128] {
+        let mut tiles = [TilePerPixelGPU::new(); 128];
+
+        for (i, tile) in self.buffer.iter().enumerate() {
+            tiles[i] = tile.into();
+        }
+
+        let off = self.buffer.len();
+        for (j, tile) in self.base_tiles.iter().enumerate() {
+            tiles[off + j] = tile.into();
+        }
+
+        /*let mut tiles = self.buffer
             .iter()
             .map(|tile| {
                 tile.into()
@@ -491,8 +517,11 @@ impl BufferTiles {
                 tile.into()
             }).collect::<Vec<_>>();
         
-        tiles.extend(base_tiles);
-        tiles.sort_unstable();
+        tiles.extend(base_tiles);*/
+
+        tiles.sort();
+        console::log_1(&format!("tiles LENGTH {:?}", tiles.len()).into());
+
         tiles
     }
 

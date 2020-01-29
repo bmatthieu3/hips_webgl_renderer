@@ -124,6 +124,11 @@ pub trait Projection {
     /// Build a triangulation map in the screen pixel space of the projection
     /// (used in the per pixel rendering mode for 2D projections!)
     fn build_screen_map(viewport: &ViewPort) -> Vec<Vector2<f32>>;
+
+    // Aperture angle at the start of the application (full view)
+    // - 180 degrees for the 3D projections (i.e. ortho)
+    // - 360 degrees for the 2D projections (i.e. mollweide, arc, aitoff...)
+    fn aperture_start() -> f32;
 }
 
 #[derive(Clone, Copy)]
@@ -239,6 +244,10 @@ impl Projection for Aitoff {
 
         Vector2::new(x / std::f32::consts::PI, y / std::f32::consts::PI)
     }
+
+    fn aperture_start() -> f32 {
+        360_f32
+    }
 }
 
 use cgmath::Vector3;
@@ -344,6 +353,10 @@ impl Projection for MollWeide {
 
         Vector2::new(x, y)
     }
+
+    fn aperture_start() -> f32 {
+        360_f32
+    }
 }
 
 impl Projection for Orthographic {
@@ -361,8 +374,8 @@ impl Projection for Orthographic {
                 let angle = (i as f32) * 2_f32 * std::f32::consts::PI / (NUM_VERTICES_PER_STEP as f32);
 
                 let pos_screen_space = Vector2::<f32>::new(
-                    (window_size.y/2_f32 - 1_f32) * radius * angle.cos(),
-                    (window_size.y/2_f32 - 1_f32) * radius * angle.sin()
+                    (window_size.x/2_f32 - 1_f32) * radius * angle.cos(),
+                    (window_size.x/2_f32 - 1_f32) * radius * angle.sin()
                 );
 
                 vertices_screen.push(pos_screen_space + center_screen_space);
@@ -402,5 +415,9 @@ impl Projection for Orthographic {
     /// * `pos_world_space` - Position in the world space. Must be a normalized vector
     fn world_to_clip_space(pos_world_space: cgmath::Vector4<f32>) -> Vector2<f32> {
         Vector2::new(-pos_world_space.x, pos_world_space.y)
+    }
+
+    fn aperture_start() -> f32 {
+        180_f32
     }
 }
