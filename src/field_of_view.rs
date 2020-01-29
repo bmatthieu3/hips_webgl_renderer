@@ -304,8 +304,6 @@ impl FieldOfView {
 
     fn compute_healpix_cells<P: Projection>(&mut self) {
         // The field of view has changed (zoom or translation, so we recompute the cells)
-        //let allsky = ;
-
         if let Some(pos_transformed_space) = self.pos_transformed_space {
             // Compute the depth corresponding to the angular resolution of a pixel
             // along the width of the screen
