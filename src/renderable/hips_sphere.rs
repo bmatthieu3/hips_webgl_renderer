@@ -556,7 +556,7 @@ impl Mesh for HiPSSphere {
         let depth_changed = current_depth != prev_depth;
 
         if depth_changed {
-            self.fov_mode = current_depth >= 2;
+            self.fov_mode = current_depth >= 3;
         }
 
         load_tiles(&self.gl, self.buffer.clone(), tiles_fov, current_depth, depth_changed);
