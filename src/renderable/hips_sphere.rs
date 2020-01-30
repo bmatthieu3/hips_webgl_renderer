@@ -29,21 +29,14 @@ use crate::WebGl2Context;
 
 use crate::projection::Projection;
 pub trait RenderingMode {
-    fn new<P: Projection>(gl: &WebGl2Context, viewport: &ViewPort) -> Self;
+    fn new(gl: &WebGl2Context, viewport: &ViewPort) -> Self;
 
     fn update(&mut self, buffer: &BufferTiles, current_depth: u8, tiles_fov: &BTreeSet<HEALPixCell>, viewport: &ViewPort);
 
-    fn draw<T: Mesh + DisableDrawing>(
-        &self,
-        gl: &WebGl2Context,
-        renderable: &Renderable<T>,
-        shader: &Shader,
-        viewport: &ViewPort
-    );
+    fn draw(&self, gl: &WebGl2Context, shader: &Shader);
     fn get_shader<'a>(shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader;
 }
 
-#[derive(Clone)]
 pub struct SmallFieldOfView {
     pub vertices: Vec<f32>,
     vertex_array_object: VertexArrayObject,
@@ -173,7 +166,7 @@ fn add_vertices_grid(
 }
 
 impl RenderingMode for SmallFieldOfView {
-    fn new<P: Projection>(gl: &WebGl2Context, viewport: &ViewPort) -> SmallFieldOfView {
+    fn new(gl: &WebGl2Context, viewport: &ViewPort) -> SmallFieldOfView {
         let vertices = vec![0_f32; 60000];
 
         let mut vertex_array_object = VertexArrayObject::new(gl);
@@ -209,13 +202,7 @@ impl RenderingMode for SmallFieldOfView {
         &shaders["hips_sphere_small_fov"]
     }
 
-    fn draw<T: Mesh + DisableDrawing>(
-        &self,
-        gl: &WebGl2Context,
-        renderable: &Renderable<T>,
-        shader: &Shader,
-        viewport: &ViewPort
-    ) {
+    fn draw(&self, gl: &WebGl2Context, shader: &Shader) {
         self.vertex_array_object.bind_ref();
         gl.draw_arrays(
             WebGl2RenderingContext::TRIANGLES,
@@ -523,17 +510,18 @@ impl RenderingMode for SmallFieldOfView {
     }
 }
 
-#[derive(Clone)]
-pub struct PerPixel {
+pub struct PerPixel<P> where P: Projection {
     pub vertices: Vec<f32>,
     pub idx: Vec<u16>,
 
     vertex_array_object: VertexArrayObject,
+
+    projection: std::marker::PhantomData<P>
 }
 
-impl PerPixel {
-    fn create_vertices_array<P: Projection>(gl: &WebGl2Context, viewport: &ViewPort) -> Vec<f32> {
-        let vertex_screen_space_positions = P::build_screen_map(viewport);
+impl<P> PerPixel<P> where P: Projection {
+    fn create_vertices_array(gl: &WebGl2Context, viewport: &ViewPort) -> Vec<f32> {
+        let vertex_screen_space_positions = <P>::build_screen_map(viewport);
 
         let vertices_data = vertex_screen_space_positions
             .into_iter()
@@ -596,9 +584,9 @@ impl PerPixel {
     }
 }
 
-impl RenderingMode for PerPixel {
-    fn new<P: Projection>(gl: &WebGl2Context, viewport: &ViewPort) -> PerPixel {
-        let vertices = Self::create_vertices_array::<P>(gl, viewport);
+impl<P> RenderingMode for PerPixel<P> where P: Projection {
+    fn new(gl: &WebGl2Context, viewport: &ViewPort) -> PerPixel<P> {
+        let vertices = Self::create_vertices_array(gl, viewport);
         let idx = Self::create_index_array().unwrap();
 
         let mut vertex_array_object = VertexArrayObject::new(gl);
@@ -620,20 +608,20 @@ impl RenderingMode for PerPixel {
             // Unbind the buffer
             .unbind();
 
-        PerPixel {
+        PerPixel::<P> {
             vertices,
             idx,
 
             vertex_array_object,
+
+            projection: std::marker::PhantomData
         }
     }
 
-    fn draw<T: Mesh + DisableDrawing>(
+    fn draw(
         &self,
         gl: &WebGl2Context,
-        renderable: &Renderable<T>,
         shader: &Shader,
-        viewport: &ViewPort
     ) {
         self.vertex_array_object.bind_ref();
 
@@ -659,24 +647,21 @@ impl RenderingMode for PerPixel {
     fn update(&mut self, buffer: &BufferTiles, current_depth: u8, tiles_fov: &BTreeSet<HEALPixCell>, viewport: &ViewPort) {}
 }
 
-#[derive(Clone)]
-pub struct HiPSSphere<R>
-where R: RenderingMode {
+use crate::projection::*;
+pub struct HiPSSphere {
     buffer: Rc<RefCell<BufferTiles>>,
 
-    //rendering_mode: &'static R,
-    //fov_rendering_mode: SmallFieldOfViewRenderingMode,
-    //per_pixel_rendering_mode: PerPixelRenderingMode,
-
-    //fov_mode: bool,
+    ortho: SmallFieldOfView,
+    aitoff_perpixel: PerPixel<Aitoff>,
+    moll_perpixel: PerPixel<MollWeide>,
 
     gl: WebGl2Context,
-
-    rendering_mode: std::marker::PhantomData<R>
 }
 
-impl<R> HiPSSphere<R> where R: RenderingMode {
-    pub fn new(gl: &WebGl2Context, viewport: &ViewPort) -> HiPSSphere<R> {
+use cgmath::Deg;
+
+impl HiPSSphere {
+    pub fn new(gl: &WebGl2Context, viewport: &ViewPort) -> HiPSSphere {
         let buffer = Rc::new(RefCell::new(BufferTiles::new(gl)));
         load_base_tiles(gl, buffer.clone());
 
@@ -686,34 +671,17 @@ impl<R> HiPSSphere<R> where R: RenderingMode {
         //let fov_mode = false;
         //let fov_mode = true;
 
-        /*let rendering_mode = <R>::new(
-            &gl,
-            viewport,
-            buffer.clone()
-        );*/
+        let ortho = SmallFieldOfView::new(&gl, &viewport);
+        let aitoff_perpixel = PerPixel::<Aitoff>::new(&gl, &viewport);
+        let moll_perpixel = PerPixel::<MollWeide>::new(&gl, &viewport);
 
-        HiPSSphere::<R> {
+        HiPSSphere {
             buffer: buffer,
 
-            /*// Two modes:
-            // - One for large FOVs on 2D projections
-            per_pixel_rendering_mode,
-            // - The other for the orthographic projection and small FOVs on 2D projections
-            fov_rendering_mode,
+            ortho,
+            aitoff_perpixel,
+            moll_perpixel,
 
-            fov_mode,*/
-            rendering_mode: std::marker::PhantomData,
-
-            gl,
-        }
-    }
-
-    pub fn set_rendering_mode<Q: RenderingMode>(self) -> HiPSSphere<Q> {
-        let buffer = self.buffer;
-        let gl = self.gl;
-        HiPSSphere::<Q> {
-            buffer,
-            rendering_mode: std::marker::PhantomData,
             gl,
         }
     }
@@ -747,7 +715,7 @@ impl<R> HiPSSphere<R> where R: RenderingMode {
         self.buffer.clone()
     }
 
-    pub fn update(&mut self, viewport: &ViewPort, rendering_mode: &mut R) {
+    pub fn update<P: Projection>(&mut self, viewport: &ViewPort) {
         let field_of_view = viewport.field_of_view();
 
         let tiles_fov = field_of_view.healpix_cells();
@@ -759,27 +727,54 @@ impl<R> HiPSSphere<R> where R: RenderingMode {
         let depth_changed = current_depth != prev_depth;
         load_tiles(&self.gl, self.buffer.clone(), tiles_fov, current_depth, depth_changed);
 
-        rendering_mode.update(
-            &self.buffer.borrow(),
-            current_depth,
-            tiles_fov,
-            viewport,
-        );
+        match P::name() {
+            "Orthographic" => {
+                // Ortho mode
+                self.ortho.update(&self.buffer.borrow(),
+                    current_depth,
+                    tiles_fov,
+                    viewport
+                );
+            },
+            _ => (),
+        }
     }
 
-    pub fn draw<T: Mesh + DisableDrawing>(
+    pub fn draw<T: Mesh + DisableDrawing, P: Projection>(
         &self,
         gl: &WebGl2Context,
         renderable: &Renderable<T>,
         shaders: &HashMap<&'static str, Shader>,
         viewport: &ViewPort,
-        rendering_mode: &R,
     ) {
-        let shader = R::get_shader(shaders);
-        shader.bind(gl);
+        //let field_of_view = viewport.field_of_view();
 
-        self.send_global_uniforms(gl, shader, viewport, renderable);
-        rendering_mode.draw(gl, renderable, shader, viewport);
+        // Big field of view, check the projections
+        match P::name() {
+            "Aitoff" => {
+                let shader = PerPixel::<Aitoff>::get_shader(shaders); // TODO: The same shader for all projection
+                shader.bind(gl);
+
+                self.send_global_uniforms(gl, shader, viewport, renderable);
+                self.aitoff_perpixel.draw(gl, shader)
+            },
+            "MollWeide" => {
+                let shader = PerPixel::<MollWeide>::get_shader(shaders); // TODO: The same shader for all projection
+                shader.bind(gl);
+
+                self.send_global_uniforms(gl, shader, viewport, renderable);
+                self.moll_perpixel.draw(gl, shader)
+            },
+            // By construction, we are in orthographic projection when we have zoomed or the ortho projection selected
+            "Orthographic" => {
+                let shader = SmallFieldOfView::get_shader(shaders); // TODO: The same shader for all projection
+                shader.bind(gl);
+
+                self.send_global_uniforms(gl, shader, viewport, renderable);
+                self.ortho.draw(gl, shader)
+            },
+            _ => panic!("Not all projection are handled!"),
+        }
     }
 }
 
@@ -883,8 +878,7 @@ fn get_nearest_parent<'a>(tile: &HEALPixCell, buffer: &'a BufferTiles) -> Tile {
     get_root_parent(tile)
 }
 
-impl<R> Mesh for HiPSSphere<R>
-where R: RenderingMode {
+impl Mesh for HiPSSphere {
     fn get_shader<'a>(&self, shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader {
         &shaders["hips_sphere"]
     }
@@ -893,7 +887,7 @@ where R: RenderingMode {
 }
 
 use crate::renderable::DisableDrawing;
-impl<R> DisableDrawing for HiPSSphere<R> where R: RenderingMode {
+impl DisableDrawing for HiPSSphere {
     fn disable(&mut self) {
     }
 }

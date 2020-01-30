@@ -39,8 +39,8 @@ impl Move {
         }
     }
 
-    pub fn apply_to_renderables<R: RenderingMode>(&mut self, world_pos: Vector4<f32>,
-        hips_sphere: &mut Renderable<HiPSSphere<R>>,
+    pub fn apply_to_renderables(&mut self, world_pos: Vector4<f32>,
+        hips_sphere: &mut Renderable<HiPSSphere>,
         grid: &mut Renderable<ProjetedGrid>,
         catalog: &mut Renderable<Catalog>,
     ) {

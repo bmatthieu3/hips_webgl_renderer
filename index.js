@@ -357,7 +357,7 @@ window.addEventListener('load', function () {
                 let canvas = document.getElementById("canvas");
 
                 canvas.addEventListener("wheel", (evt) => {
-                    webClient.zoom(evt.deltaY);
+                    webClient = webClient.zoom(evt.deltaY);
                 }, false);
             })();
 

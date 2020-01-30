@@ -53,7 +53,11 @@ fn fov<P: Projection>(wheel_idx: i16) -> Rad<f32> {
     let exp = (wheel_idx as f32) / (NUM_WHEEL_PER_DEPTH as f32);
     let fov = P::aperture_start() / 2_f32.powf(exp);
 
-    Deg(fov).into()
+    fov.into()
+}
+fn wheel_idx<P: Projection>(fov: Rad<f32>) -> i16 {
+    let p0: Rad<f32> = P::aperture_start().into();
+    ((p0.0 / fov.0).log2() * (NUM_WHEEL_PER_DEPTH as f32)) as i16
 }
 
 use web_sys::console;
@@ -97,39 +101,53 @@ impl ViewPort {
         self.fov.set_aperture::<P>(aperture);
     }
 
+    // Called when the projection changes
+    pub fn reset<P: Projection>(&mut self) {
+        let current_aperture = self.fov.get_aperture();
+        let aperture = if current_aperture <= P::aperture_start().into() {
+            // Retrieve the wheel idx correponding to the current aperture for the
+            // projection
+            self.wheel_idx = wheel_idx::<P>(current_aperture);
+            current_aperture
+        } else {
+            // The start aperture of the new projection is < to the current aperture
+            // We reset the wheel idx too
+            self.wheel_idx = 0;
+            P::aperture_start().into()
+        };
+        // Recompute the depth and field of view
+        self.fov.set_aperture::<P>(aperture);
+    }
+
     pub fn resize_window<P: Projection>(&mut self, width: f32, height: f32) {
         self.fov.resize_window::<P>(width, height);
     }
 
-    pub fn zoom<P: Projection, R: RenderingMode>(
+    pub fn zoom<P: Projection>(
         &mut self,
-        hips_sphere: &mut Renderable<HiPSSphere<R>>,
+        hips_sphere: &mut Renderable<HiPSSphere>,
         catalog: &mut Renderable<Catalog>,
-    ) -> bool {
+    ) {
         self.last_zoom_action = LastZoomAction::Zoom;
         self.last_action = LastAction::Zooming;
 
         self.wheel_idx += 1;
         let aperture = fov::<P>(self.wheel_idx);
 
-        let prev_depth = self.fov.current_depth();
         self.fov.set_aperture::<P>(aperture);
 
-        let depth = self.fov.current_depth();
-
-        // Switch to the SmallFieldOfView rendering mode
-        prev_depth == 2 && depth > 2
+        // Update renderables
+        hips_sphere.mesh_mut().update::<P>(&self);
+        catalog.mesh_mut().update::<P>(&self);
     }
 
-    pub fn unzoom<P: Projection, R: RenderingMode>(
+    pub fn unzoom<P: Projection>(
         &mut self,
-        hips_sphere: &mut Renderable<HiPSSphere<R>>,
+        hips_sphere: &mut Renderable<HiPSSphere>,
         catalog: &mut Renderable<Catalog>,
-    ) -> bool {
+    ) {
         self.last_zoom_action = LastZoomAction::Unzoom;
         self.last_action = LastAction::Zooming;
-
-        let prev_depth = self.fov.current_depth();
 
         if self.wheel_idx > 0 {
             self.wheel_idx -= 1;
@@ -142,15 +160,14 @@ impl ViewPort {
             self.fov.set_aperture::<P>(aperture);
         }
 
-        let depth = self.fov.current_depth();
-
-        // Switch to the perpixel rendering mode
-        prev_depth == 3 && depth < 3
+        // Update renderables
+        hips_sphere.mesh_mut().update::<P>(&self);
+        catalog.mesh_mut().update::<P>(&self);
     }
 
-    pub fn displacement<P: Projection, R: RenderingMode>(
+    pub fn displacement<P: Projection>(
         &mut self,
-        hips_sphere: &mut Renderable<HiPSSphere<R>>,
+        hips_sphere: &mut Renderable<HiPSSphere>,
         catalog: &mut Renderable<Catalog>,
     ) {
         self.last_action = LastAction::Moving;
@@ -158,10 +175,9 @@ impl ViewPort {
         // Translate the Field of View on the HiPS sphere
         self.fov.set_rotation_mat::<P>(hips_sphere.get_model_mat());
 
-        // Update the HiPS sphere 
-        hips_sphere.update::<P>(&self);
-        // Update the catalog loaded
-        catalog.update::<P>(&self);
+        // Update renderables
+        hips_sphere.mesh_mut().update::<P>(&self);
+        catalog.mesh_mut().update::<P>(&self);
     }
 
     pub fn field_of_view(&self) -> &FieldOfView {

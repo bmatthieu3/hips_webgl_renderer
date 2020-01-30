@@ -137,16 +137,16 @@ where T: Mesh + DisableDrawing {
         &mut self.mesh
     }
 
-    /*pub fn update<P: Projection>(&mut self, viewport: &ViewPort) {
+    pub fn update<P: Projection>(&mut self, viewport: &ViewPort) {
         let ref mut mesh = self.mesh;
 
         let ref local_to_world = self.model_mat;
 
-        mesh.update::<P>(
+        /*mesh.update::<P>(
             local_to_world,
             viewport
-        );
-    }*/
+        );*/
+    }
 
     /*pub fn draw(&self, shaders: &HashMap<&'static str, Shader>, viewport: &ViewPort) {
         let ref gl = self.gl;

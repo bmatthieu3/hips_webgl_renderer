@@ -52,6 +52,7 @@ pub fn ndc_to_clip_space(pos_normalized_device: Vector2<f32>, viewport: &ViewPor
 
 use cgmath::Vector4;
 use cgmath::InnerSpace;
+use cgmath::Deg;
 
 use std::collections::BTreeSet;
 use crate::field_of_view::HEALPixCell;
@@ -132,7 +133,7 @@ pub trait Projection {
     // Aperture angle at the start of the application (full view)
     // - 180 degrees for the 3D projections (i.e. ortho)
     // - 360 degrees for the 2D projections (i.e. mollweide, arc, aitoff...)
-    fn aperture_start() -> f32;
+    fn aperture_start() -> Deg<f32>;
 
     fn name() -> &'static str;
 
@@ -266,8 +267,8 @@ impl Projection for Aitoff {
         Vector2::new(x / std::f32::consts::PI, y / std::f32::consts::PI)
     }
 
-    fn aperture_start() -> f32 {
-        360_f32
+    fn aperture_start() -> Deg<f32> {
+        Deg(360_f32)
     }
 }
 
@@ -388,8 +389,8 @@ impl Projection for MollWeide {
         Vector2::new(x, y)
     }
 
-    fn aperture_start() -> f32 {
-        360_f32
+    fn aperture_start() -> Deg<f32> {
+        Deg(360_f32)
     }
 }
 
@@ -463,7 +464,7 @@ impl Projection for Orthographic {
         Vector2::new(-pos_world_space.x, pos_world_space.y)
     }
 
-    fn aperture_start() -> f32 {
-        180_f32
+    fn aperture_start() -> Deg<f32> {
+        Deg(180_f32)
     }
 }

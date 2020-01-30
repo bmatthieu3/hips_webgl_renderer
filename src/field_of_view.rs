@@ -235,9 +235,13 @@ impl FieldOfView {
     pub fn set_aperture<P: Projection>(&mut self, angle: Rad<f32>) {
         self.aperture_angle = angle;
         // Compute the new clip zoom factor
-        self.clip_zoom_factor = Self::compute_clip_zoom_factor::<P>(angle);
+        self.clip_zoom_factor = Self::compute_clip_zoom_factor::<P>(self.aperture_angle);
         
         self.deproj_field_of_view::<P>();
+    }
+
+    pub fn get_aperture(&self) -> Rad<f32> {
+        self.aperture_angle
     }
 
     pub fn area_clip_zoomed_space(&self) -> f32 {
