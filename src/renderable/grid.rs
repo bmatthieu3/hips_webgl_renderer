@@ -374,42 +374,8 @@ impl ProjetedGrid {
         let location_color = shader.get_uniform_location("location_color");
         gl.uniform4f(location_color, self.color.red, self.color.green, self.color.blue, self.color.alpha);
     }
-}
 
-use crate::WebGl2Context;
-use cgmath::Matrix4;
-
-use crate::renderable::Renderable;
-use crate::utils;
-use std::collections::HashMap;
-impl Mesh for ProjetedGrid {
-    fn create_buffers(&mut self, gl: &WebGl2Context) {
-        let ref vertices_data = self.pos_screen_space;
-        let ref idx_data = self.idx_vertices;
-
-        self.vertex_array_object.bind()
-            // Store the vertex positions
-            .add_array_buffer(
-                2 * std::mem::size_of::<f32>(),
-                &[2],
-                &[0 * std::mem::size_of::<f32>()],
-                WebGl2RenderingContext::DYNAMIC_DRAW,
-                BufferData::VecData(&vertices_data),
-            )
-            // Set the element buffer
-            .add_element_buffer(
-                WebGl2RenderingContext::DYNAMIC_DRAW,
-                BufferData::VecData(&idx_data),
-            )
-            // Unbind the buffer
-            .unbind();
-    }
-
-    fn update<P: Projection>(
-        &mut self,
-        local_to_world: &Matrix4<f32>,
-        viewport: &ViewPort
-    ) {
+    fn update<P: Projection>(&mut self, local_to_world: &Matrix4<f32>, viewport: &ViewPort) {
         self.update_grid_positions::<P>(
             local_to_world,
         );
@@ -456,6 +422,37 @@ impl Mesh for ProjetedGrid {
             0,
         );
     }
+}
+
+use crate::WebGl2Context;
+use cgmath::Matrix4;
+
+use crate::renderable::Renderable;
+use crate::utils;
+use std::collections::HashMap;
+impl Mesh for ProjetedGrid {
+    fn create_buffers(&mut self, gl: &WebGl2Context) {
+        let ref vertices_data = self.pos_screen_space;
+        let ref idx_data = self.idx_vertices;
+
+        self.vertex_array_object.bind()
+            // Store the vertex positions
+            .add_array_buffer(
+                2 * std::mem::size_of::<f32>(),
+                &[2],
+                &[0 * std::mem::size_of::<f32>()],
+                WebGl2RenderingContext::DYNAMIC_DRAW,
+                BufferData::VecData(&vertices_data),
+            )
+            // Set the element buffer
+            .add_element_buffer(
+                WebGl2RenderingContext::DYNAMIC_DRAW,
+                BufferData::VecData(&idx_data),
+            )
+            // Unbind the buffer
+            .unbind();
+    }
+
     fn get_shader<'a>(&self, shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader {
         &shaders["grid"]
     }

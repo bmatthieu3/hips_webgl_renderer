@@ -67,6 +67,8 @@ use crate::renderable::grid::ProjetedGrid;
 use crate::mouse_inertia::MouseInertia;
 use crate::projection::Projection;
 
+use crate::renderable::hips_sphere::RenderingMode;
+
 impl ViewPort {
     pub fn new<P: Projection>(gl: &WebGl2Context) -> ViewPort {
         let last_zoom_action = LastZoomAction::Unzoom;
@@ -99,33 +101,35 @@ impl ViewPort {
         self.fov.resize_window::<P>(width, height);
     }
 
-    pub fn zoom<P: Projection>(
+    pub fn zoom<P: Projection, R: RenderingMode>(
         &mut self,
-        hips_sphere: &mut Renderable<HiPSSphere>,
+        hips_sphere: &mut Renderable<HiPSSphere<R>>,
         catalog: &mut Renderable<Catalog>,
-    ) {
+    ) -> bool {
         self.last_zoom_action = LastZoomAction::Zoom;
         self.last_action = LastAction::Zooming;
 
         self.wheel_idx += 1;
         let aperture = fov::<P>(self.wheel_idx);
+
+        let prev_depth = self.fov.current_depth();
         self.fov.set_aperture::<P>(aperture);
 
-        // Update the HiPS sphere 
-        hips_sphere.update::<P>(&self);
-        // Update the catalog loaded
-        catalog.update::<P>(&self);
+        let depth = self.fov.current_depth();
 
-        //self.update_scissor();
+        // Switch to the SmallFieldOfView rendering mode
+        prev_depth == 2 && depth > 2
     }
 
-    pub fn unzoom<P: Projection>(
+    pub fn unzoom<P: Projection, R: RenderingMode>(
         &mut self,
-        hips_sphere: &mut Renderable<HiPSSphere>,
+        hips_sphere: &mut Renderable<HiPSSphere<R>>,
         catalog: &mut Renderable<Catalog>,
-    ) {
+    ) -> bool {
         self.last_zoom_action = LastZoomAction::Unzoom;
         self.last_action = LastAction::Zooming;
+
+        let prev_depth = self.fov.current_depth();
 
         if self.wheel_idx > 0 {
             self.wheel_idx -= 1;
@@ -138,17 +142,15 @@ impl ViewPort {
             self.fov.set_aperture::<P>(aperture);
         }
 
-        // Update the HiPS sphere 
-        hips_sphere.update::<P>(&self);
-        // Update the catalog loaded
-        catalog.update::<P>(&self);
+        let depth = self.fov.current_depth();
 
-        //self.update_scissor();
+        // Switch to the perpixel rendering mode
+        prev_depth == 3 && depth < 3
     }
 
-    pub fn displacement<P: Projection>(
+    pub fn displacement<P: Projection, R: RenderingMode>(
         &mut self,
-        hips_sphere: &mut Renderable<HiPSSphere>,
+        hips_sphere: &mut Renderable<HiPSSphere<R>>,
         catalog: &mut Renderable<Catalog>,
     ) {
         self.last_action = LastAction::Moving;

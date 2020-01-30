@@ -5,6 +5,7 @@ use crate::renderable::VertexBufferObject;
 
 use crate::WebGl2Context;
 
+#[derive(Clone)]
 pub struct ElementArrayBuffer {
     buffer: WebGlBuffer,
     buffer_size: usize,

@@ -339,64 +339,8 @@ impl Catalog{
             self.strength = 1_f32;
         }
     }
-}
 
-use crate::renderable::Mesh;
-use crate::shader::Shader;
-
-use crate::renderable::buffers::buffer_data::BufferData;
-
-use cgmath::Matrix4;
-
-use web_sys::WebGl2RenderingContext;
-use crate::WebGl2Context;
-
-use crate::viewport::ViewPort;
-
-use crate::renderable::Renderable;
-use crate::utils;
-use std::collections::BinaryHeap;
-
-use crate::math;
-use crate::projection::Projection;
-
-impl Mesh for Catalog {
-    fn get_shader<'a>(&self, shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader {
-        &shaders[self.catalog_shader_key]
-    }
-
-    fn create_buffers(&mut self, gl: &WebGl2Context) {
-        self.vertex_array_object.bind()
-            // Store the UV and the offsets of the billboard in a VBO
-            .add_array_buffer(
-                4 * std::mem::size_of::<f32>(),
-                &[2, 2],
-                &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
-                WebGl2RenderingContext::STATIC_DRAW,
-                BufferData::VecData(self.vertices.as_ref()),
-            )
-            // Store the cartesian position of the center of the source in the a instanced VBO
-            .add_instanced_array_buffer(
-                std::mem::size_of::<Source>(),
-                &[3, 2, 1, 1],
-                &[0 * mem::size_of::<f32>(), 3 * mem::size_of::<f32>(), 5 * mem::size_of::<f32>(), 6 * mem::size_of::<f32>()],
-                WebGl2RenderingContext::DYNAMIC_DRAW,
-                BufferData::VecData(self.data.sources.as_ref()),
-            )
-            // Set the element buffer
-            .add_element_buffer(
-                WebGl2RenderingContext::STATIC_DRAW,
-                BufferData::VecData(self.indices.as_ref()),
-            )
-            // Unbind the buffer
-            .unbind();
-    }
-
-    fn update<P: Projection>(
-        &mut self,
-        _local_to_world: &Matrix4<f32>,
-        viewport: &ViewPort
-    ) {
+    pub fn update<P: Projection>(&mut self, viewport: &ViewPort) {
         let field_of_view = viewport.field_of_view();
 
         let mut current_field_of_view = field_of_view.healpix_cells();
@@ -523,7 +467,7 @@ impl Mesh for Catalog {
         console::log_1(&format!("num sources: {:?}", self.num_instances).into());
     }
 
-    fn draw<T: Mesh + DisableDrawing>(
+    pub fn draw<T: Mesh + DisableDrawing>(
         &self,
         gl: &WebGl2Context,
         renderable: &Renderable<T>,
@@ -613,6 +557,58 @@ impl Mesh for Catalog {
                 0,
             );
         }
+    }
+}
+
+use crate::renderable::Mesh;
+use crate::shader::Shader;
+
+use crate::renderable::buffers::buffer_data::BufferData;
+
+use cgmath::Matrix4;
+
+use web_sys::WebGl2RenderingContext;
+use crate::WebGl2Context;
+
+use crate::viewport::ViewPort;
+
+use crate::renderable::Renderable;
+use crate::utils;
+use std::collections::BinaryHeap;
+
+use crate::math;
+use crate::projection::Projection;
+
+impl Mesh for Catalog {
+    fn get_shader<'a>(&self, shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader {
+        &shaders[self.catalog_shader_key]
+    }
+
+    fn create_buffers(&mut self, gl: &WebGl2Context) {
+        self.vertex_array_object.bind()
+            // Store the UV and the offsets of the billboard in a VBO
+            .add_array_buffer(
+                4 * std::mem::size_of::<f32>(),
+                &[2, 2],
+                &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
+                WebGl2RenderingContext::STATIC_DRAW,
+                BufferData::VecData(self.vertices.as_ref()),
+            )
+            // Store the cartesian position of the center of the source in the a instanced VBO
+            .add_instanced_array_buffer(
+                std::mem::size_of::<Source>(),
+                &[3, 2, 1, 1],
+                &[0 * mem::size_of::<f32>(), 3 * mem::size_of::<f32>(), 5 * mem::size_of::<f32>(), 6 * mem::size_of::<f32>()],
+                WebGl2RenderingContext::DYNAMIC_DRAW,
+                BufferData::VecData(self.data.sources.as_ref()),
+            )
+            // Set the element buffer
+            .add_element_buffer(
+                WebGl2RenderingContext::STATIC_DRAW,
+                BufferData::VecData(self.indices.as_ref()),
+            )
+            // Unbind the buffer
+            .unbind();
     }
 }
 

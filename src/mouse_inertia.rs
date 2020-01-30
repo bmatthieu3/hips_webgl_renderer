@@ -18,6 +18,8 @@ use crate::utils;
 use web_sys::console;
 const DURATION: f32 = 10_f32;
 
+use crate::renderable::hips_sphere::RenderingMode;
+
 impl MouseInertia {
     pub fn new(
         event: &Move,
@@ -50,8 +52,8 @@ impl MouseInertia {
     }
 
     // Returns whether the inertia is finished
-    pub fn update(&mut self,
-        hips_sphere: &mut Renderable<HiPSSphere>,
+    pub fn update<R: RenderingMode>(&mut self,
+        hips_sphere: &mut Renderable<HiPSSphere<R>>,
         grid: &mut Renderable<ProjetedGrid>,
         catalog: &mut Renderable<Catalog>,
         viewport: &mut ViewPort

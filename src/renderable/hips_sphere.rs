@@ -28,20 +28,23 @@ use cgmath::Vector2;
 use crate::WebGl2Context;
 
 use crate::projection::Projection;
-trait RenderingMode {
-    fn create_vertices_array<P: Projection>(gl: &WebGl2Context, viewport: &ViewPort, buffer: Rc<RefCell<BufferTiles>>) -> Vec<f32>;
-    fn create_index_array() -> Option<Vec<u16>>;
-    fn send_uniforms(gl: &WebGl2Context, shader: &Shader);
+pub trait RenderingMode {
+    fn new<P: Projection>(gl: &WebGl2Context, viewport: &ViewPort) -> Self;
+
+    fn update(&mut self, buffer: &BufferTiles, current_depth: u8, tiles_fov: &BTreeSet<HEALPixCell>, viewport: &ViewPort);
+
     fn draw<T: Mesh + DisableDrawing>(
         &self,
         gl: &WebGl2Context,
         renderable: &Renderable<T>,
-        shaders: &HashMap<&'static str, Shader>,
+        shader: &Shader,
         viewport: &ViewPort
     );
+    fn get_shader<'a>(shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader;
 }
 
-struct SmallFieldOfViewRenderingMode {
+#[derive(Clone)]
+pub struct SmallFieldOfView {
     pub vertices: Vec<f32>,
     vertex_array_object: VertexArrayObject,
 }
@@ -50,39 +53,7 @@ use crate::renderable::buffers::buffer_data::BufferData;
 use cgmath::Rad;
 use crate::math;
 use std::mem;
-impl SmallFieldOfViewRenderingMode {
-    fn new<P: Projection>(gl: &WebGl2Context, viewport: &ViewPort, buffer: Rc<RefCell<BufferTiles>>) -> SmallFieldOfViewRenderingMode {
-        let vertices = Self::create_vertices_array::<P>(gl, viewport, buffer);
-
-        let mut vertex_array_object = VertexArrayObject::new(gl);
-
-        // VAO for the orthographic projection and small fovs on 2D projections
-        vertex_array_object.bind()
-            // Store the projeted and 3D vertex positions in a VBO
-            .add_array_buffer(
-                12 * mem::size_of::<f32>(),
-                &[2, 3, 2, 2, 1, 2],
-                &[
-                    0 * mem::size_of::<f32>(),
-                    2 * mem::size_of::<f32>(),
-                    5 * mem::size_of::<f32>(),
-                    7 * mem::size_of::<f32>(),
-                    9 * mem::size_of::<f32>(),
-                    10 * mem::size_of::<f32>(),
-                ],
-                WebGl2RenderingContext::DYNAMIC_DRAW,
-                BufferData::VecData(vertices.as_ref()),
-            )
-            // Unbind the buffer
-            .unbind();
-
-        SmallFieldOfViewRenderingMode {
-            vertices,
-
-            vertex_array_object,
-        }
-    }
-
+impl SmallFieldOfView {
     fn add_vertex(
         vertex_array: &mut Vec<f32>,
         lonlat: &[(f64, f64)],
@@ -190,35 +161,59 @@ fn add_vertices_grid(
             let idx_texture_start = (idx_texture_start / 64) as f32;
             let idx_texture_end = (idx_texture_end / 64) as f32;
 
-            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 0, uv_start_quad[0], uv_end_quad[0], blending_factor, idx_texture_start, idx_texture_end);
-            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 1, uv_start_quad[1], uv_end_quad[1], blending_factor, idx_texture_start, idx_texture_end);
-            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 2, uv_start_quad[2], uv_end_quad[2], blending_factor, idx_texture_start, idx_texture_end);
+            SmallFieldOfView::add_vertex(vertex_array, &lonlat_quad, 0, uv_start_quad[0], uv_end_quad[0], blending_factor, idx_texture_start, idx_texture_end);
+            SmallFieldOfView::add_vertex(vertex_array, &lonlat_quad, 1, uv_start_quad[1], uv_end_quad[1], blending_factor, idx_texture_start, idx_texture_end);
+            SmallFieldOfView::add_vertex(vertex_array, &lonlat_quad, 2, uv_start_quad[2], uv_end_quad[2], blending_factor, idx_texture_start, idx_texture_end);
 
-            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 1, uv_start_quad[1], uv_end_quad[1], blending_factor, idx_texture_start, idx_texture_end);
-            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 3, uv_start_quad[3], uv_end_quad[3], blending_factor, idx_texture_start, idx_texture_end);
-            SmallFieldOfViewRenderingMode::add_vertex(vertex_array, &lonlat_quad, 2, uv_start_quad[2], uv_end_quad[2], blending_factor, idx_texture_start, idx_texture_end);
-
+            SmallFieldOfView::add_vertex(vertex_array, &lonlat_quad, 1, uv_start_quad[1], uv_end_quad[1], blending_factor, idx_texture_start, idx_texture_end);
+            SmallFieldOfView::add_vertex(vertex_array, &lonlat_quad, 3, uv_start_quad[3], uv_end_quad[3], blending_factor, idx_texture_start, idx_texture_end);
+            SmallFieldOfView::add_vertex(vertex_array, &lonlat_quad, 2, uv_start_quad[2], uv_end_quad[2], blending_factor, idx_texture_start, idx_texture_end);
         }
     }
 }
 
-impl RenderingMode for SmallFieldOfViewRenderingMode {
-    fn create_vertices_array<P: Projection>(gl: &WebGl2Context, _viewport: &ViewPort, _buffer: Rc<RefCell<BufferTiles>>) -> Vec<f32> {
-        vec![0_f32; 60000]
+impl RenderingMode for SmallFieldOfView {
+    fn new<P: Projection>(gl: &WebGl2Context, viewport: &ViewPort) -> SmallFieldOfView {
+        let vertices = vec![0_f32; 60000];
+
+        let mut vertex_array_object = VertexArrayObject::new(gl);
+
+        // VAO for the orthographic projection and small fovs on 2D projections
+        vertex_array_object.bind()
+            // Store the projeted and 3D vertex positions in a VBO
+            .add_array_buffer(
+                12 * mem::size_of::<f32>(),
+                &[2, 3, 2, 2, 1, 2],    
+                &[
+                    0 * mem::size_of::<f32>(),
+                    2 * mem::size_of::<f32>(),
+                    5 * mem::size_of::<f32>(),
+                    7 * mem::size_of::<f32>(),
+                    9 * mem::size_of::<f32>(),
+                    10 * mem::size_of::<f32>(),
+                ],
+                WebGl2RenderingContext::DYNAMIC_DRAW,
+                BufferData::VecData(vertices.as_ref()),
+            )
+            // Unbind the buffer
+            .unbind();
+
+        SmallFieldOfView {
+            vertices,
+
+            vertex_array_object,
+        }
     }
 
-    fn create_index_array() -> Option<Vec<u16>> {
-        None
-    }
-
-    fn send_uniforms(gl: &WebGl2Context, shader: &Shader) {
+    fn get_shader<'a>(shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader  {
+        &shaders["hips_sphere_small_fov"]
     }
 
     fn draw<T: Mesh + DisableDrawing>(
         &self,
         gl: &WebGl2Context,
         renderable: &Renderable<T>,
-        shaders: &HashMap<&'static str, Shader>,
+        shader: &Shader,
         viewport: &ViewPort
     ) {
         self.vertex_array_object.bind_ref();
@@ -228,50 +223,316 @@ impl RenderingMode for SmallFieldOfViewRenderingMode {
             (self.vertices.len() as i32) / 12,
         );
     }
+
+    fn update(&mut self, buffer: &BufferTiles, current_depth: u8, tiles_fov: &BTreeSet<HEALPixCell>, viewport: &ViewPort) {
+        let num_tiles = tiles_fov.len();
+        let mut vertices = Vec::with_capacity(10 * 6 * num_tiles);
+
+        if current_depth <= 2 {
+            for idx in 0..192 {
+                let current_tile = Tile::new(HEALPixCell(2, idx));
+
+                let current_idx = idx >> (2*(2 - current_depth));
+                let tile = HEALPixCell(current_depth, current_idx);
+                if let Some(tile_buffer) = buffer.get(&tile) {
+                    let blending_factor = tile_buffer.blending_factor();
+                    let idx_texture_end = tile_buffer.texture_idx;
+
+                    let (uv_start, idx_texture_start) = if blending_factor == 1_f32 {
+                        let uv_start = [Vector2::new(0_f32, 0_f32); 4];
+                        let idx_texture_start = 0;
+
+                        (uv_start, idx_texture_start)
+                    } else {
+                        let parent_tile_buffer = get_nearest_parent(&tile, &buffer);
+
+                        let uv_start = get_uv_in_parent(&current_tile, &parent_tile_buffer);
+                        let idx_texture_start = parent_tile_buffer.texture_idx;
+
+                        (uv_start, idx_texture_start)
+                    };
+
+                    let uv_end = if blending_factor == 0_f32 {
+                        [Vector2::new(0_f32, 0_f32); 4]
+                    } else {
+                        get_uv_in_parent(&current_tile, tile_buffer)
+                    };
+
+                    let mut vertex_array = Vec::with_capacity(10 * 6);
+                    add_vertices_grid(&mut vertex_array,
+                        2,
+                        idx,
+                        1,
+                        &uv_start, &uv_end,
+                        idx_texture_start, idx_texture_end,
+                        blending_factor
+                    );
+
+                    vertices.extend(vertex_array.iter());
+                } else {
+                    let blending_factor = 0_f32;
+                    let uv_end = [Vector2::new(0_f32, 0_f32); 4];
+                    let idx_texture_end = 0;
+
+                    let parent_tile_buffer = get_nearest_parent(&tile, &buffer);
+
+                    let uv_start = get_uv_in_parent(&current_tile, &parent_tile_buffer);
+                    let idx_texture_start = parent_tile_buffer.texture_idx;
+                    
+                    let mut vertex_array = Vec::with_capacity(10 * 6);
+                    add_vertices_grid(&mut vertex_array,
+                        2, idx, 1,
+                        &uv_start, &uv_end,
+                        idx_texture_start, idx_texture_end,
+                        blending_factor
+                    );
+
+                    vertices.extend(vertex_array.iter());
+                }
+            }
+            // Update the buffers
+            self.vertex_array_object.bind()
+                .update_array(0, BufferData::VecData(&vertices));
+
+            self.vertices = vertices;
+            return;
+        }
+
+        if viewport.last_zoom_action == LastZoomAction::Zoom || viewport.last_action == LastAction::Moving {
+            for tile in tiles_fov.iter() {
+                // If the tile is not already processed
+                let (depth, idx) = (tile.0, tile.1);
+                let parent_tile_buffer = get_nearest_parent(tile, &buffer);
+
+                let uv_start = get_uv_in_parent(&Tile::new(*tile), &parent_tile_buffer);
+                let idx_texture_start = parent_tile_buffer.texture_idx;
+
+                let mut blending_factor = 0_f32;
+                let mut idx_texture_end = 0;
+                let uv_end = if let Some(tile_buffer) = buffer.get(tile) {
+                    let uv_end = get_uv(tile_buffer);
+
+                    idx_texture_end = tile_buffer.texture_idx;
+                    blending_factor = tile_buffer.blending_factor();
+                    uv_end
+                } else {
+                    let uv_end = [Vector2::new(0_f32, 0_f32); 4];
+
+                    uv_end
+                };
+
+                let mut vertex_array = Vec::with_capacity(10 * 6);
+                add_vertices_grid(
+                    &mut vertex_array,
+                    depth, idx,
+                    1,
+                    &uv_start, &uv_end,
+                    idx_texture_start, idx_texture_end,
+                    blending_factor
+                );
+
+                // tile has been found in the buffer, we will
+                // render it
+                vertices.extend(vertex_array.iter());
+            }
+        } else if viewport.last_zoom_action == LastZoomAction::Unzoom {
+            for tile in tiles_fov.iter() {
+                if let Some(tile_buffer) = buffer.get(tile) {
+                    let blending_factor = tile_buffer.blending_factor();
+
+                    let (depth, idx) = (tile_buffer.cell.0, tile_buffer.cell.1);
+
+                    if blending_factor == 1_f32 {
+                        let uv_end = get_uv(tile_buffer);
+                        let uv_start = [Vector2::new(0_f32, 0_f32); 4];
+
+                        let mut vertex_array = Vec::with_capacity(10 * 6);
+
+                        let idx_texture_start = 0;
+                        let idx_texture_end = tile_buffer.texture_idx;
+                        add_vertices_grid(
+                            &mut vertex_array,
+                            depth, idx,
+                            4,
+                            &uv_start, &uv_end,
+                            idx_texture_start, idx_texture_end,
+                            blending_factor
+                        );
+
+                        // tile has been found in the buffer, we will render it
+                        vertices.extend(vertex_array.iter());
+                    } else {
+                        // We need to check the children tiles first to get the uv_start!
+                        // Let is see at current_depth + 1 first
+                        let mut children_tiles = VecDeque::with_capacity(4);
+                        children_tiles.push_back(HEALPixCell(depth + 1, idx << 2));
+                        children_tiles.push_back(HEALPixCell(depth + 1, (idx << 2) + 1));
+                        children_tiles.push_back(HEALPixCell(depth + 1, (idx << 2) + 2));
+                        children_tiles.push_back(HEALPixCell(depth + 1, (idx << 2) + 3));
+
+                        while !children_tiles.is_empty() {
+                            let child_tile = children_tiles.pop_front().unwrap();
+                            let (child_depth, child_idx) = (child_tile.0, child_tile.1);
+
+                            if let Some(child_tile_buffer) = buffer.get(&child_tile) {
+                                // Find in which position the child tile is in the
+                                // parent to get the uv_end
+                                let uv_end = get_uv_in_parent(child_tile_buffer, tile_buffer);
+                                let idx_texture_end = tile_buffer.texture_idx;
+
+                                let uv_start = get_uv(child_tile_buffer);
+                                let idx_texture_start = child_tile_buffer.texture_idx;
+
+                                let mut vertex_array = Vec::with_capacity(10 * 6);
+                                add_vertices_grid(&mut vertex_array,
+                                    child_depth,
+                                    child_idx,
+                                    1 << (depth + 2 - child_depth),
+                                    &uv_start, &uv_end,
+                                    idx_texture_start, idx_texture_end,
+                                    blending_factor);
+
+                                // tile has been found in the buffer, we will render it
+                                vertices.extend(vertex_array.iter());
+                            } else {
+                                if child_depth == depth + 2 {
+                                    // The grand children is not in the buffer
+
+                                    let tile_child = Tile::new(HEALPixCell(child_depth, child_idx));
+
+                                    // Find in which base cell the current tile is located
+                                    let tile_buffer_parent = get_nearest_parent(&tile, &buffer);
+
+                                    let uv_start = get_uv_in_parent(&tile_child, &tile_buffer_parent);
+                                    let idx_texture_start = tile_buffer_parent.texture_idx;
+
+                                    // Find in which position the child tile is located in the current fov tile
+                                    let uv_end = get_uv_in_parent(&tile_child, tile_buffer);
+                                    let idx_texture_end = tile_buffer.texture_idx;
+
+                                    let mut vertex_array = Vec::with_capacity(10 * 6);
+
+                                    add_vertices_grid(&mut vertex_array,
+                                        child_depth,
+                                        child_idx,
+                                        1,
+                                        &uv_start, &uv_end,
+                                        idx_texture_start, idx_texture_end,
+                                        blending_factor
+                                    );
+
+                                    // tile has been found in the buffer, we will render it
+                                    vertices.extend(vertex_array.iter());
+                                } else {
+                                    // Split the child cell in its 4 children (e.g. grand children of the tile 
+                                    // in the FOV)
+                                    children_tiles.push_back(HEALPixCell(child_depth + 1, child_idx << 2));
+                                    children_tiles.push_back(HEALPixCell(child_depth + 1, (child_idx << 2) + 1));
+                                    children_tiles.push_back(HEALPixCell(child_depth + 1, (child_idx << 2) + 2));
+                                    children_tiles.push_back(HEALPixCell(child_depth + 1, (child_idx << 2) + 3));
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    let (depth, idx) = (tile.0, tile.1);
+                    // We need to check the children tiles first to get the uv_start!
+                    // Let is see at current_depth + 1 first
+                    let mut children_tiles = VecDeque::with_capacity(4);
+                    children_tiles.push_back(HEALPixCell(depth + 1, idx << 2));
+                    children_tiles.push_back(HEALPixCell(depth + 1, (idx << 2) + 1));
+                    children_tiles.push_back(HEALPixCell(depth + 1, (idx << 2) + 2));
+                    children_tiles.push_back(HEALPixCell(depth + 1, (idx << 2) + 3));
+
+                    let blending_factor = 0_f32;
+                    while !children_tiles.is_empty() {
+                        let child_tile = children_tiles.pop_front().unwrap();
+                        let (child_depth, child_idx) = (child_tile.0, child_tile.1);
+
+                        if let Some(child_tile_buffer) = buffer.get(&child_tile) {
+                            // Find in which position the child tile is in the
+                            // parent to get the uv_end
+                            let uv_end = [Vector2::new(0_f32, 0_f32); 4];
+                            let idx_texture_end = 0;
+
+                            let uv_start = get_uv(child_tile_buffer);
+                            let idx_texture_start = child_tile_buffer.texture_idx;
+
+                            let mut vertex_array = Vec::with_capacity(10 * 6);
+
+                            add_vertices_grid(&mut vertex_array,
+                                child_depth,
+                                child_idx,
+                                1 << (depth + 2 - child_depth),
+                                &uv_start,
+                                &uv_end,
+                                idx_texture_start,
+                                idx_texture_end,
+                                blending_factor
+                            );
+
+                            // tile has been found in the buffer, we will render it
+                            vertices.extend(vertex_array.iter());
+                        } else {
+                            if child_depth == depth + 2 {
+                                // The grand children is not in the buffer
+                                let tile_child = Tile::new(HEALPixCell(child_depth, child_idx));
+
+                                // Find in which base cell the child tile is located
+                                let tile_buffer_parent = get_nearest_parent(&tile, &buffer);
+
+                                let uv_start = get_uv_in_parent(&tile_child, &tile_buffer_parent);
+                                let idx_texture_start = tile_buffer_parent.texture_idx;
+
+                                // Find in which position the child tile is located in the current fov tile
+                                let uv_end = [Vector2::new(0_f32, 0_f32); 4];
+                                let idx_texture_end = 0;
+
+                                let mut vertex_array = Vec::with_capacity(10 * 6);
+                                add_vertices_grid(&mut vertex_array,
+                                    child_depth,
+                                    child_idx,
+                                    1,
+                                    &uv_start,
+                                    &uv_end,
+                                    idx_texture_start,
+                                    idx_texture_end,
+                                    blending_factor
+                                );
+                                vertices.extend(vertex_array.iter());
+                            } else {
+                                // Split the child cell in its 4 children (e.g. grand children of the tile 
+                                // in the FOV)
+                                children_tiles.push_back(HEALPixCell(child_depth + 1, child_idx << 2));
+                                children_tiles.push_back(HEALPixCell(child_depth + 1, (child_idx << 2) + 1));
+                                children_tiles.push_back(HEALPixCell(child_depth + 1, (child_idx << 2) + 2));
+                                children_tiles.push_back(HEALPixCell(child_depth + 1, (child_idx << 2) + 3));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        //console::log_1(&format!("num vertices {:?}", vertices.len()).into());
+        // Update the buffers
+        self.vertex_array_object.bind()
+            .update_array(0, BufferData::VecData(&vertices));
+
+        self.vertices = vertices;
+    }
 }
 
-struct PerPixelRenderingMode {
+#[derive(Clone)]
+pub struct PerPixel {
     pub vertices: Vec<f32>,
     pub idx: Vec<u16>,
 
     vertex_array_object: VertexArrayObject,
 }
 
-impl PerPixelRenderingMode {
-    fn new<P: Projection>(gl: &WebGl2Context, viewport: &ViewPort, buffer: Rc<RefCell<BufferTiles>>) -> PerPixelRenderingMode {
-        let vertices = Self::create_vertices_array::<P>(gl, viewport, buffer);
-        let idx = Self::create_index_array().unwrap();
-
-        let mut vertex_array_object = VertexArrayObject::new(gl);
-        // VAO for per-pixel computation mode (only in case of large fovs and 2D projections)
-        vertex_array_object.bind()
-            // Store the projeted and 3D vertex positions in a VBO
-            .add_array_buffer(
-                5 * std::mem::size_of::<f32>(),
-                &[2, 3],
-                &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
-                WebGl2RenderingContext::STATIC_DRAW,
-                BufferData::VecData(vertices.as_ref()),
-            )
-            // Set the element buffer
-            .add_element_buffer(
-                WebGl2RenderingContext::STATIC_DRAW,
-                BufferData::VecData(idx.as_ref()),
-            )
-            // Unbind the buffer
-            .unbind();
-
-        PerPixelRenderingMode {
-            vertices,
-            idx,
-
-            vertex_array_object
-        }
-    }
-}
-
-impl RenderingMode for PerPixelRenderingMode {
-    fn create_vertices_array<P: Projection>(gl: &WebGl2Context, viewport: &ViewPort, _buffer: Rc<RefCell<BufferTiles>>) -> Vec<f32> {
+impl PerPixel {
+    fn create_vertices_array<P: Projection>(gl: &WebGl2Context, viewport: &ViewPort) -> Vec<f32> {
         let vertex_screen_space_positions = P::build_screen_map(viewport);
 
         let vertices_data = vertex_screen_space_positions
@@ -333,24 +594,56 @@ impl RenderingMode for PerPixelRenderingMode {
 
         Some(indices)
     }
+}
 
-    fn send_uniforms(gl: &WebGl2Context, shader: &Shader) {
-        // Send current depth
-        let location_current_depth = shader.get_uniform_location("current_depth");
-        gl.uniform1i(location_current_depth, DEPTH.load(Ordering::Relaxed) as i32);
-        // Send max depth of the current HiPS
-        let location_max_depth = shader.get_uniform_location("max_depth");
-        gl.uniform1i(location_max_depth, MAX_DEPTH.load(Ordering::Relaxed) as i32);
+impl RenderingMode for PerPixel {
+    fn new<P: Projection>(gl: &WebGl2Context, viewport: &ViewPort) -> PerPixel {
+        let vertices = Self::create_vertices_array::<P>(gl, viewport);
+        let idx = Self::create_index_array().unwrap();
+
+        let mut vertex_array_object = VertexArrayObject::new(gl);
+        // VAO for per-pixel computation mode (only in case of large fovs and 2D projections)
+        vertex_array_object.bind()
+            // Store the projeted and 3D vertex positions in a VBO
+            .add_array_buffer(
+                5 * std::mem::size_of::<f32>(),
+                &[2, 3],
+                &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
+                WebGl2RenderingContext::STATIC_DRAW,
+                BufferData::VecData(vertices.as_ref()),
+            )
+            // Set the element buffer
+            .add_element_buffer(
+                WebGl2RenderingContext::STATIC_DRAW,
+                BufferData::VecData(idx.as_ref()),
+            )
+            // Unbind the buffer
+            .unbind();
+
+        PerPixel {
+            vertices,
+            idx,
+
+            vertex_array_object,
+        }
     }
 
     fn draw<T: Mesh + DisableDrawing>(
         &self,
         gl: &WebGl2Context,
         renderable: &Renderable<T>,
-        shaders: &HashMap<&'static str, Shader>,
+        shader: &Shader,
         viewport: &ViewPort
     ) {
         self.vertex_array_object.bind_ref();
+
+        // Send current depth
+        let location_current_depth = shader.get_uniform_location("current_depth");
+        gl.uniform1i(location_current_depth, DEPTH.load(Ordering::Relaxed) as i32);
+        // Send max depth of the current HiPS
+        let location_max_depth = shader.get_uniform_location("max_depth");
+        gl.uniform1i(location_max_depth, MAX_DEPTH.load(Ordering::Relaxed) as i32);
+
         gl.draw_elements_with_i32(
             WebGl2RenderingContext::TRIANGLES,
             self.vertex_array_object.num_elements() as i32,
@@ -358,54 +651,76 @@ impl RenderingMode for PerPixelRenderingMode {
             0,
         );
     }
+
+    fn get_shader<'a>(shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader  {
+        &shaders["hips_sphere"]
+    }
+
+    fn update(&mut self, buffer: &BufferTiles, current_depth: u8, tiles_fov: &BTreeSet<HEALPixCell>, viewport: &ViewPort) {}
 }
 
-pub struct HiPSSphere {
+#[derive(Clone)]
+pub struct HiPSSphere<R>
+where R: RenderingMode {
     buffer: Rc<RefCell<BufferTiles>>,
 
-    fov_rendering_mode: SmallFieldOfViewRenderingMode,
-    per_pixel_rendering_mode: PerPixelRenderingMode,
+    //rendering_mode: &'static R,
+    //fov_rendering_mode: SmallFieldOfViewRenderingMode,
+    //per_pixel_rendering_mode: PerPixelRenderingMode,
 
-    fov_mode: bool,
+    //fov_mode: bool,
 
     gl: WebGl2Context,
+
+    rendering_mode: std::marker::PhantomData<R>
 }
 
-impl HiPSSphere {
-    pub fn new<P: Projection>(gl: &WebGl2Context, viewport: &ViewPort) -> HiPSSphere {
+impl<R> HiPSSphere<R> where R: RenderingMode {
+    pub fn new(gl: &WebGl2Context, viewport: &ViewPort) -> HiPSSphere<R> {
         let buffer = Rc::new(RefCell::new(BufferTiles::new(gl)));
         load_base_tiles(gl, buffer.clone());
 
-        let fov_rendering_mode = SmallFieldOfViewRenderingMode::new::<P>(gl, viewport, buffer.clone());
-        let per_pixel_rendering_mode = PerPixelRenderingMode::new::<P>(gl, viewport, buffer.clone());
+        //let fov_rendering_mode = SmallFieldOfViewRenderingMode::new::<P>(gl, viewport, buffer.clone());
 
         let gl = gl.clone();
-        let fov_mode = false;
+        //let fov_mode = false;
         //let fov_mode = true;
 
-        HiPSSphere {
+        /*let rendering_mode = <R>::new(
+            &gl,
+            viewport,
+            buffer.clone()
+        );*/
+
+        HiPSSphere::<R> {
             buffer: buffer,
 
-            // Two modes:
+            /*// Two modes:
             // - One for large FOVs on 2D projections
             per_pixel_rendering_mode,
             // - The other for the orthographic projection and small FOVs on 2D projections
             fov_rendering_mode,
 
-            fov_mode,
+            fov_mode,*/
+            rendering_mode: std::marker::PhantomData,
 
             gl,
         }
     }
 
-    fn send_uniforms<T: Mesh + DisableDrawing>(&self, gl: &WebGl2Context, shader: &Shader, viewport: &ViewPort, renderable: &Renderable<T>) {
+    pub fn set_rendering_mode<Q: RenderingMode>(self) -> HiPSSphere<Q> {
+        let buffer = self.buffer;
+        let gl = self.gl;
+        HiPSSphere::<Q> {
+            buffer,
+            rendering_mode: std::marker::PhantomData,
+            gl,
+        }
+    }
+
+    fn send_global_uniforms<T: Mesh + DisableDrawing>(&self, gl: &WebGl2Context, shader: &Shader, viewport: &ViewPort, renderable: &Renderable<T>) {
         // TEXTURES TILES BUFFER
-        //console::log_1(&format!("AAADDDAA").into());
-        /*if let Some(buffer) = self.buffer.try_borrow().ok() {
-            buffer.send_to_shader(shader);
-        }*/
         self.buffer.borrow().send_to_shader(shader);
-        //console::log_1(&format!("AAADDD").into());
         // Send viewport uniforms
         viewport.send_to_vertex_shader(gl, shader);
         //console::log_1(&format!("ADFSD").into());
@@ -430,6 +745,41 @@ impl HiPSSphere {
 
     pub fn get_buffer(&self) -> Rc<RefCell<BufferTiles>> {
         self.buffer.clone()
+    }
+
+    pub fn update(&mut self, viewport: &ViewPort, rendering_mode: &mut R) {
+        let field_of_view = viewport.field_of_view();
+
+        let tiles_fov = field_of_view.healpix_cells();
+        let current_depth = field_of_view.current_depth();
+
+        let prev_depth = DEPTH.load(Ordering::Relaxed);
+        DEPTH.store(current_depth, Ordering::Relaxed);
+
+        let depth_changed = current_depth != prev_depth;
+        load_tiles(&self.gl, self.buffer.clone(), tiles_fov, current_depth, depth_changed);
+
+        rendering_mode.update(
+            &self.buffer.borrow(),
+            current_depth,
+            tiles_fov,
+            viewport,
+        );
+    }
+
+    pub fn draw<T: Mesh + DisableDrawing>(
+        &self,
+        gl: &WebGl2Context,
+        renderable: &Renderable<T>,
+        shaders: &HashMap<&'static str, Shader>,
+        viewport: &ViewPort,
+        rendering_mode: &R,
+    ) {
+        let shader = R::get_shader(shaders);
+        shader.bind(gl);
+
+        self.send_global_uniforms(gl, shader, viewport, renderable);
+        rendering_mode.draw(gl, renderable, shader, viewport);
     }
 }
 
@@ -533,367 +883,17 @@ fn get_nearest_parent<'a>(tile: &HEALPixCell, buffer: &'a BufferTiles) -> Tile {
     get_root_parent(tile)
 }
 
-impl Mesh for HiPSSphere {
+impl<R> Mesh for HiPSSphere<R>
+where R: RenderingMode {
     fn get_shader<'a>(&self, shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader {
         &shaders["hips_sphere"]
     }
 
     fn create_buffers(&mut self, gl: &WebGl2Context) {}
-
-    fn update<P: Projection>(
-        &mut self,
-        _local_to_world: &Matrix4<f32>,
-        viewport: &ViewPort
-    ) {
-        let field_of_view = viewport.field_of_view();
-
-        let tiles_fov = field_of_view.healpix_cells();
-        let current_depth = field_of_view.current_depth();
-
-        let prev_depth = DEPTH.load(Ordering::Relaxed);
-        DEPTH.store(current_depth, Ordering::Relaxed);
-
-        let depth_changed = current_depth != prev_depth;
-
-        if depth_changed {
-            self.fov_mode = current_depth >= 3;
-        }
-
-        load_tiles(&self.gl, self.buffer.clone(), tiles_fov, current_depth, depth_changed);
-        // For Small FOV rendering mode
-        if self.fov_mode {
-            let buffer = self.buffer.borrow();
-            
-            let num_tiles = tiles_fov.len();
-            let mut vertices = Vec::with_capacity(10 * 6 * num_tiles);
-
-            if current_depth <= 2 {
-                for idx in 0..192 {
-                    let current_tile = Tile::new(HEALPixCell(2, idx));
-
-                    let current_idx = idx >> (2*(2 - current_depth));
-                    let tile = HEALPixCell(current_depth, current_idx);
-                    if let Some(tile_buffer) = buffer.get(&tile) {
-                        let blending_factor = tile_buffer.blending_factor();
-                        let idx_texture_end = tile_buffer.texture_idx;
-
-                        let (uv_start, idx_texture_start) = if blending_factor == 1_f32 {
-                            let uv_start = [Vector2::new(0_f32, 0_f32); 4];
-                            let idx_texture_start = 0;
-
-                            (uv_start, idx_texture_start)
-                        } else {
-                            let parent_tile_buffer = get_nearest_parent(&tile, &buffer);
-
-                            let uv_start = get_uv_in_parent(&current_tile, &parent_tile_buffer);
-                            let idx_texture_start = parent_tile_buffer.texture_idx;
-
-                            (uv_start, idx_texture_start)
-                        };
-
-                        let uv_end = if blending_factor == 0_f32 {
-                            [Vector2::new(0_f32, 0_f32); 4]
-                        } else {
-                            get_uv_in_parent(&current_tile, tile_buffer)
-                        };
-
-                        let mut vertex_array = Vec::with_capacity(10 * 6);
-                        add_vertices_grid(&mut vertex_array,
-                            2,
-                            idx,
-                            1,
-                            &uv_start, &uv_end,
-                            idx_texture_start, idx_texture_end,
-                            blending_factor
-                        );
-
-                        vertices.extend(vertex_array.iter());
-                    } else {
-                        let blending_factor = 0_f32;
-                        let uv_end = [Vector2::new(0_f32, 0_f32); 4];
-                        let idx_texture_end = 0;
-
-                        let parent_tile_buffer = get_nearest_parent(&tile, &buffer);
-
-                        let uv_start = get_uv_in_parent(&current_tile, &parent_tile_buffer);
-                        let idx_texture_start = parent_tile_buffer.texture_idx;
-                        
-                        let mut vertex_array = Vec::with_capacity(10 * 6);
-                        add_vertices_grid(&mut vertex_array,
-                            2, idx, 1,
-                            &uv_start, &uv_end,
-                            idx_texture_start, idx_texture_end,
-                            blending_factor
-                        );
-
-                        vertices.extend(vertex_array.iter());
-                    }
-                }
-                // Update the buffers
-                self.fov_rendering_mode.vertex_array_object.bind()
-                    .update_array(0, BufferData::VecData(&vertices));
-
-                self.fov_rendering_mode.vertices = vertices;
-                return;
-            }
-
-            if viewport.last_zoom_action == LastZoomAction::Zoom || viewport.last_action == LastAction::Moving {
-                for tile in tiles_fov.iter() {
-                    // If the tile is not already processed
-                    let (depth, idx) = (tile.0, tile.1);
-                    let parent_tile_buffer = get_nearest_parent(tile, &buffer);
-
-                    let uv_start = get_uv_in_parent(&Tile::new(*tile), &parent_tile_buffer);
-                    let idx_texture_start = parent_tile_buffer.texture_idx;
-
-                    let mut blending_factor = 0_f32;
-                    let mut idx_texture_end = 0;
-                    let uv_end = if let Some(tile_buffer) = buffer.get(tile) {
-                        let uv_end = get_uv(tile_buffer);
-
-                        idx_texture_end = tile_buffer.texture_idx;
-                        blending_factor = tile_buffer.blending_factor();
-                        uv_end
-                    } else {
-                        let uv_end = [Vector2::new(0_f32, 0_f32); 4];
-
-                        uv_end
-                    };
-
-                    let mut vertex_array = Vec::with_capacity(10 * 6);
-                    add_vertices_grid(
-                        &mut vertex_array,
-                        depth, idx,
-                        1,
-                        &uv_start, &uv_end,
-                        idx_texture_start, idx_texture_end,
-                        blending_factor
-                    );
-
-                    // tile has been found in the buffer, we will
-                    // render it
-                    vertices.extend(vertex_array.iter());
-                }
-            } else if viewport.last_zoom_action == LastZoomAction::Unzoom {
-            //} else {
-                let buffer = self.buffer.borrow();
-
-                for tile in tiles_fov.iter() {
-                    if let Some(tile_buffer) = buffer.get(tile) {
-                        let blending_factor = tile_buffer.blending_factor();
-
-                        let (depth, idx) = (tile_buffer.cell.0, tile_buffer.cell.1);
-
-                        if blending_factor == 1_f32 {
-                            let uv_end = get_uv(tile_buffer);
-                            let uv_start = [Vector2::new(0_f32, 0_f32); 4];
-
-                            let mut vertex_array = Vec::with_capacity(10 * 6);
-
-                            let idx_texture_start = 0;
-                            let idx_texture_end = tile_buffer.texture_idx;
-                            add_vertices_grid(
-                                &mut vertex_array,
-                                depth, idx,
-                                4,
-                                &uv_start, &uv_end,
-                                idx_texture_start, idx_texture_end,
-                                blending_factor
-                            );
-
-                            // tile has been found in the buffer, we will render it
-                            vertices.extend(vertex_array.iter());
-                        } else {
-                            // We need to check the children tiles first to get the uv_start!
-                            // Let is see at current_depth + 1 first
-                            let mut children_tiles = VecDeque::with_capacity(4);
-                            children_tiles.push_back(HEALPixCell(depth + 1, idx << 2));
-                            children_tiles.push_back(HEALPixCell(depth + 1, (idx << 2) + 1));
-                            children_tiles.push_back(HEALPixCell(depth + 1, (idx << 2) + 2));
-                            children_tiles.push_back(HEALPixCell(depth + 1, (idx << 2) + 3));
-
-                            while !children_tiles.is_empty() {
-                                let child_tile = children_tiles.pop_front().unwrap();
-                                let (child_depth, child_idx) = (child_tile.0, child_tile.1);
-
-                                if let Some(child_tile_buffer) = buffer.get(&child_tile) {
-                                    // Find in which position the child tile is in the
-                                    // parent to get the uv_end
-                                    let uv_end = get_uv_in_parent(child_tile_buffer, tile_buffer);
-                                    let idx_texture_end = tile_buffer.texture_idx;
-
-                                    let uv_start = get_uv(child_tile_buffer);
-                                    let idx_texture_start = child_tile_buffer.texture_idx;
-
-                                    let mut vertex_array = Vec::with_capacity(10 * 6);
-                                    add_vertices_grid(&mut vertex_array,
-                                        child_depth,
-                                        child_idx,
-                                        1 << (depth + 2 - child_depth),
-                                        &uv_start, &uv_end,
-                                        idx_texture_start, idx_texture_end,
-                                        blending_factor);
-
-                                    // tile has been found in the buffer, we will render it
-                                    vertices.extend(vertex_array.iter());
-                                } else {
-                                    if child_depth == depth + 2 {
-                                        // The grand children is not in the buffer
-    
-                                        let tile_child = Tile::new(HEALPixCell(child_depth, child_idx));
-
-                                        // Find in which base cell the current tile is located
-                                        let tile_buffer_parent = get_nearest_parent(&tile, &buffer);
-
-                                        let uv_start = get_uv_in_parent(&tile_child, &tile_buffer_parent);
-                                        let idx_texture_start = tile_buffer_parent.texture_idx;
-
-                                        // Find in which position the child tile is located in the current fov tile
-                                        let uv_end = get_uv_in_parent(&tile_child, tile_buffer);
-                                        let idx_texture_end = tile_buffer.texture_idx;
-
-                                        let mut vertex_array = Vec::with_capacity(10 * 6);
-
-                                        add_vertices_grid(&mut vertex_array,
-                                            child_depth,
-                                            child_idx,
-                                            1,
-                                            &uv_start, &uv_end,
-                                            idx_texture_start, idx_texture_end,
-                                            blending_factor
-                                        );
-
-                                        // tile has been found in the buffer, we will render it
-                                        vertices.extend(vertex_array.iter());
-                                    } else {
-                                        // Split the child cell in its 4 children (e.g. grand children of the tile 
-                                        // in the FOV)
-                                        children_tiles.push_back(HEALPixCell(child_depth + 1, child_idx << 2));
-                                        children_tiles.push_back(HEALPixCell(child_depth + 1, (child_idx << 2) + 1));
-                                        children_tiles.push_back(HEALPixCell(child_depth + 1, (child_idx << 2) + 2));
-                                        children_tiles.push_back(HEALPixCell(child_depth + 1, (child_idx << 2) + 3));
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        let (depth, idx) = (tile.0, tile.1);
-                        // We need to check the children tiles first to get the uv_start!
-                        // Let is see at current_depth + 1 first
-                        let mut children_tiles = VecDeque::with_capacity(4);
-                        children_tiles.push_back(HEALPixCell(depth + 1, idx << 2));
-                        children_tiles.push_back(HEALPixCell(depth + 1, (idx << 2) + 1));
-                        children_tiles.push_back(HEALPixCell(depth + 1, (idx << 2) + 2));
-                        children_tiles.push_back(HEALPixCell(depth + 1, (idx << 2) + 3));
-
-                        let blending_factor = 0_f32;
-                        while !children_tiles.is_empty() {
-                            let child_tile = children_tiles.pop_front().unwrap();
-                            let (child_depth, child_idx) = (child_tile.0, child_tile.1);
-
-                            if let Some(child_tile_buffer) = buffer.get(&child_tile) {
-                                // Find in which position the child tile is in the
-                                // parent to get the uv_end
-                                let uv_end = [Vector2::new(0_f32, 0_f32); 4];
-                                let idx_texture_end = 0;
-
-                                let uv_start = get_uv(child_tile_buffer);
-                                let idx_texture_start = child_tile_buffer.texture_idx;
-
-                                let mut vertex_array = Vec::with_capacity(10 * 6);
-
-                                add_vertices_grid(&mut vertex_array,
-                                    child_depth,
-                                    child_idx,
-                                    1 << (depth + 2 - child_depth),
-                                    &uv_start,
-                                    &uv_end,
-                                    idx_texture_start,
-                                    idx_texture_end,
-                                    blending_factor
-                                );
-
-                                // tile has been found in the buffer, we will render it
-                                vertices.extend(vertex_array.iter());
-                            } else {
-                                if child_depth == depth + 2 {
-                                    // The grand children is not in the buffer
-                                    let tile_child = Tile::new(HEALPixCell(child_depth, child_idx));
-
-                                    // Find in which base cell the child tile is located
-                                    let tile_buffer_parent = get_nearest_parent(&tile, &buffer);
-
-                                    let uv_start = get_uv_in_parent(&tile_child, &tile_buffer_parent);
-                                    let idx_texture_start = tile_buffer_parent.texture_idx;
-
-                                    // Find in which position the child tile is located in the current fov tile
-                                    let uv_end = [Vector2::new(0_f32, 0_f32); 4];
-                                    let idx_texture_end = 0;
-
-                                    let mut vertex_array = Vec::with_capacity(10 * 6);
-                                    add_vertices_grid(&mut vertex_array,
-                                        child_depth,
-                                        child_idx,
-                                        1,
-                                        &uv_start,
-                                        &uv_end,
-                                        idx_texture_start,
-                                        idx_texture_end,
-                                        blending_factor
-                                    );
-                                    vertices.extend(vertex_array.iter());
-                                } else {
-                                    // Split the child cell in its 4 children (e.g. grand children of the tile 
-                                    // in the FOV)
-                                    children_tiles.push_back(HEALPixCell(child_depth + 1, child_idx << 2));
-                                    children_tiles.push_back(HEALPixCell(child_depth + 1, (child_idx << 2) + 1));
-                                    children_tiles.push_back(HEALPixCell(child_depth + 1, (child_idx << 2) + 2));
-                                    children_tiles.push_back(HEALPixCell(child_depth + 1, (child_idx << 2) + 3));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            //console::log_1(&format!("len33 {:?}", vertices.len()).into());
-            // Update the buffers
-            self.fov_rendering_mode.vertex_array_object.bind()
-                .update_array(0, BufferData::VecData(&vertices));
-
-            self.fov_rendering_mode.vertices = vertices;
-        }
-    }
-
-    fn draw<T: Mesh + DisableDrawing>(
-        &self,
-        gl: &WebGl2Context,
-        renderable: &Renderable<T>,
-        shaders: &HashMap<&'static str, Shader>,
-        viewport: &ViewPort
-    ) {
-        if self.fov_mode {
-            let shader = &shaders["hips_sphere_small_fov"];
-            shader.bind(gl);
-
-            self.send_uniforms(gl, shader, viewport, renderable);
-
-            SmallFieldOfViewRenderingMode::send_uniforms(gl, shader);
-            self.fov_rendering_mode.draw(gl, renderable, shaders, viewport);
-        } else {
-            let shader = &shaders["hips_sphere"];
-            shader.bind(gl);
-
-            self.send_uniforms(gl, shader, viewport, renderable);
-
-            PerPixelRenderingMode::send_uniforms(gl, shader);
-            self.per_pixel_rendering_mode.draw(gl, renderable, shaders, viewport);
-        }
-    }
 }
 
 use crate::renderable::DisableDrawing;
-impl DisableDrawing for HiPSSphere {
+impl<R> DisableDrawing for HiPSSphere<R> where R: RenderingMode {
     fn disable(&mut self) {
     }
 }

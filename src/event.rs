@@ -23,6 +23,7 @@ use crate::math;
 use crate::utils;
 
 use crate::projection::Projection;
+use crate::renderable::hips_sphere::RenderingMode;
 
 impl Move {
     pub fn new(start_world_pos: Vector4<f32>) -> Move {
@@ -38,8 +39,8 @@ impl Move {
         }
     }
 
-    pub fn apply_to_renderables(&mut self, world_pos: Vector4<f32>,
-        hips_sphere: &mut Renderable<HiPSSphere>,
+    pub fn apply_to_renderables<R: RenderingMode>(&mut self, world_pos: Vector4<f32>,
+        hips_sphere: &mut Renderable<HiPSSphere<R>>,
         grid: &mut Renderable<ProjetedGrid>,
         catalog: &mut Renderable<Catalog>,
     ) {

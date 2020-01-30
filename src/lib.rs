@@ -69,8 +69,13 @@ extern crate aladinlite_derive;
 use crate::shaders::colormap::*;
 use crate::shaders::catalog::*;
 
-struct App<P>
-where P: Projection {
+use crate::renderable::hips_sphere::RenderingMode;
+
+
+
+struct App<P, R>
+where P: Projection,
+    R: RenderingMode {
     gl: WebGl2Context,
 
     shaders: HashMap<&'static str, Shader>,
@@ -79,7 +84,7 @@ where P: Projection {
     projection: std::marker::PhantomData<P>,
 
     // The sphere renderable
-    hips_sphere: Renderable<HiPSSphere>,
+    hips_sphere: Renderable<HiPSSphere<R>>,
     // The grid renderable
     grid: Renderable<ProjetedGrid>,
     // The catalogs
@@ -116,11 +121,13 @@ fn add_tile_buffer_uniforms(name: &'static str, size: usize, uniforms: &mut Vec<
 
 use crate::shader::Shaderize;
 
-use cgmath::Vector2;
-impl<P> App<P>
-where P: Projection {
-    fn new(gl: &WebGl2Context) -> Result<App<P>, JsValue> {
+use crate::renderable::hips_sphere::PerPixel;
 
+use cgmath::Vector2;
+
+impl<P, R> App<P, R>
+where P: Projection, R: RenderingMode {
+    fn new(gl: &WebGl2Context) -> Result<App<Aitoff, PerPixel>, JsValue> {
         console::log_1(&format!("Init").into());
 
         // Shader definition
@@ -260,17 +267,20 @@ where P: Projection {
         gl.cull_face(WebGl2RenderingContext::BACK);
 
         // Viewport definition
-        let viewport = ViewPort::new::<P>(&gl);
+        let viewport = ViewPort::new::<Aitoff>(&gl);
+
+        // Create all the rendering mode for the HiPS sphere
+        let mut perpixel_ait_render_mode = PerPixel::new(&gl, &viewport);
 
         // HiPS Sphere definition
-        let hips_sphere_mesh = HiPSSphere::new::<P>(&gl, &viewport);
+        let hips_sphere_mesh = HiPSSphere::<PerPixel>::new(&gl, &viewport);
         console::log_1(&format!("fffff sfs").into());
-        let mut hips_sphere = Renderable::<HiPSSphere>::new(
+        let mut hips_sphere = Renderable::<HiPSSphere<PerPixel>>::new(
             &gl,
             &shaders,
             hips_sphere_mesh,
         );
-        hips_sphere.update::<P>(&viewport);
+        hips_sphere.mesh_mut().update(&viewport, &mut perpixel_ait_render_mode);
         console::log_1(&format!("fffff sfs").into());
         // Catalog definition
         let catalog_mesh = Catalog::new(&gl, vec![]);
@@ -338,7 +348,7 @@ where P: Projection {
         Ok(app)
     } 
 
-    fn update(&mut self, dt: f32) {
+    fn update(&mut self, dt: f32, rendering_mode: &mut R) {
         /*if !UPDATE_USER_INTERFACE.load(Ordering::Relaxed) {
             RENDER_FRAME.lock().unwrap().update(&self.viewport);
             //UPDATE_FRAME.lock().unwrap().update(&self.viewport);
@@ -350,11 +360,11 @@ where P: Projection {
         
         // Check whether the HiPS sphere must be updated or not
         if utils::get_current_time() < *LATEST_TIME_TILE_RECEIVED.lock().unwrap() + BLENDING_DURATION_MS {
-            self.hips_sphere.update::<P>(&self.viewport);
+            self.hips_sphere.mesh_mut().update(&self.viewport, rendering_mode);
         }
     }
 
-    fn render(&self) {
+    fn render(&self, rendering_mode: &mut R) {
         if true {
             // Render the scene
             self.gl.clear_color(0.08, 0.08, 0.08, 1.0);
@@ -365,9 +375,12 @@ where P: Projection {
             let ref shaders = self.shaders;
 
             // Draw the HiPS sphere
-            self.hips_sphere.draw(
+            self.hips_sphere.mesh().draw(
+                &self.gl,
+                &self.hips_sphere,
                 shaders,
-                viewport
+                viewport,
+                rendering_mode,
             );
             /*self.ortho_hips_sphere.draw(
                 shaders,
@@ -375,7 +388,9 @@ where P: Projection {
             );*/
 
             // Draw the catalogs
-            self.catalog.draw(
+            self.catalog.mesh().draw(
+                &self.gl,
+                &self.catalog,
                 shaders,
                 viewport
             );
@@ -393,20 +408,21 @@ where P: Projection {
         }
     }
 
-    fn set_projection<Q: Projection>(mut self) -> App::<Q> {
+    fn set_projection<Q: Projection>(mut self, rendering_mode: &mut R) -> App::<Q, R> {
         // Reset viewport first
         self.viewport.reset_zoom_level::<Q>();
 
         // New HiPS sphere & update
-        let hips_sphere_mesh = HiPSSphere::new::<Q>(&self.gl, &self.viewport);
-        self.hips_sphere.update_mesh(&self.shaders, hips_sphere_mesh);
-        self.hips_sphere.update::<Q>(&self.viewport);
+        //let hips_sphere_mesh = HiPSSphere::<R>::new(&self.gl, &self.viewport);
+        //let mut hips_sphere = Renderable::new(&self.gl, &self.shaders, hips_sphere_mesh);
+        //self.hips_sphere.update_mesh(&self.shaders, hips_sphere_mesh);
+        self.hips_sphere.mesh_mut().update(&self.viewport, rendering_mode);
 
         // Change projection of the catalog & update
         self.catalog.mesh_mut().set_projection::<Q>();
-        self.catalog.update::<Q>(&self.viewport);
+        self.catalog.mesh_mut().update::<Q>(&self.viewport);
 
-        App::<Q> {
+        App::<Q, R> {
             gl: self.gl,
 
             shaders: self.shaders,
@@ -416,6 +432,34 @@ where P: Projection {
 
             // The sphere renderable
             hips_sphere: self.hips_sphere,
+            // The grid renderable
+            grid: self.grid,
+            // The catalog renderable
+            catalog: self.catalog,
+
+            moving: self.moving,
+        }
+    }
+
+    fn set_render_mode<Q: RenderingMode>(mut self, r: &mut Q) -> App::<P, Q> {
+        let hips_sphere_mesh = self.hips_sphere
+            .mesh()
+            .clone()
+            .set_rendering_mode();
+
+        let hips_sphere = self.hips_sphere.set_mesh(hips_sphere_mesh);
+        hips_sphere.mesh_mut().update(&self.viewport, r);
+
+        App::<P, Q> {
+            gl: self.gl,
+
+            shaders: self.shaders,
+
+            viewport: self.viewport,
+            projection: std::marker::PhantomData,
+
+            // The sphere renderable
+            hips_sphere: hips_sphere,
             // The grid renderable
             grid: self.grid,
             // The catalog renderable
@@ -458,7 +502,7 @@ where P: Projection {
                 );
 
                 // Moves the viewport
-                self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog);
+                self.viewport.displacement::<P, R>(&mut self.hips_sphere, &mut self.catalog);
             }
         }
     }
@@ -484,13 +528,23 @@ where P: Projection {
         }*/
     }
 
+
+    // Returns true if hips_sphere rendering mode has to be changed to the PerPixel mode
+    fn unzoom(&mut self, delta_y: f32) -> bool {
+        //if delta_y < 0_f32 {
+        self.viewport.unzoom::<P, R>(&mut self.hips_sphere, &mut self.catalog)
+    }
+
     // ZOOM EVENT
-    fn zoom(&mut self, delta_y: f32) {
-        if delta_y < 0_f32 {
-            self.viewport.zoom::<P>(&mut self.hips_sphere, &mut self.catalog);
-        } else {
-            self.viewport.unzoom::<P>(&mut self.hips_sphere, &mut self.catalog);
-        }
+    // Returns true if hips_sphere rendering mode has to be changed to the SmallFOV mode
+    fn zoom(&mut self, delta_y: f32) -> bool {
+        //if delta_y > 0_f32 {
+        self.viewport.zoom::<P, R>(&mut self.hips_sphere, &mut self.catalog)
+
+        /*// Update the HiPS sphere 
+        self.hips_sphere.update::<P>(&self.viewport);
+        // Update the catalog loaded
+        self.catalog.update::<P>(&self.viewport);*/
     }
 
     fn add_catalog(&mut self, sources: Vec<Source>) {
@@ -527,6 +581,13 @@ where P: Projection {
 
     fn resize_window(&mut self, width: f32, height: f32) {
         self.viewport.resize_window::<P>(width, height);
+    }
+
+    fn update_hips_sphere(&mut self, r: &mut R) {
+        self.hips_sphere.mesh_mut().update(&self.viewport, r);
+    }
+    fn update_catalog(&mut self) {
+        self.catalog.mesh_mut().update::<P>(&self.viewport);
     }
 }
 
@@ -581,43 +642,45 @@ impl Deref for WebGl2Context {
     }
 }
 
+use crate::renderable::hips_sphere::SmallFieldOfView;
 enum AppConfig {
-    Ait(App<Aitoff>),
-    Ort(App<Orthographic>),
-    Mol(App<MollWeide>),
+    AitPerPixel(App<Aitoff, PerPixel>, PerPixel),
+    MolPerPixel(App<MollWeide, PerPixel>, PerPixel),
+    OrtSmallFieldOfView(App<Orthographic, SmallFieldOfView>, SmallFieldOfView),
 }
 
 impl AppConfig {
     fn set_projection(self, proj: &str) -> AppConfig {
         match (self, proj) {
-            (AppConfig::Ait(app), "aitoff") => {
-                AppConfig::Ait(app)
+            (AppConfig::AitPerPixel(app, render_mode), "aitoff") => {
+                AppConfig::AitPerPixel(app, render_mode)
             },
-            (AppConfig::Ait(app), "orthographic") => {
-                AppConfig::Ort(app.set_projection::<Orthographic>())
+            (AppConfig::MolPerPixel(app, render_mode), "aitoff") => {
+                AppConfig::AitPerPixel(app.set_projection::<Aitoff>(), render_mode.)
             },
-            (AppConfig::Ait(app), "mollweide") => {
-                AppConfig::Mol(app.set_projection::<MollWeide>())
-            },
-
-            (AppConfig::Ort(app), "aitoff") => {
-                AppConfig::Ait(app.set_projection::<Aitoff>())
-            },
-            (AppConfig::Ort(app), "orthographic") => {
-                AppConfig::Ort(app)
-            },
-            (AppConfig::Ort(app), "mollweide") => {
-                AppConfig::Mol(app.set_projection::<MollWeide>())
+            (AppConfig::OrtSmallFieldOfView(app), "aitoff") => {
+                AppConfig::AitPerPixel(app.set_projection::<Aitoff>())
             },
 
-            (AppConfig::Mol(app), "aitoff") => {
-                AppConfig::Ait(app.set_projection::<Aitoff>())
+
+            (AppConfig::AitPerPixel(app), "orthographic") => {
+                AppConfig::OrtPerPixel(app.set_projection::<Orthographic>())
             },
-            (AppConfig::Mol(app), "orthographic") => {
-                AppConfig::Ort(app.set_projection::<Orthographic>())
+            (AppConfig::MolPerPixel(app), "orthographic") => {
+                AppConfig::OrtPerPixel(app.set_projection::<Orthographic>())
             },
-            (AppConfig::Mol(app), "mollweide") => {
-                AppConfig::Mol(app)
+            (AppConfig::OrtSmallFieldOfView(app), "orthographic") => {
+                AppConfig::OrtPerPixel(app.set_projection::<Orthographic>())
+            },
+
+            (AppConfig::AitPerPixel(app), "mollweide") => {
+                AppConfig::MolPerPixel(app.set_projection::<MollWeide>())
+            },
+            (AppConfig::MolPerPixel(app), "mollweide") => {
+                AppConfig::MolPerPixel(app)
+            },
+            (AppConfig::OrtSmallFieldOfView(app), "mollweide") => {
+                AppConfig::MolPerPixel(app.set_projection::<MollWeide>())
             },
             _ => unreachable!()
         }
@@ -625,34 +688,38 @@ impl AppConfig {
 
     fn set_colormap(&mut self, colormap: String) {
         match self {
-            AppConfig::Ait(app) => app.set_colormap(colormap),
-            AppConfig::Mol(app) => app.set_colormap(colormap),
-            AppConfig::Ort(app) => app.set_colormap(colormap),
+            AppConfig::AitPerPixel(app) => app.set_colormap(colormap),
+            AppConfig::MolPerPixel(app) => app.set_colormap(colormap),
+            AppConfig::OrtSmallFieldOfView(app) => app.set_colormap(colormap),
+            AppConfig::OrtPerPixel(app) => app.set_colormap(colormap),
         };
     }
 
     fn update(&mut self, dt: f32) {
         match self {
-            AppConfig::Ait(app) => app.update(dt),
-            AppConfig::Mol(app) => app.update(dt),
-            AppConfig::Ort(app) => app.update(dt),
+            AppConfig::AitPerPixel(app, r) => app.update(dt, r),
+            AppConfig::MolPerPixel(app, r) => app.update(dt, r),
+            AppConfig::OrtSmallFieldOfView(app, r) => app.update(dt, r),
+            AppConfig::OrtPerPixel(app, r) => app.update(dt, r),
         }
     }
 
     fn render(&self) {
         match self {
-            AppConfig::Ait(app) => app.render(),
-            AppConfig::Mol(app) => app.render(),
-            AppConfig::Ort(app) => app.render(),
+            AppConfig::AitPerPixel(app) => app.render(),
+            AppConfig::MolPerPixel(app) => app.render(),
+            AppConfig::OrtSmallFieldOfView(app) => app.render(),
+            AppConfig::OrtPerPixel(app) => app.render(),
         }
     }
 
     pub fn initialize_move(&mut self, screen_pos_x: f32, screen_pos_y: f32) {
         let screen_pos = Vector2::new(screen_pos_x, screen_pos_y);
         match self {
-            AppConfig::Ait(app) => app.initialize_move(screen_pos),
-            AppConfig::Mol(app) => app.initialize_move(screen_pos),
-            AppConfig::Ort(app) => app.initialize_move(screen_pos),
+            AppConfig::AitPerPixel(app) => app.initialize_move(screen_pos),
+            AppConfig::MolPerPixel(app) => app.initialize_move(screen_pos),
+            AppConfig::OrtSmallFieldOfView(app) => app.initialize_move(screen_pos),
+            AppConfig::OrtPerPixel(app) => app.initialize_move(screen_pos),
         }
     }
 
@@ -660,27 +727,54 @@ impl AppConfig {
     pub fn stop_move(&mut self, screen_pos_x: f32, screen_pos_y: f32) {
         let screen_pos = Vector2::new(screen_pos_x, screen_pos_y);
         match self {
-            AppConfig::Ait(app) => app.stop_move(screen_pos),
-            AppConfig::Mol(app) => app.stop_move(screen_pos),
-            AppConfig::Ort(app) => app.stop_move(screen_pos),
+            AppConfig::AitPerPixel(app) => app.stop_move(screen_pos),
+            AppConfig::MolPerPixel(app) => app.stop_move(screen_pos),
+            AppConfig::OrtSmallFieldOfView(app) => app.stop_move(screen_pos),
+            AppConfig::OrtPerPixel(app) => app.stop_move(screen_pos),
         }
     }
     /// Keep moving
     pub fn moves(&mut self, screen_pos_x: f32, screen_pos_y: f32) {
         let screen_pos = Vector2::new(screen_pos_x, screen_pos_y);
         match self {
-            AppConfig::Ait(app) => app.moves(screen_pos),
-            AppConfig::Mol(app) => app.moves(screen_pos),
-            AppConfig::Ort(app) => app.moves(screen_pos),
+            AppConfig::AitPerPixel(app) => app.moves(screen_pos),
+            AppConfig::MolPerPixel(app) => app.moves(screen_pos),
+            AppConfig::OrtSmallFieldOfView(app) => app.moves(screen_pos),
+            AppConfig::OrtPerPixel(app) => app.moves(screen_pos),
         }
     }
 
     /// Wheel event
     pub fn zoom(&mut self, delta_y: f32) {
         match self {
-            AppConfig::Ait(app) => app.zoom(delta_y),
-            AppConfig::Mol(app) => app.zoom(delta_y),
-            AppConfig::Ort(app) => app.zoom(delta_y),
+            AppConfig::AitPerPixel(app) => app.zoom(delta_y),
+            AppConfig::MolPerPixel(app) => app.zoom(delta_y),
+            AppConfig::OrtSmallFieldOfView(app) => app.zoom(delta_y),
+            AppConfig::OrtPerPixel(app) => app.zoom(delta_y),
+        }
+    }
+    pub fn unzoom(&mut self, delta_y: f32, perpixel: &mut PerPixel) {
+        match self {
+            AppConfig::AitPerPixel(app, r) => {
+                let switch_to_perpixel = app.unzoom(delta_y);
+                assert!(!switch_to_perpixel);
+
+                app.update_hips_sphere(r);
+                app.update_catalog()
+            },
+            AppConfig::MolPerPixel(app, _) => {
+                let switch_to_perpixel = app.unzoom(delta_y);
+                assert!(!switch_to_perpixel);
+            },
+            AppConfig::OrtSmallFieldOfView(app, r) => {
+                let switch_to_perpixel = app.unzoom(delta_y);
+
+                if switch_to_perpixel {
+                    app.set_render_mode::<PerPixel>(perpixel);
+                }
+
+
+            },
         }
     }
 
@@ -702,49 +796,55 @@ impl AppConfig {
         }
 
         match self {
-            AppConfig::Ait(app) => app.add_catalog(sources),
-            AppConfig::Mol(app) => app.add_catalog(sources),
-            AppConfig::Ort(app) => app.add_catalog(sources),
+            AppConfig::AitPerPixel(app) => app.add_catalog(sources),
+            AppConfig::MolPerPixel(app) => app.add_catalog(sources),
+            AppConfig::OrtSmallFieldOfView(app) => app.add_catalog(sources),
+            AppConfig::OrtPerPixel(app) => app.add_catalog(sources),
         }
     }
 
     pub fn reload_hips_sphere(&mut self, hips_url: String, max_depth: u8) {        
         match self {
-            AppConfig::Ait(app) => app.reload_hips_sphere(hips_url, max_depth),
-            AppConfig::Mol(app) => app.reload_hips_sphere(hips_url, max_depth),
-            AppConfig::Ort(app) => app.reload_hips_sphere(hips_url, max_depth),
+            AppConfig::AitPerPixel(app) => app.reload_hips_sphere(hips_url, max_depth),
+            AppConfig::MolPerPixel(app) => app.reload_hips_sphere(hips_url, max_depth),
+            AppConfig::OrtSmallFieldOfView(app) => app.reload_hips_sphere(hips_url, max_depth),
+            AppConfig::OrtPerPixel(app) => app.reload_hips_sphere(hips_url, max_depth),
         }
     }
 
     pub fn resize(&mut self, width: f32, height: f32) {        
         match self {
-            AppConfig::Ait(app) => app.resize_window(width, height),
-            AppConfig::Mol(app) => app.resize_window(width, height),
-            AppConfig::Ort(app) => app.resize_window(width, height),
+            AppConfig::AitPerPixel(app) => app.resize_window(width, height),
+            AppConfig::MolPerPixel(app) => app.resize_window(width, height),
+            AppConfig::OrtSmallFieldOfView(app) => app.resize_window(width, height),
+            AppConfig::OrtPerPixel(app) => app.resize_window(width, height),
         }
     }
 
     pub fn set_kernel_strength(&mut self, strength: f32) {        
         match self {
-            AppConfig::Ait(app) => app.set_kernel_strength(strength),
-            AppConfig::Mol(app) => app.set_kernel_strength(strength),
-            AppConfig::Ort(app) => app.set_kernel_strength(strength),
+            AppConfig::AitPerPixel(app) => app.set_kernel_strength(strength),
+            AppConfig::MolPerPixel(app) => app.set_kernel_strength(strength),
+            AppConfig::OrtSmallFieldOfView(app) => app.set_kernel_strength(strength),
+            AppConfig::OrtPerPixel(app) => app.set_kernel_strength(strength),
         }
     }
 
     pub fn set_heatmap_opacity(&mut self, opacity: f32) {        
         match self {
-            AppConfig::Ait(app) => app.set_heatmap_opacity(opacity),
-            AppConfig::Mol(app) => app.set_heatmap_opacity(opacity),
-            AppConfig::Ort(app) => app.set_heatmap_opacity(opacity),
+            AppConfig::AitPerPixel(app) => app.set_heatmap_opacity(opacity),
+            AppConfig::MolPerPixel(app) => app.set_heatmap_opacity(opacity),
+            AppConfig::OrtSmallFieldOfView(app) => app.set_heatmap_opacity(opacity),
+            AppConfig::OrtPerPixel(app) => app.set_heatmap_opacity(opacity),
         }
     }
 
     pub fn set_range_source_size(&mut self, source_size_range: std::ops::Range<f32>) {
         match self {
-            AppConfig::Ait(app) => app.set_range_source_size(source_size_range),
-            AppConfig::Mol(app) => app.set_range_source_size(source_size_range),
-            AppConfig::Ort(app) => app.set_range_source_size(source_size_range),
+            AppConfig::AitPerPixel(app) => app.set_range_source_size(source_size_range),
+            AppConfig::MolPerPixel(app) => app.set_range_source_size(source_size_range),
+            AppConfig::OrtSmallFieldOfView(app) => app.set_range_source_size(source_size_range),
+            AppConfig::OrtPerPixel(app) => app.set_range_source_size(source_size_range),
         }
     }
 }
@@ -761,8 +861,8 @@ impl WebClient {
     pub fn new() -> WebClient {
         let gl = WebGl2Context::new();
 
-        let app: App<Aitoff> = App::new(&gl).unwrap();
-        let appconfig = AppConfig::Ait(app);
+        let app = App::<Aitoff, PerPixel<Aitoff>>::new(&gl).unwrap();
+        let appconfig = AppConfig::AitPerPixel(app);
 
         WebClient {
             appconfig,

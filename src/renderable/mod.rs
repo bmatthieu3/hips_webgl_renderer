@@ -21,20 +21,6 @@ use crate::projection::Projection;
 pub trait Mesh {
     fn create_buffers(&mut self, gl: &WebGl2Context);
 
-    fn update<P: Projection>(
-        &mut self,
-        local_to_world: &Matrix4<f32>,
-        viewport: &ViewPort
-    );
-
-    fn draw<T: Mesh + DisableDrawing>(
-        &self,
-        gl: &WebGl2Context,
-        model: &Renderable<T>,
-        shaders: &HashMap<&'static str, Shader>,
-        viewport: &ViewPort
-    );
-
     fn get_shader<'a>(&self, shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader;
 }
 
@@ -88,6 +74,21 @@ where T: Mesh + DisableDrawing {
         }
     }
 
+    pub fn set_mesh<U: Mesh + DisableDrawing>(self, mesh: U) -> Renderable<U> {
+        Renderable::<U> {
+            // The model matrix of the Renderable
+            model_mat: self.model_mat,
+            inverted_model_mat: self.inverted_model_mat,
+            // And its submatrices
+            scale_mat: self.scale_mat,
+            rotation_mat: self.rotation_mat,
+            translation_mat: self.translation_mat,
+
+            mesh,
+            gl: self.gl,
+        }
+    }
+
     pub fn update_mesh(&mut self, shaders: &HashMap<&'static str, Shader>, mut mesh: T) {
         let shader = mesh.get_shader(shaders);
         shader.bind(&self.gl);
@@ -136,7 +137,7 @@ where T: Mesh + DisableDrawing {
         &mut self.mesh
     }
 
-    pub fn update<P: Projection>(&mut self, viewport: &ViewPort) {
+    /*pub fn update<P: Projection>(&mut self, viewport: &ViewPort) {
         let ref mut mesh = self.mesh;
 
         let ref local_to_world = self.model_mat;
@@ -145,10 +146,10 @@ where T: Mesh + DisableDrawing {
             local_to_world,
             viewport
         );
-    }
+    }*/
 
-    pub fn draw(&self, shaders: &HashMap<&'static str, Shader>, viewport: &ViewPort) {
+    /*pub fn draw(&self, shaders: &HashMap<&'static str, Shader>, viewport: &ViewPort) {
         let ref gl = self.gl;
         self.mesh.draw(gl, &self, shaders, viewport);
-    }
+    }*/
 }
