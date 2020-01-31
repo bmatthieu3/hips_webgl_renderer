@@ -555,7 +555,7 @@ impl BufferTiles {
             name += &i.to_string();
             name += "].";
             let location_hpx_idx = shader.get_uniform_location(&(name.clone() + "uniq"));
-            self.gl.uniform1ui(location_hpx_idx, tile.uniq);
+            self.gl.uniform1i(location_hpx_idx, tile.uniq as i32);
 
             let location_buf_idx = shader.get_uniform_location(&(name.clone() + "texture_idx"));
             self.gl.uniform1i(location_buf_idx, tile.texture_idx);
