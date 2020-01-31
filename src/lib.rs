@@ -145,6 +145,7 @@ where P: Projection {
             // HiPS Sphere-specific uniforms
             "current_depth",
             "max_depth",
+            "num_tiles",
             // Textures
             "textures[0]",
             "textures[1]",
@@ -197,6 +198,7 @@ where P: Projection {
             // Textures
             "textures[0]",
             "textures[1]",
+            "num_tiles",
         ];
         uniforms_ortho_hips.extend(crate::shaders::uniform_healpix_tiles::HPX_TILES_BUFFER_UNIFORMS);
         //add_tile_buffer_uniforms("textures", 128, &mut uniforms_ortho_hips);

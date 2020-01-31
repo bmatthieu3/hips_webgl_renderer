@@ -504,23 +504,7 @@ impl BufferTiles {
             tiles[off + j] = tile.into();
         }
 
-        /*let mut tiles = self.buffer
-            .iter()
-            .map(|tile| {
-                tile.into()
-            })
-            .collect::<Vec<_>>();
-
-        let base_tiles = self.base_tiles
-            .iter()
-            .map(|tile| {
-                tile.into()
-            }).collect::<Vec<_>>();
-        
-        tiles.extend(base_tiles);*/
-
         tiles.sort();
-        console::log_1(&format!("tiles LENGTH {:?}", tiles.len()).into());
 
         tiles
     }
@@ -548,6 +532,7 @@ impl BufferTiles {
     pub fn send_to_shader(&self, shader: &Shader) {
         self.send_texture(shader);
         let tiles = self.uniq_ordered_tiles();
+
         for (i, tile) in tiles.iter().enumerate() {
             let mut name = String::from("textures");
             name += "_tiles";
@@ -555,7 +540,7 @@ impl BufferTiles {
             name += &i.to_string();
             name += "].";
             let location_hpx_idx = shader.get_uniform_location(&(name.clone() + "uniq"));
-            self.gl.uniform1ui(location_hpx_idx, tile.uniq);
+            self.gl.uniform1i(location_hpx_idx, tile.uniq as i32);
 
             let location_buf_idx = shader.get_uniform_location(&(name.clone() + "texture_idx"));
             self.gl.uniform1i(location_buf_idx, tile.texture_idx);
@@ -566,6 +551,9 @@ impl BufferTiles {
             let location_time_request = shader.get_uniform_location(&(name + "time_request"));
             self.gl.uniform1f(location_time_request, tile.time_request);
         }
+
+        let location_size_buffer = shader.get_uniform_location("num_tiles");
+        self.gl.uniform1i(location_size_buffer, 12 + self.buffer.len() as i32);
     }
 
     pub fn len(&self) -> usize {
@@ -657,6 +645,11 @@ pub fn load_tiles(
     depth: u8,
     depth_changed: bool
 ) {
+    // Do not load base tiles, they are already in the buffer
+    if depth == 0 {
+        return;
+    }
+
     {
         let mut buffer = buffer.borrow_mut();
         // If the depth has just changed, we must rebuild the

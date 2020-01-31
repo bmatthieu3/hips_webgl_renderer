@@ -186,7 +186,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
     uniform int last_zoom_action;
 
     struct Tile {
-        uint uniq; // Healpix cell
+        int uniq; // Healpix cell
         int texture_idx; // Index in the texture buffer
         float time_received; // Absolute time that the load has been done in ms
         float time_request;
@@ -197,6 +197,8 @@ pub static CONTENT: &'static str = r#"#version 300 es
     uniform sampler2D textures[2];
     uniform Tile textures_tiles[128];
 
+    uniform int num_tiles;
+
     uniform float current_time; // current time in ms
     struct TileColor {
         Tile tile;
@@ -204,19 +206,25 @@ pub static CONTENT: &'static str = r#"#version 300 es
         bool found;
     };
 
-    TileColor get_tile_color(vec3 pos, float size, int depth) {
+    TileColor get_tile_color(vec3 pos, int depth) {
         HashDxDy result = hash_with_dxdy(depth, pos.zxy);
         uint idx = result.idx;
-        uint uniq = (16U << (uint(depth) << 1U)) | idx;
+        int uniq = (16 << (int(depth) << 1)) | int(idx);
 
         vec2 uv = vec2(result.dy, result.dx);
 
         int a = 0;
-        int b = 127;
+        int b = num_tiles;
+
+        if (depth == 0) {
+            b = 11;
+        } else if (depth == 1) {
+            b = 47;
+        }
 
         int i = (b + a) / 2;
 
-        int h = int(log2(size)) + 1;
+        int h = int(log2(float(b))) + 1;
         // Binary search among the tile idx
         for(int step = 0; step < h; step++) {
             if (uniq == textures_tiles[i].uniq) {
@@ -249,9 +257,8 @@ pub static CONTENT: &'static str = r#"#version 300 es
         }
 
         // code unreachable
-        Tile empty = Tile(0U, -1, current_time, 0.f);
-        //return TileColor(empty, vec3((uv + float(result.idx))/13.f, 1.f), false);
-        return TileColor(empty, vec3((float(textures_tiles[1].uniq) - 16.f)/11.f), false);
+        Tile empty = Tile(0, -1, current_time, 0.f);
+        return TileColor(empty, vec3(0.f), false);
     }
 
     const float duration = 500.f; // 500ms
@@ -261,8 +268,13 @@ pub static CONTENT: &'static str = r#"#version 300 es
         vec3 frag_pos = normalize(out_vert_pos);
         // Get the HEALPix cell idx and the uv in the texture
 
-        TileColor current_tile = get_tile_color(frag_pos, 128.f, current_depth);
+        TileColor current_tile = get_tile_color(frag_pos, current_depth);
         out_frag_color = vec4(current_tile.color, 1.f);
+
+        if (current_depth == 0) {
+            return;
+        }
+
         if (!current_tile.found) {
             vec3 out_color = vec3(0.f);
             int depth = 0;
@@ -274,14 +286,14 @@ pub static CONTENT: &'static str = r#"#version 300 es
                 depth = min(max_depth, current_depth + 1);
             }
 
-            TileColor prev_tile = get_tile_color(frag_pos, 128.f, depth);
+            TileColor prev_tile = get_tile_color(frag_pos, depth);
             float alpha = clamp((current_time - prev_tile.tile.time_received) / duration, 0.f, 1.f);
             if (alpha == 1.f) {
                 out_frag_color = vec4(prev_tile.color, 1.f);
                 return;
             }
 
-            TileColor base_tile = get_tile_color(frag_pos, 128.f, 0);
+            TileColor base_tile = get_tile_color(frag_pos, 0);
 
             out_color = mix(base_tile.color, prev_tile.color, alpha);
             out_frag_color = vec4(out_color, 1.f);
@@ -307,9 +319,9 @@ pub static CONTENT: &'static str = r#"#version 300 es
             depth = min(max_depth, current_depth + 1);
         }
 
-        TileColor tile = get_tile_color(frag_pos, 128.f, depth);
+        TileColor tile = get_tile_color(frag_pos, depth);
         if (!tile.found) {
-            tile = get_tile_color(frag_pos, 128.f, 0);
+            tile = get_tile_color(frag_pos, 0);
         }
 
         out_color = mix(tile.color, current_tile.color, alpha);
