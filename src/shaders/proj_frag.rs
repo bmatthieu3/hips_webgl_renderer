@@ -2,6 +2,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
     precision highp float;
     precision lowp sampler3D;
     precision lowp sampler2D;
+    precision highp int;
 
     in vec3 out_vert_pos;
 
@@ -185,7 +186,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
     uniform int last_zoom_action;
 
     struct Tile {
-        int uniq; // Healpix cell
+        uint uniq; // Healpix cell
         int texture_idx; // Index in the texture buffer
         float time_received; // Absolute time that the load has been done in ms
         float time_request;
@@ -206,7 +207,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
     TileColor get_tile_color(vec3 pos, float size, int depth) {
         HashDxDy result = hash_with_dxdy(depth, pos.zxy);
         uint idx = result.idx;
-        int uniq = (1 << (2*(int(depth) + 1))) + int(idx);
+        uint uniq = (16U << (uint(depth) << 1U)) | idx;
 
         vec2 uv = vec2(result.dy, result.dx);
 
@@ -248,8 +249,9 @@ pub static CONTENT: &'static str = r#"#version 300 es
         }
 
         // code unreachable
-        Tile empty = Tile(0, -1, current_time, 0.f);
-        return TileColor(empty, vec3((uv + float(result.idx))/13.f, 1.f), false);
+        Tile empty = Tile(0U, -1, current_time, 0.f);
+        //return TileColor(empty, vec3((uv + float(result.idx))/13.f, 1.f), false);
+        return TileColor(empty, vec3((float(textures_tiles[1].uniq) - 16.f)/11.f), false);
     }
 
     const float duration = 500.f; // 500ms

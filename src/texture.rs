@@ -146,7 +146,7 @@ impl From<Tile> for TilePerPixelGPU {
         let depth = tile.cell.0;
         let idx = tile.cell.1;
 
-        let uniq = (1 << (2*((depth as u64) + 1))) + idx;
+        let uniq = (16 << (depth << 1)) | idx;
         let uniq = uniq as u32;
 
         let texture_idx = tile.texture_idx as i32;
@@ -174,7 +174,7 @@ impl From<&Tile> for TilePerPixelGPU {
         let depth = tile.cell.0;
         let idx = tile.cell.1;
 
-        let uniq = (1 << (2*((depth as u64) + 1))) + idx;
+        let uniq = (16 << (depth << 1)) | idx;
         let uniq = uniq as u32;
 
         let texture_idx = tile.texture_idx as i32;
@@ -555,7 +555,7 @@ impl BufferTiles {
             name += &i.to_string();
             name += "].";
             let location_hpx_idx = shader.get_uniform_location(&(name.clone() + "uniq"));
-            self.gl.uniform1i(location_hpx_idx, tile.uniq as i32);
+            self.gl.uniform1ui(location_hpx_idx, tile.uniq);
 
             let location_buf_idx = shader.get_uniform_location(&(name.clone() + "texture_idx"));
             self.gl.uniform1i(location_buf_idx, tile.texture_idx);
