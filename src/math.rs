@@ -24,12 +24,19 @@ pub fn xyzw_to_radec(v: cgmath::Vector4<f32>) -> (f32, f32) {
     )
 }
 
-pub fn radec_to_xyz(theta: cgmath::Rad<f32>, delta: cgmath::Rad<f32>) -> cgmath::Vector4<f32> {
+pub fn radec_to_xyzw(theta: cgmath::Rad<f32>, delta: cgmath::Rad<f32>) -> cgmath::Vector4<f32> {
     cgmath::Vector4::<f32>::new(
         delta.0.cos() * theta.0.sin(),
         delta.0.sin(),
         delta.0.cos() * theta.0.cos(),
         1_f32
+    )
+}
+pub fn radec_to_xyz(theta: cgmath::Rad<f32>, delta: cgmath::Rad<f32>) -> cgmath::Vector3<f32> {
+    cgmath::Vector3::<f32>::new(
+        delta.0.cos() * theta.0.sin(),
+        delta.0.sin(),
+        delta.0.cos() * theta.0.cos(),
     )
 }
 

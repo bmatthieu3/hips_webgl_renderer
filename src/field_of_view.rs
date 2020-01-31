@@ -221,7 +221,7 @@ impl FieldOfView {
         let lon = fov.0.abs() / 2_f32;
 
         // Vertex in the WCS of the FOV
-        let v0 = math::radec_to_xyz(Rad(lon), Rad(0_f32));
+        let v0 = math::radec_to_xyzw(Rad(lon), Rad(0_f32));
 
         // Project this vertex into the screen
         let p0 = P::world_to_clip_space(v0);

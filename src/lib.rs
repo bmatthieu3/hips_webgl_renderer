@@ -118,12 +118,14 @@ fn add_tile_buffer_uniforms(name: &'static str, size: usize, uniforms: &mut Vec<
     uniforms.extend(aa.iter());
 }*/
 
+use cgmath::Matrix4;
 use crate::shader::Shaderize;
 
 use crate::renderable::hips_sphere::PerPixel;
 
-use cgmath::Vector2;
+use cgmath::{Vector2, Vector3};
 use cgmath::Deg;
+use cgmath::InnerSpace;
 
 impl<P> App<P>
 where P: Projection {
@@ -406,6 +408,33 @@ where P: Projection {
         }
     }
 
+    fn set_position(&mut self, ra: Rad<f32>, dec: Rad<f32>) {
+        let rot_y = Matrix4::from_angle_y(ra);
+        let rot_z = Matrix4::from_angle_x(-dec);
+
+        let model_mat = rot_y * rot_z;
+
+        self.hips_sphere.set_model_mat(&model_mat);
+/*
+        // Get the position at the center of the view
+        let center_clip = Vector2::new(0_f32, 0_f32);
+        let p = self.hips_sphere.get_model_mat() * P::clip_to_world_space(center_clip).unwrap();
+
+        let pos_center_world = Vector3::new(p.x, p.y, p.z);
+
+        // Compute the angular distance between the two positions
+        let angle = math::angular_distance_xyz(pos_center_world, pos_world);
+        // Compute the axis of rotation
+        let axis = pos_center_world.cross(pos_world);
+
+        // Move the HiPS sphere
+        let axis = axis.normalize();
+        self.hips_sphere.apply_rotation(axis, angle);
+*/
+        // Moves the viewport
+        self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog);
+    }
+
     fn set_projection<Q: Projection>(mut self) -> App::<Q> {
         // Reset viewport first
         //self.viewport.reset_zoom_level::<Q>();
@@ -492,17 +521,21 @@ where P: Projection {
             // If a move is done
             if let Some(ref mut moving) = &mut self.moving {
                 // Moves the renderables
-                moving.apply_to_renderables(
+                /*moving.apply_to_renderables(
                     world_pos,
 
                     &mut self.hips_sphere,
                     &mut self.grid,
                     &mut self.catalog,
-                );
+                );*/
+                let (ra, dec) = math::xyzw_to_radec(world_pos);
+                self.set_position(Rad(-ra), Rad(-dec));
 
                 // Moves the viewport
                 self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog);
             }
+
+            self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog);
         }
     }
 
@@ -665,6 +698,7 @@ enum AppConfig {
     Ortho(App<Orthographic>, &'static str),
 }
 
+use cgmath::Rad;
 impl AppConfig {
     fn set_projection(self, proj: &str) -> AppConfig {
         match (self, proj) {
@@ -866,6 +900,14 @@ impl AppConfig {
             AppConfig::Ortho(app, _) => app.set_range_source_size(source_size_range),
         }
     }
+
+    pub fn set_position(&mut self, ra: Rad<f32>, dec: Rad<f32>) {
+        match self {
+            AppConfig::Aitoff(app, _) => app.set_position(ra, dec),
+            AppConfig::MollWeide(app, _) => app.set_position(ra, dec),
+            AppConfig::Ortho(app, _) => app.set_position(ra, dec),
+        }
+    }
 }
 
 #[wasm_bindgen]
@@ -1042,6 +1084,16 @@ impl WebClient {
 
     pub fn set_range_source_size(&mut self, min_size_source: f32, max_size_source: f32) -> Result<(), JsValue> {
         self.appconfig.set_range_source_size(min_size_source..max_size_source);
+
+        Ok(())
+    }
+
+    /// Set the HiPS Sphere at a position
+    /// 
+    /// ra is expressed in degrees
+    /// dec is expressed in degrees
+    pub fn set_position(&mut self, ra: f32, dec: f32) -> Result<(), JsValue> {
+        self.appconfig.set_position(Deg(ra).into(), Deg(dec).into());
 
         Ok(())
     }

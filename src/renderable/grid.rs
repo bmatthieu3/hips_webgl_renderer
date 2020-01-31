@@ -102,7 +102,7 @@ pub struct ProjetedGrid {
 
 use cgmath::{SquareMatrix, InnerSpace};
 use wasm_bindgen::JsCast;
-use crate::math::radec_to_xyz;
+use crate::math::radec_to_xyzw;
 
 use crate::projection::Projection;
 impl ProjetedGrid {
@@ -157,7 +157,7 @@ impl ProjetedGrid {
                 let lat = cgmath::Rad(lat.clone());
                 let lon = cgmath::Rad(0_f32);
 
-                radec_to_xyz(lon, lat)
+                radec_to_xyzw(lon, lat)
             })
             .collect::<Vec<_>>();
 
@@ -167,7 +167,7 @@ impl ProjetedGrid {
                 let lat = cgmath::Rad(0_f32);
                 let lon = cgmath::Rad(lon.clone());
 
-                radec_to_xyz(lon, lat)
+                radec_to_xyzw(lon, lat)
             })
             .collect::<Vec<_>>()
         );

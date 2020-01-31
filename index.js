@@ -156,6 +156,9 @@ window.addEventListener('load', function () {
             let kernel_strength = document.getElementById("kernel-strength");
             let colormap_selector = document.getElementById("colormap-select");
 
+            let ra_input_text = document.getElementById("ra");
+            let dec_input_text = document.getElementById("dec");
+
             let canvas = document.getElementById("canvas");
             //canvas.focus();
 
@@ -209,6 +212,20 @@ window.addEventListener('load', function () {
             // Enable equatorial grid checkbox
             inertia.addEventListener("change", () => {
                 onchange_inertia()
+            }, false);
+
+            // Enable equatorial grid checkbox
+            ra_input_text.addEventListener("change", () => {
+                let ra = ra_input_text.value;
+                let dec = dec_input_text.value;
+
+                webClient.set_position(ra, dec);
+            }, false);
+            dec_input_text.addEventListener("change", () => {
+                let ra = ra_input_text.value;
+                let dec = dec_input_text.value;
+
+                webClient.set_position(ra, dec);
             }, false);
 
             // Change grid color
