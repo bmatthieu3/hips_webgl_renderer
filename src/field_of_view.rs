@@ -194,9 +194,7 @@ impl FieldOfView {
             gl,
         };
 
-        console::log_1(&format!("SET FOV").into());
         fov.set_aperture::<P>(aperture_angle);
-        console::log_1(&format!("FOV end init").into());
         fov
     }
 
@@ -347,8 +345,6 @@ impl FieldOfView {
                         .collect::<BTreeSet<_>>();
                     break;
                 }
-                console::log_1(&format!("buffer too small!").into());
-
 
                 depth -= 1;
             }
@@ -359,7 +355,6 @@ impl FieldOfView {
 
             self.current_depth = depth;
             self.cells = cells;
-            console::log_1(&format!("current depth {:?}", self.current_depth).into());
 
             return;
         }
@@ -367,8 +362,6 @@ impl FieldOfView {
         // We are out of the FOV
         self.current_depth = 0;
         self.cells = ALLSKY_ZERO_DEPTH.lock().unwrap().clone();
-
-        console::log_1(&format!("current depth {:?}", self.current_depth).into());
     }
 
     // Returns the HEALPix cells in the field of view

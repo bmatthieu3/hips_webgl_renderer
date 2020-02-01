@@ -315,6 +315,7 @@ impl Catalog{
             "Aitoff" => Catalog_Aitoff::name(),
             "Orthographic" => Catalog_Orthographic::name(),
             "MollWeide" => Catalog_MollWeide::name(),
+            "Arc" => Catalog_MollWeide::name(), // TODO
             _ => unreachable!()
         };
         self.catalog_shader_key = catalog_shader_key;
@@ -464,7 +465,7 @@ impl Catalog{
         self.vertex_array_object.bind()
             .update_instanced_array(0, BufferData::VecData(&sources));
 
-        console::log_1(&format!("num sources: {:?}", self.num_instances).into());
+        //console::log_1(&format!("num sources: {:?}", self.num_instances).into());
     }
 
     pub fn draw<T: Mesh + DisableDrawing>(

@@ -654,6 +654,7 @@ pub struct HiPSSphere {
     ortho: SmallFieldOfView,
     aitoff_perpixel: PerPixel<Aitoff>,
     moll_perpixel: PerPixel<MollWeide>,
+    arc_perpixel: PerPixel<AzimutalEquidistant>,
 
     gl: WebGl2Context,
 }
@@ -674,6 +675,7 @@ impl HiPSSphere {
         let ortho = SmallFieldOfView::new(&gl, &viewport);
         let aitoff_perpixel = PerPixel::<Aitoff>::new(&gl, &viewport);
         let moll_perpixel = PerPixel::<MollWeide>::new(&gl, &viewport);
+        let arc_perpixel = PerPixel::<AzimutalEquidistant>::new(&gl, &viewport);
 
         HiPSSphere {
             buffer: buffer,
@@ -681,6 +683,7 @@ impl HiPSSphere {
             ortho,
             aitoff_perpixel,
             moll_perpixel,
+            arc_perpixel,
 
             gl,
         }
@@ -764,6 +767,13 @@ impl HiPSSphere {
 
                 self.send_global_uniforms(gl, shader, viewport, renderable);
                 self.moll_perpixel.draw(gl, shader)
+            },
+            "Arc" => {
+                let shader = PerPixel::<AzimutalEquidistant>::get_shader(shaders); // TODO: The same shader for all projection
+                shader.bind(gl);
+
+                self.send_global_uniforms(gl, shader, viewport, renderable);
+                self.arc_perpixel.draw(gl, shader)
             },
             // By construction, we are in orthographic projection when we have zoomed or the ortho projection selected
             "Orthographic" => {

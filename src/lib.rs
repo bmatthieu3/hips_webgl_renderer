@@ -439,10 +439,9 @@ where P: Projection {
 
             // Render the next frame
             self.render = true;
-            console::log_1(&format!("not render2").into());
         }
 
-                // Move
+        // Move
         if let Some(_) = self.moving {
             // Moves the viewport
             self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog, &mut self.grid, enable_grid);
@@ -862,9 +861,11 @@ impl Deref for WebGl2Context {
 }
 
 use crate::renderable::hips_sphere::SmallFieldOfView;
+use crate::projection::AzimutalEquidistant;
 enum AppConfig {
     Aitoff(App<Aitoff>, &'static str),
     MollWeide(App<MollWeide>, &'static str),
+    Arc(App<AzimutalEquidistant>, &'static str),
     Ortho(App<Orthographic>, &'static str),
 }
 
@@ -881,12 +882,18 @@ impl AppConfig {
             (AppConfig::Ortho(app, _), "aitoff") => {
                 AppConfig::Aitoff(app.set_projection::<Aitoff>(), "aitoff")
             },
+            (AppConfig::Arc(app, _), "aitoff") => {
+                AppConfig::Aitoff(app.set_projection::<Aitoff>(), "aitoff")
+            },
 
 
             (AppConfig::Aitoff(app, _), "orthographic") => {
                 AppConfig::Ortho(app.set_projection::<Orthographic>(), "orthographic")
             },
             (AppConfig::MollWeide(app, _), "orthographic") => {
+                AppConfig::Ortho(app.set_projection::<Orthographic>(), "orthographic")
+            },
+            (AppConfig::Arc(app, _), "orthographic") => {
                 AppConfig::Ortho(app.set_projection::<Orthographic>(), "orthographic")
             },
             (AppConfig::Ortho(app, _), "orthographic") => {
@@ -902,6 +909,22 @@ impl AppConfig {
             (AppConfig::Ortho(app, _), "mollweide") => {
                 AppConfig::MollWeide(app.set_projection::<MollWeide>(), "mollweide")
             },
+            (AppConfig::Arc(app, _), "mollweide") => {
+                AppConfig::MollWeide(app.set_projection::<MollWeide>(), "mollweide")
+            },
+
+            (AppConfig::Aitoff(app, _), "arc") => {
+                AppConfig::Arc(app.set_projection::<AzimutalEquidistant>(), "arc")
+            },
+            (AppConfig::MollWeide(app, _), "arc") => {
+                AppConfig::Arc(app.set_projection::<AzimutalEquidistant>(), "arc")
+            },
+            (AppConfig::Ortho(app, _), "arc") => {
+                AppConfig::Arc(app.set_projection::<AzimutalEquidistant>(), "arc")
+            },
+            (AppConfig::Arc(app, _), "arc") => {
+                AppConfig::Arc(app, "arc")
+            },
             _ => unreachable!()
         }
     }
@@ -911,6 +934,7 @@ impl AppConfig {
             AppConfig::Aitoff(app, _) => app.set_colormap(colormap),
             AppConfig::MollWeide(app, _) => app.set_colormap(colormap),
             AppConfig::Ortho(app, _) => app.set_colormap(colormap),
+            AppConfig::Arc(app, _) => app.set_colormap(colormap),
         };
     }
 
@@ -919,6 +943,7 @@ impl AppConfig {
             AppConfig::Aitoff(app, _) => app.update(dt, enable_grid),
             AppConfig::MollWeide(app, _) => app.update(dt, enable_grid),
             AppConfig::Ortho(app, _) => app.update(dt, enable_grid),
+            AppConfig::Arc(app, _) => app.update(dt, enable_grid),
         };
 
         pos_center_world
@@ -929,6 +954,7 @@ impl AppConfig {
             AppConfig::Aitoff(app, _) => app.render(enable_grid),
             AppConfig::MollWeide(app, _) => app.render(enable_grid),
             AppConfig::Ortho(app, _) => app.render(enable_grid),
+            AppConfig::Arc(app, _) => app.render(enable_grid),
         }
     }
 
@@ -938,6 +964,7 @@ impl AppConfig {
             AppConfig::Aitoff(app, _) => app.initialize_move(screen_pos),
             AppConfig::MollWeide(app, _) => app.initialize_move(screen_pos),
             AppConfig::Ortho(app, _) => app.initialize_move(screen_pos),
+            AppConfig::Arc(app, _) => app.initialize_move(screen_pos),
         }
     }
 
@@ -948,6 +975,7 @@ impl AppConfig {
             AppConfig::Aitoff(app, _) => app.stop_move(screen_pos, dt, enable_inertia),
             AppConfig::MollWeide(app, _) => app.stop_move(screen_pos, dt, enable_inertia),
             AppConfig::Ortho(app, _) => app.stop_move(screen_pos, dt, enable_inertia),
+            AppConfig::Arc(app, _) => app.stop_move(screen_pos, dt, enable_inertia),
         }
     }
     /// Keep moving
@@ -957,6 +985,7 @@ impl AppConfig {
             AppConfig::Aitoff(app, _) => app.moves(screen_pos),
             AppConfig::MollWeide(app, _) => app.moves(screen_pos),
             AppConfig::Ortho(app, _) => app.moves(screen_pos),
+            AppConfig::Arc(app, _) => app.moves(screen_pos),
         };
     }
 
@@ -977,6 +1006,13 @@ impl AppConfig {
                     AppConfig::MollWeide(app, s)
                 }
             },
+            AppConfig::Arc(mut app, s) => {
+                if app.zoom(delta_y, enable_grid) {
+                    AppConfig::Ortho(app.set_projection::<Orthographic>(), s)
+                } else {
+                    AppConfig::Arc(app, s)
+                }
+            },
             AppConfig::Ortho(mut app, s) => {
                 app.zoom(delta_y, enable_grid);
                 AppConfig::Ortho(app, s)
@@ -994,11 +1030,16 @@ impl AppConfig {
                 app.unzoom(delta_y, enable_grid);
                 AppConfig::MollWeide(app, s)
             },
+            AppConfig::Arc(mut app, s) => {
+                app.unzoom(delta_y, enable_grid);
+                AppConfig::Arc(app, s)
+            },
             AppConfig::Ortho(mut app, s) => {
                 if app.unzoom(delta_y, enable_grid) {
                     match s {
                         "aitoff" => AppConfig::Aitoff(app.set_projection::<Aitoff>(), s),
                         "mollweide" => AppConfig::MollWeide(app.set_projection::<MollWeide>(), s),
+                        "arc" => AppConfig::Arc(app.set_projection::<AzimutalEquidistant>(), s),
                         "orthographic" => AppConfig::Ortho(app, s),
                         _ => unreachable!()
                     }
@@ -1029,6 +1070,7 @@ impl AppConfig {
         match self {
             AppConfig::Aitoff(app, _) => app.add_catalog(sources),
             AppConfig::MollWeide(app, _) => app.add_catalog(sources),
+            AppConfig::Arc(app, _) => app.add_catalog(sources),
             AppConfig::Ortho(app, _) => app.add_catalog(sources),
         }
     }
@@ -1037,6 +1079,7 @@ impl AppConfig {
         match self {
             AppConfig::Aitoff(app, _) => app.reload_hips_sphere(hips_url, max_depth),
             AppConfig::MollWeide(app, _) => app.reload_hips_sphere(hips_url, max_depth),
+            AppConfig::Arc(app, _) => app.reload_hips_sphere(hips_url, max_depth),
             AppConfig::Ortho(app, _) => app.reload_hips_sphere(hips_url, max_depth),
         }
     }
@@ -1045,6 +1088,7 @@ impl AppConfig {
         match self {
             AppConfig::Aitoff(app, _) => app.resize_window(width, height, enable_grid),
             AppConfig::MollWeide(app, _) => app.resize_window(width, height, enable_grid),
+            AppConfig::Arc(app, _) => app.resize_window(width, height, enable_grid),
             AppConfig::Ortho(app, _) => app.resize_window(width, height, enable_grid),
         }
     }
@@ -1053,6 +1097,7 @@ impl AppConfig {
         match self {
             AppConfig::Aitoff(app, _) => app.set_kernel_strength(strength),
             AppConfig::MollWeide(app, _) => app.set_kernel_strength(strength),
+            AppConfig::Arc(app, _) => app.set_kernel_strength(strength),
             AppConfig::Ortho(app, _) => app.set_kernel_strength(strength),
         }
     }
@@ -1061,6 +1106,7 @@ impl AppConfig {
         match self {
             AppConfig::Aitoff(app, _) => app.set_heatmap_opacity(opacity),
             AppConfig::MollWeide(app, _) => app.set_heatmap_opacity(opacity),
+            AppConfig::Arc(app, _) => app.set_heatmap_opacity(opacity),
             AppConfig::Ortho(app, _) => app.set_heatmap_opacity(opacity),
         }
     }
@@ -1069,6 +1115,7 @@ impl AppConfig {
         match self {
             AppConfig::Aitoff(app, _) => app.set_range_source_size(source_size_range),
             AppConfig::MollWeide(app, _) => app.set_range_source_size(source_size_range),
+            AppConfig::Arc(app, _) => app.set_range_source_size(source_size_range),
             AppConfig::Ortho(app, _) => app.set_range_source_size(source_size_range),
         }
     }
@@ -1077,6 +1124,7 @@ impl AppConfig {
         match self {
             AppConfig::Aitoff(app, _) => app.set_position(ra, dec),
             AppConfig::MollWeide(app, _) => app.set_position(ra, dec),
+            AppConfig::Arc(app, _) => app.set_position(ra, dec),
             AppConfig::Ortho(app, _) => app.set_position(ra, dec),
         }
     }
@@ -1085,6 +1133,7 @@ impl AppConfig {
         match self {
             AppConfig::Aitoff(app, _) => app.set_color_rgb(red, blue, green),
             AppConfig::MollWeide(app, _) => app.set_color_rgb(red, blue, green),
+            AppConfig::Arc(app, _) => app.set_color_rgb(red, blue, green),
             AppConfig::Ortho(app, _) => app.set_color_rgb(red, blue, green),
         }
     }
@@ -1093,6 +1142,7 @@ impl AppConfig {
         match self {
             AppConfig::Aitoff(app, _) => app.change_grid_opacity(alpha),
             AppConfig::MollWeide(app, _) => app.change_grid_opacity(alpha),
+            AppConfig::Arc(app, _) => app.change_grid_opacity(alpha),
             AppConfig::Ortho(app, _) => app.change_grid_opacity(alpha),
         }
     }
@@ -1101,6 +1151,7 @@ impl AppConfig {
         match self {
             AppConfig::Aitoff(app, _) => app.enable_grid(),
             AppConfig::MollWeide(app, _) => app.enable_grid(),
+            AppConfig::Arc(app, _) => app.enable_grid(),
             AppConfig::Ortho(app, _) => app.enable_grid(),
         }
     }

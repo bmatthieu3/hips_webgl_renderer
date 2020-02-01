@@ -146,6 +146,8 @@ pub struct Aitoff;
 pub struct MollWeide;
 #[derive(Clone, Copy)]
 pub struct Orthographic;
+#[derive(Clone, Copy)]
+pub struct AzimutalEquidistant;
 
 use cgmath::Vector2;
 
@@ -394,6 +396,7 @@ impl Projection for MollWeide {
     }
 }
 
+use cgmath::Rad;
 impl Projection for Orthographic {
     fn check_for_allsky_fov(depth: u8) -> Option<BTreeSet<HEALPixCell>> {
         if depth == 0 {
@@ -462,6 +465,103 @@ impl Projection for Orthographic {
     /// * `pos_world_space` - Position in the world space. Must be a normalized vector
     fn world_to_clip_space(pos_world_space: cgmath::Vector4<f32>) -> Vector2<f32> {
         Vector2::new(-pos_world_space.x, pos_world_space.y)
+    }
+
+    fn aperture_start() -> Deg<f32> {
+        Deg(180_f32)
+    }
+}
+
+impl Projection for AzimutalEquidistant {
+    fn check_for_allsky_fov(depth: u8) -> Option<BTreeSet<HEALPixCell>> {
+        if depth == 0 {
+            Some(ALLSKY_ZERO_DEPTH.lock().unwrap().clone())
+        } else if depth == 1 {
+            Some(ALLSKY_ONE_DEPTH.lock().unwrap().clone())
+        } else {
+            None
+        }
+    }
+
+    fn name() -> &'static str {
+        "Arc"
+    }
+
+    fn build_screen_map(viewport: &ViewPort) -> Vec<cgmath::Vector2<f32>> {
+        let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
+
+        let window_size = viewport.get_window_size();
+
+        let center_screen_space = window_size / 2_f32;
+        vertices_screen.push(center_screen_space);
+
+        for j in 0..NUM_STEPS {
+            let radius = (std::f32::consts::PI * ((j + 1) as f32) / (2_f32 * (NUM_STEPS as f32))).sin();
+            for i in 0..NUM_VERTICES_PER_STEP {
+                let angle = (i as f32) * 2_f32 * std::f32::consts::PI / (NUM_VERTICES_PER_STEP as f32);
+
+                let mut pos_screen_space = Vector2::<f32>::new(
+                    (window_size.x/2_f32 - 10_f32) * radius * angle.cos(),
+                    (window_size.x/2_f32 - 10_f32) * radius * angle.sin()
+                );
+
+                vertices_screen.push(pos_screen_space + center_screen_space);
+            }
+        }
+
+        vertices_screen
+    }
+
+    /// View to world space transformation
+    /// 
+    /// This returns a normalized vector along its first 3 dimensions.
+    /// Its fourth component is set to 1.
+    /// 
+    /// The Aitoff projection maps screen coordinates from [-pi; pi] x [-pi/2; pi/2]
+    /// 
+    /// # Arguments
+    /// 
+    /// * `x` - in normalized device coordinates between [-1; 1]
+    /// * `y` - in normalized device coordinates between [-1; 1]
+    fn clip_to_world_space(pos_clip_space: Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
+        let xw_2 = 1_f32 - pos_clip_space.x*pos_clip_space.x - pos_clip_space.y*pos_clip_space.y;
+        if xw_2 > 0_f32 {
+            let (x, y) = (2_f32 * pos_clip_space.x, 2_f32 * pos_clip_space.y);
+
+            let rho2 = (x*x + y*y);
+            let rho = rho2.sqrt();
+
+            let c = 2_f32 * (0.5_f32 * rho).asin();
+
+            let mut delta = 0_f32;
+            let mut theta = 0_f32;
+            //if c >= 1e-4 {
+            delta = (y * c.sin() / rho).asin();
+            theta = -(x * c.sin()).atan2(rho * c.cos());
+            //}
+            let pos_world_space = math::radec_to_xyzw(Rad(theta), Rad(delta));
+            Some(pos_world_space)
+        } else {
+            // Out of the sphere
+            None
+        }
+    }
+
+    /// World to screen space transformation
+    /// 
+    /// # Arguments
+    /// 
+    /// * `pos_world_space` - Position in the world space. Must be a normalized vector
+    fn world_to_clip_space(pos_world_space: cgmath::Vector4<f32>) -> Vector2<f32> {
+        let (theta, delta) = math::xyzw_to_radec(pos_world_space);
+        let c = delta.cos() * theta.cos();
+
+        let k = c / c.sin();
+
+        let x = k* delta.cos() * theta.sin();
+        let y = k*delta.sin();
+
+        Vector2::new(x, y)
     }
 
     fn aperture_start() -> Deg<f32> {
