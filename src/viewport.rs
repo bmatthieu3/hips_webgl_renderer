@@ -20,7 +20,7 @@ use cgmath::Vector2;
 pub struct ViewPort {
     fov: FieldOfView,
 
-    wheel_idx: i16,
+    wheel_idx: f32,
     
     pub last_zoom_action: LastZoomAction,
     pub last_action: LastAction,
@@ -46,18 +46,18 @@ use crate::WebGl2Context;
     gl.scissor(xo as i32, yo as i32, size.x as i32, size.y as i32);
 }*/
 
-const NUM_WHEEL_PER_DEPTH: usize = 5;
+const NUM_WHEEL_PER_DEPTH: usize = 60;
 use cgmath::Deg;
 
-fn fov<P: Projection>(wheel_idx: i16) -> Rad<f32> {
-    let exp = (wheel_idx as f32) / (NUM_WHEEL_PER_DEPTH as f32);
+fn fov<P: Projection>(wheel_idx: f32) -> Rad<f32> {
+    let exp = wheel_idx / (NUM_WHEEL_PER_DEPTH as f32);
     let fov = P::aperture_start() / 2_f32.powf(exp);
 
     fov.into()
 }
-fn wheel_idx<P: Projection>(fov: Rad<f32>) -> i16 {
+fn wheel_idx<P: Projection>(fov: Rad<f32>) -> f32 {
     let p0: Rad<f32> = P::aperture_start().into();
-    ((p0.0 / fov.0).log2() * (NUM_WHEEL_PER_DEPTH as f32)) as i16
+    ((p0.0 / fov.0).log2() * (NUM_WHEEL_PER_DEPTH as f32))
 }
 
 use web_sys::console;
@@ -78,7 +78,7 @@ impl ViewPort {
         let last_zoom_action = LastZoomAction::Unzoom;
         let last_action = LastAction::Moving;
 
-        let wheel_idx = 0;
+        let wheel_idx = 0_f32;
 
         let fov = FieldOfView::new::<P>(gl, fov::<P>(wheel_idx));
 
@@ -95,7 +95,7 @@ impl ViewPort {
     }
 
     pub fn reset_zoom_level<P: Projection>(&mut self) {
-        self.wheel_idx = 0;
+        self.wheel_idx = 0_f32;
         // Update the aperture of the Field Of View
         let aperture = fov::<P>(self.wheel_idx);
         self.fov.set_aperture::<P>(aperture);
@@ -110,7 +110,7 @@ impl ViewPort {
         } else {
             // The start aperture of the new projection is < to the current aperture
             // We reset the wheel idx too
-            self.wheel_idx = 0;
+            self.wheel_idx = 0_f32;
             P::aperture_start().into()
         };
         // Recompute the depth and field of view
@@ -129,13 +129,14 @@ impl ViewPort {
 
     pub fn zoom<P: Projection>(
         &mut self,
+        delta: f32,
         hips_sphere: &mut Renderable<HiPSSphere>,
         catalog: &mut Renderable<Catalog>,
     ) {
         self.last_zoom_action = LastZoomAction::Zoom;
         self.last_action = LastAction::Zooming;
 
-        self.wheel_idx += 1;
+        self.wheel_idx += delta;
         let aperture = fov::<P>(self.wheel_idx);
 
         self.fov.set_aperture::<P>(aperture);
@@ -147,17 +148,18 @@ impl ViewPort {
 
     pub fn unzoom<P: Projection>(
         &mut self,
+        delta: f32,
         hips_sphere: &mut Renderable<HiPSSphere>,
         catalog: &mut Renderable<Catalog>,
     ) {
         self.last_zoom_action = LastZoomAction::Unzoom;
         self.last_action = LastAction::Zooming;
 
-        if self.wheel_idx > 0 {
-            self.wheel_idx -= 1;
+        if self.wheel_idx > 0_f32 {
+            self.wheel_idx -= delta;
 
-            if self.wheel_idx < 0 {
-                self.wheel_idx = 0;
+            if self.wheel_idx < 0_f32 {
+                self.wheel_idx = 0_f32;
             }
             // Update the aperture of the Field Of View
             let aperture = fov::<P>(self.wheel_idx);

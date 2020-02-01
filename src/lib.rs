@@ -602,6 +602,7 @@ where P: Projection {
             start_time: self.start_time,
         }
     }
+
     /*
     fn set_render_mode<Q: RenderingMode>(mut self, r: &mut Q) -> App::<P> {
         let hips_sphere_mesh = self.hips_sphere
@@ -706,7 +707,7 @@ where P: Projection {
             .get_aperture()
             .into();
 
-        self.viewport.unzoom::<P>(&mut self.hips_sphere, &mut self.catalog);
+        self.viewport.unzoom::<P>(delta_y, &mut self.hips_sphere, &mut self.catalog);
 
         let a1: Deg<f32> = self.viewport
             .field_of_view()
@@ -724,7 +725,7 @@ where P: Projection {
             .get_aperture()
             .into();
 
-        self.viewport.zoom::<P>(&mut self.hips_sphere, &mut self.catalog);
+        self.viewport.zoom::<P>(delta_y, &mut self.hips_sphere, &mut self.catalog);
     
         let a1: Deg<f32> = self.viewport
             .field_of_view()
@@ -1204,7 +1205,7 @@ impl WebClient {
     /// Wheel event
     pub fn zoom(mut self, delta_y: f32) -> Result<WebClient, JsValue> {
         self.appconfig = if delta_y < 0_f32 {
-            self.appconfig.zoom(delta_y)
+            self.appconfig.zoom(delta_y.abs())
         } else {
             self.appconfig.unzoom(delta_y)
         };
