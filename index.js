@@ -158,6 +158,8 @@ window.addEventListener('load', function () {
 
             let ra_input_text = document.getElementById("ra");
             let dec_input_text = document.getElementById("dec");
+            let ra_value = document.getElementById("ra_value");
+            let dec_value = document.getElementById("dec_value");
 
             let canvas = document.getElementById("canvas");
             //canvas.focus();
@@ -171,8 +173,11 @@ window.addEventListener('load', function () {
                     fps_counter.innerText = String(1000.0 / dt);
                     time_last_fps = time;
                 }
+                let pos_center = webClient.update(dt);
+            
+                ra_value.innerText = pos_center[0].toFixed(4);
+                dec_value.innerText = pos_center[1].toFixed(4);
 
-                webClient.update(dt)
                 webClient.render()
                 window.requestAnimationFrame(render)
 
@@ -216,6 +221,8 @@ window.addEventListener('load', function () {
 
             // Enable equatorial grid checkbox
             ra_input_text.addEventListener("change", () => {
+                console.log("Change!!");
+
                 let ra = ra_input_text.value;
                 let dec = dec_input_text.value;
 

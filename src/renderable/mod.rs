@@ -33,9 +33,9 @@ where T: Mesh + DisableDrawing {
     model_mat: cgmath::Matrix4::<f32>,
     inverted_model_mat: cgmath::Matrix4<f32>,
 
-    scale_mat: cgmath::Matrix4::<f32>,
-    rotation_mat: cgmath::Matrix4::<f32>,
-    translation_mat: cgmath::Matrix4::<f32>,
+    //scale_mat: cgmath::Matrix4::<f32>,
+    //rotation_mat: cgmath::Matrix4::<f32>,
+    //translation_mat: cgmath::Matrix4::<f32>,
 
     mesh: T,
 
@@ -44,7 +44,9 @@ where T: Mesh + DisableDrawing {
 
 use cgmath;
 use cgmath::SquareMatrix;
+use cgmath::{Matrix3};
 
+use cgmath::{Vector4, Vector2};
 impl<T> Renderable<T>
 where T: Mesh + DisableDrawing {
     pub fn new(gl: &WebGl2Context, shaders: &HashMap<&'static str, Shader>, mut mesh: T) -> Renderable<T> {
@@ -55,9 +57,9 @@ where T: Mesh + DisableDrawing {
         let model_mat = cgmath::Matrix4::identity();
         let inverted_model_mat = model_mat;
 
-        let scale_mat = cgmath::Matrix4::identity();
-        let rotation_mat = cgmath::Matrix4::identity();
-        let translation_mat = cgmath::Matrix4::identity();
+        //let scale_mat = cgmath::Matrix4::identity();
+        //let rotation_mat = cgmath::Matrix4::identity();
+        //let translation_mat = cgmath::Matrix4::identity();
 
         let gl = gl.clone();
         Renderable {
@@ -65,13 +67,19 @@ where T: Mesh + DisableDrawing {
             model_mat,
             inverted_model_mat,
             // And its submatrices
-            scale_mat,
-            rotation_mat,
-            translation_mat,
+            //scale_mat,
+            //rotation_mat,
+            //translation_mat,
 
             mesh,
             gl,
         }
+    }
+
+    pub fn compute_center_world_pos<P: Projection>(&self) -> Vector4<f32> {
+        let ref model_mat = self.get_model_mat();
+
+        (*model_mat) * P::clip_to_world_space(Vector2::new(0_f32, 0_f32)).unwrap()
     }
 
     pub fn set_mesh<U: Mesh + DisableDrawing>(self, mesh: U) -> Renderable<U> {
@@ -80,9 +88,9 @@ where T: Mesh + DisableDrawing {
             model_mat: self.model_mat,
             inverted_model_mat: self.inverted_model_mat,
             // And its submatrices
-            scale_mat: self.scale_mat,
+            /*scale_mat: self.scale_mat,
             rotation_mat: self.rotation_mat,
-            translation_mat: self.translation_mat,
+            translation_mat: self.translation_mat,*/
 
             mesh,
             gl: self.gl,
@@ -97,36 +105,55 @@ where T: Mesh + DisableDrawing {
         self.mesh = mesh;
     }
 
-    fn recompute_model_matrix(&mut self) {
+    /*fn recompute_model_matrix(&mut self) {
         self.model_mat = self.translation_mat * self.rotation_mat * self.scale_mat;
+        self.inverted_model_mat = self.model_mat.invert().unwrap();
+    }*/
+
+   /* pub fn rotate(&mut self, axis: cgmath::Vector3<f32>, angle: cgmath::Rad<f32>) {
+        self.rotation_mat = cgmath::Matrix4::<f32>::from_axis_angle(axis, angle);
+        self.recompute_model_matrix();
+    }*/
+
+    pub fn apply_rotation(&mut self, axis: cgmath::Vector3<f32>, angle: cgmath::Rad<f32>) {
+        self.model_mat = cgmath::Matrix4::<f32>::from_axis_angle(axis, angle) * self.model_mat;
+        
+        self.inverted_model_mat = self.model_mat.invert().unwrap();
+    }
+    pub fn apply_quarternion_rotation(&mut self, q: &cgmath::Quaternion<f32>) {
+        let drot: Matrix4<f32> = (*q).into();
+        
+        self.model_mat = drot * self.model_mat;
+        self.inverted_model_mat = self.model_mat.invert().unwrap();
+    }
+    pub fn set_model_mat(&mut self, model_mat: &cgmath::Matrix4<f32>) {
+        self.model_mat = *model_mat;
         self.inverted_model_mat = self.model_mat.invert().unwrap();
     }
 
-    pub fn rotate(&mut self, axis: cgmath::Vector3<f32>, angle: cgmath::Rad<f32>) {
-        self.rotation_mat = cgmath::Matrix4::<f32>::from_axis_angle(axis, angle);
-        self.recompute_model_matrix();
-    }
-
-    pub fn apply_rotation(&mut self, axis: cgmath::Vector3<f32>, angle: cgmath::Rad<f32>) {
-        self.rotation_mat = cgmath::Matrix4::<f32>::from_axis_angle(axis, angle) * self.rotation_mat;
-        self.recompute_model_matrix();
-    }
-
-    pub fn scale(&mut self, factor: f32) {
+    /*pub fn scale(&mut self, factor: f32) {
         self.scale_mat = cgmath::Matrix4::<f32>::from_scale(factor);
         self.recompute_model_matrix();
-    }
+    }*/
 
     pub fn get_model_mat(&self) -> &cgmath::Matrix4<f32> {
         return &self.model_mat; 
     }
+    pub fn get_quat(&self) -> cgmath::Quaternion<f32> {
+        // Extract a 3x3 matrix from the model 4x4 matrix
+        let v: [[f32; 4]; 4] = self.model_mat.into();
+
+        let mat3 = Matrix3::new(
+            v[0][0], v[0][1], v[0][2],
+            v[1][0], v[1][1], v[1][2],
+            v[2][0], v[2][1], v[2][2]
+        );
+
+        mat3.into()
+    }
 
     pub fn get_inverted_model_mat(&self) -> &cgmath::Matrix4<f32> {
         return &self.inverted_model_mat;
-    }
-
-    pub fn set_model_mat(&mut self, model_mat: &cgmath::Matrix4<f32>) {
-        self.model_mat = *model_mat;
     }
 
     pub fn mesh(&self) -> &T {

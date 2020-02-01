@@ -101,14 +101,12 @@ impl ViewPort {
         self.fov.set_aperture::<P>(aperture);
     }
 
-    // Called when the projection changes
-    pub fn reset<P: Projection>(&mut self) {
-        let current_aperture = self.fov.get_aperture();
-        let aperture = if current_aperture <= P::aperture_start().into() {
+    pub fn set_aperture<P: Projection>(&mut self, aperture: Rad<f32>) {
+        let aperture = if aperture <= P::aperture_start().into() {
             // Retrieve the wheel idx correponding to the current aperture for the
             // projection
-            self.wheel_idx = wheel_idx::<P>(current_aperture);
-            current_aperture
+            self.wheel_idx = wheel_idx::<P>(aperture);
+            aperture
         } else {
             // The start aperture of the new projection is < to the current aperture
             // We reset the wheel idx too
@@ -117,6 +115,12 @@ impl ViewPort {
         };
         // Recompute the depth and field of view
         self.fov.set_aperture::<P>(aperture);
+    }
+
+    // Called when the projection changes
+    pub fn reset<P: Projection>(&mut self) {
+        let current_aperture = self.fov.get_aperture();
+        self.set_aperture::<P>(current_aperture);
     }
 
     pub fn resize_window<P: Projection>(&mut self, width: f32, height: f32) {
@@ -175,6 +179,10 @@ impl ViewPort {
         // Translate the Field of View on the HiPS sphere
         self.fov.set_rotation_mat::<P>(hips_sphere.get_model_mat());
 
+        // Moves the catalog according to the viewport displacement
+        let inv_model_mat = hips_sphere.get_inverted_model_mat();
+        //grid.set_model_mat(inv_model_mat);
+        catalog.set_model_mat(inv_model_mat);
         // Update renderables
         hips_sphere.mesh_mut().update::<P>(&self);
         catalog.mesh_mut().update::<P>(&self);

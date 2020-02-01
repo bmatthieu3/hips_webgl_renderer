@@ -25,8 +25,13 @@ use crate::utils;
 use crate::projection::Projection;
 use crate::renderable::hips_sphere::RenderingMode;
 
+use cgmath::Matrix4;
+use cgmath::Quaternion;
+use cgmath::Euler;
+use cgmath::SquareMatrix;
+
 impl Move {
-    pub fn new(start_world_pos: Vector4<f32>) -> Move {
+    pub fn new<P: Projection>(start_world_pos: Vector4<f32>, hips_sphere: &Renderable<HiPSSphere>) -> Move {
         let axis = Vector3::new(0_f32, 0_f32, 0_f32);
         let x = Rad(0_f32);
         let last_time = utils::get_current_time();
@@ -39,7 +44,7 @@ impl Move {
         }
     }
 
-    pub fn apply_to_renderables(&mut self, world_pos: Vector4<f32>,
+    pub fn apply_to_renderables<P: Projection>(&mut self, world_pos: Vector4<f32>,
         hips_sphere: &mut Renderable<HiPSSphere>,
         grid: &mut Renderable<ProjetedGrid>,
         catalog: &mut Renderable<Catalog>,
@@ -47,7 +52,6 @@ impl Move {
         if world_pos == self.start_world_pos {
             return;
         }
-
         let model_mat = hips_sphere.get_model_mat();
 
         let start_model_pos = model_mat * self.start_world_pos;
@@ -60,12 +64,15 @@ impl Move {
         self.x = math::angular_distance_xyz(start_model_pos, model_pos);
 
         self.axis = axis.normalize();
+
+        /*let q = Quaternion::from_arc(model_pos, start_model_pos, None);
+        let m: Matrix4<f32> = q.into();
+        hips_sphere.apply_quarternion_rotation(&q);
+        hips_sphere.set_model_mat(&(m * model_mat));*/
+
         hips_sphere.apply_rotation(-self.axis, self.x);
         //catalog.apply_rotation(-self.axis, self.x);
         // Move the grid the opposite way of the hips sphere
-        let inv_model_mat = hips_sphere.get_inverted_model_mat();
-        grid.set_model_mat(inv_model_mat);
-        catalog.set_model_mat(inv_model_mat);
 
         self.start_world_pos = world_pos;
 

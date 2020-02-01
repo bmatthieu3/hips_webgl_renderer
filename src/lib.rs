@@ -71,7 +71,7 @@ use crate::shaders::catalog::*;
 
 use crate::renderable::hips_sphere::RenderingMode;
 
-
+use cgmath::Quaternion;
 
 struct App<P>
 where P: Projection {
@@ -91,6 +91,20 @@ where P: Projection {
 
     // Move event
     moving: Option<Move>,
+
+    // Animation rotation
+    pub animation_request: bool,
+    pub final_pos: Quaternion<f32>,
+    pub start_pos: Quaternion<f32>,
+
+    pub start_aperture: Deg<f32>,
+    pub end_aperture: Deg<f32>,
+
+    // Angular distance between the start and final quaternion
+    pub d: Rad<f32>,
+
+    pub start_time: f32,
+    pub animation_duration: f32,
 }
 /*
 fn add_tile_buffer_uniforms(name: &'static str, size: usize, uniforms: &mut Vec<&'static str>) {
@@ -123,7 +137,7 @@ use crate::shader::Shaderize;
 
 use crate::renderable::hips_sphere::PerPixel;
 
-use cgmath::{Vector2, Vector3};
+use cgmath::{Vector2, Vector3, Matrix3};
 use cgmath::Deg;
 use cgmath::InnerSpace;
 
@@ -326,6 +340,17 @@ where P: Projection {
             .set_onresize(Some(onresize.as_ref().unchecked_ref()));
         onresize.forget();
 
+        let animation_request = false;
+        let final_pos = Quaternion::new(1_f32, 0_f32, 0_f32, 0_f32);
+        let start_pos = Quaternion::new(1_f32, 0_f32, 0_f32, 0_f32);
+        let start_time = 0_f32;
+        let animation_duration = 2000_f32;
+
+        let start_aperture = P::aperture_start();
+        let end_aperture = P::aperture_start();
+
+        let d = Rad(0_f32);
+
         let moving = None;
         let gl = gl.clone();
         let app = App {
@@ -344,12 +369,24 @@ where P: Projection {
             catalog,
 
             moving,
+
+            animation_request,
+            final_pos,
+            start_pos,
+
+            start_aperture,
+            end_aperture,
+
+            d,
+
+            animation_duration,
+            start_time,
         };
 
         Ok(app)
     } 
 
-    fn update(&mut self, dt: f32) {
+    fn update(&mut self, dt: f32) -> Vector2<Rad<f32>> {
         /*if !UPDATE_USER_INTERFACE.load(Ordering::Relaxed) {
             RENDER_FRAME.lock().unwrap().update(&self.viewport);
             //UPDATE_FRAME.lock().unwrap().update(&self.viewport);
@@ -359,10 +396,47 @@ where P: Projection {
 
         //self.viewport.update(&mut self.inertia, &mut self.grid, &mut self.catalog, &mut self.hips_sphere);
         
+        // Animation request
+        let mut hips_sphere_updated = false;
+        if self.animation_request {
+            let mut a = (utils::get_current_time() - self.start_time) / self.animation_duration;
+            if a >= 1.0_f32 {
+                a = 1_f32;
+            }
+
+            let next_pos = self.start_pos.slerp(self.final_pos, a);
+
+            let next_aperture: Deg<f32> = if a <= 0.5_f32 {
+                let t = a * 2_f32;
+                //Deg((1_f32 - t.sqrt().sqrt()) * self.start_aperture.0 + t.sqrt().sqrt() * self.end_aperture.0)
+                Deg((1_f32 - t.sqrt()) * self.start_aperture.0 + t.sqrt() * self.end_aperture.0)
+                //Deg((1_f32 - t) * self.start_aperture.0 + t * self.end_aperture.0)
+            } else {
+                let t = (a - 0.5_f32) * 2_f32;
+                Deg((1_f32 - t*t) * self.end_aperture.0 + t*t * self.start_aperture.0)
+                //Deg((1_f32 - t*t*t*t) * self.end_aperture.0 + t*t*t*t * self.start_aperture.0)
+                //Deg((1_f32 - t) * self.end_aperture.0 + t * self.start_aperture.0)
+            };
+            self.viewport.set_aperture::<P>(next_aperture.into());
+
+            self.hips_sphere.set_model_mat(&next_pos.into());
+            // Moves the viewport
+            self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog);
+            hips_sphere_updated = true;
+
+            if a == 1_f32 {
+                self.animation_request = false;
+            }
+        }
+
         // Check whether the HiPS sphere must be updated or not
-        if utils::get_current_time() < *LATEST_TIME_TILE_RECEIVED.lock().unwrap() + BLENDING_DURATION_MS {
+        if !hips_sphere_updated && utils::get_current_time() < *LATEST_TIME_TILE_RECEIVED.lock().unwrap() + BLENDING_DURATION_MS {
             self.hips_sphere.mesh_mut().update::<P>(&self.viewport);
         }
+
+        let center_world_pos = self.hips_sphere.compute_center_world_pos::<P>();
+        let (ra, dec) = math::xyzw_to_radec(center_world_pos);
+        Vector2::new(Rad(ra), Rad(dec))
     }
 
     fn render(&self) {
@@ -413,8 +487,39 @@ where P: Projection {
         let rot_z = Matrix4::from_angle_x(-dec);
 
         let model_mat = rot_y * rot_z;
+        // Extract a 3x3 matrix from the model 4x4 matrix
+        let v: [[f32; 4]; 4] = model_mat.into();
 
-        self.hips_sphere.set_model_mat(&model_mat);
+        let mat3 = Matrix3::new(
+            v[0][0], v[0][1], v[0][2],
+            v[1][0], v[1][1], v[1][2],
+            v[2][0], v[2][1], v[2][2]
+        );
+
+        //self.hips_sphere.set_model_mat(&model_mat);
+
+        self.animation_request = true;
+        self.final_pos = mat3.into();
+        self.start_pos = self.hips_sphere.get_quat();
+
+        self.start_time = utils::get_current_time();
+        self.start_aperture = self.viewport.field_of_view().get_aperture().into();
+
+        let start_pos_world = self.hips_sphere.compute_center_world_pos::<P>();
+        let start_pos_world = Vector3::new(start_pos_world.x, start_pos_world.y, start_pos_world.z);
+        let end_pos_world = math::radec_to_xyz(ra, dec);
+
+        self.d = math::angular_distance_xyz(start_pos_world, end_pos_world);
+        let d: Deg<f32> = self.d.into();
+
+        let end_aperture = self.start_aperture.0 + d.0;
+
+        self.end_aperture = if end_aperture >= P::aperture_start().0 {
+            P::aperture_start()
+        } else {
+            Deg(end_aperture)
+        };
+
 /*
         // Get the position at the center of the view
         let center_clip = Vector2::new(0_f32, 0_f32);
@@ -466,6 +571,17 @@ where P: Projection {
             catalog: self.catalog,
 
             moving: self.moving,
+
+            animation_request: self.animation_request,
+            final_pos: self.final_pos,
+            start_pos: self.start_pos,
+
+            start_aperture: self.start_aperture,
+            end_aperture: self.end_aperture,
+            d: self.d,
+            
+            animation_duration: self.animation_duration,
+            start_time: self.start_time,
         }
     }
     /*
@@ -512,7 +628,7 @@ where P: Projection {
         //self.viewport.stop_inertia();
 
         if let Some(start_world_pos) = P::screen_to_world_space(screen_pos, &self.viewport) {
-            self.moving = Some(Move::new(start_world_pos));
+            self.moving = Some(Move::new::<P>(start_world_pos, &self.hips_sphere));
         }
     }
 
@@ -521,21 +637,17 @@ where P: Projection {
             // If a move is done
             if let Some(ref mut moving) = &mut self.moving {
                 // Moves the renderables
-                /*moving.apply_to_renderables(
+                moving.apply_to_renderables::<P>(
                     world_pos,
 
                     &mut self.hips_sphere,
                     &mut self.grid,
                     &mut self.catalog,
-                );*/
-                let (ra, dec) = math::xyzw_to_radec(world_pos);
-                self.set_position(Rad(-ra), Rad(-dec));
+                );
 
                 // Moves the viewport
                 self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog);
             }
-
-            self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog);
         }
     }
 
@@ -744,12 +856,14 @@ impl AppConfig {
         };
     }
 
-    fn update(&mut self, dt: f32) {
-        match self {
+    fn update(&mut self, dt: f32) -> Vector2<Rad<f32>> {
+        let pos_center_world = match self {
             AppConfig::Aitoff(app, _) => app.update(dt),
             AppConfig::MollWeide(app, _) => app.update(dt),
             AppConfig::Ortho(app, _) => app.update(dt),
-        }
+        };
+
+        pos_center_world
     }
 
     fn render(&self) {
@@ -785,7 +899,7 @@ impl AppConfig {
             AppConfig::Aitoff(app, _) => app.moves(screen_pos),
             AppConfig::MollWeide(app, _) => app.moves(screen_pos),
             AppConfig::Ortho(app, _) => app.moves(screen_pos),
-        }
+        };
     }
 
     /// Wheel event
@@ -932,10 +1046,13 @@ impl WebClient {
 
     /// Update our WebGL Water application. `index.html` will call this function in order
     /// to begin rendering.
-    pub fn update(&mut self, dt: f32) -> Result<(), JsValue> {
-        self.appconfig.update(dt);
+    pub fn update(&mut self, dt: f32) -> Result<Box<[f32]>, JsValue> {
+        let pos_center_world = self.appconfig.update(dt);
 
-        Ok(())
+        let ra_deg: Deg<f32> = pos_center_world.x.into();
+        let dec_deg: Deg<f32> = pos_center_world.y.into();
+
+        Ok(Box::new([ra_deg.0, dec_deg.0]))
     }
 
     /// Update our WebGL Water application. `index.html` will call this function in order
@@ -1030,16 +1147,19 @@ impl WebClient {
     /// Start move
     pub fn initialize_move(&mut self, screen_pos_x: f32, screen_pos_y: f32) -> Result<(), JsValue> {
         self.appconfig.initialize_move(screen_pos_x, screen_pos_y);
+
         Ok(())
     }
     /// Stop move
     pub fn stop_move(&mut self, screen_pos_x: f32, screen_pos_y: f32) -> Result<(), JsValue> {
         self.appconfig.stop_move(screen_pos_x, screen_pos_y);
+
         Ok(())
     }
     /// Keep moving
     pub fn moves(&mut self, screen_pos_x: f32, screen_pos_y: f32) -> Result<(), JsValue> {
         self.appconfig.moves(screen_pos_x, screen_pos_y);
+
         Ok(())
     }
 
