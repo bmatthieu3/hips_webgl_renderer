@@ -73,6 +73,8 @@ use crate::renderable::hips_sphere::RenderingMode;
 
 use cgmath::Quaternion;
 
+use crate::mouse_inertia::MouseInertia;
+
 struct App<P>
 where P: Projection {
     gl: WebGl2Context,
@@ -91,6 +93,7 @@ where P: Projection {
 
     // Move event
     moving: Option<Move>,
+    inertia: Option<MouseInertia>,
 
     // Animation rotation
     pub animation_request: bool,
@@ -352,6 +355,7 @@ where P: Projection {
         let d = Rad(0_f32);
 
         let moving = None;
+        let inertia = None;
         let gl = gl.clone();
         let app = App {
             gl,
@@ -369,6 +373,7 @@ where P: Projection {
             catalog,
 
             moving,
+            inertia,
 
             animation_request,
             final_pos,
@@ -429,11 +434,19 @@ where P: Projection {
             }
         }
 
+        // Mouse inertia
+        if let Some(inertia) = self.inertia.clone() {
+            self.inertia = inertia.update::<P>(&mut self.hips_sphere, &mut self.grid, &mut self.catalog, &mut self.viewport);
+            hips_sphere_updated = true;
+        }
+
         // Check whether the HiPS sphere must be updated or not
         if !hips_sphere_updated && utils::get_current_time() < *LATEST_TIME_TILE_RECEIVED.lock().unwrap() + BLENDING_DURATION_MS {
             self.hips_sphere.mesh_mut().update::<P>(&self.viewport);
         }
 
+        // Return the position of the center of the projection
+        // to the javascript main code
         let center_world_pos = self.hips_sphere.compute_center_world_pos::<P>();
         let (ra, dec) = math::xyzw_to_radec(center_world_pos);
         Vector2::new(Rad(ra), Rad(dec))
@@ -521,7 +534,8 @@ where P: Projection {
         };
 
         let min_anim_duration = 2000_f32;
-        self.animation_duration = (d.0 / 180_f32) * (5000_f32 - min_anim_duration) + min_anim_duration;
+        let max_anim_duration = 6000_f32;
+        self.animation_duration = (d.0 / 180_f32) * (max_anim_duration - min_anim_duration) + min_anim_duration;
 
 /*
         // Get the position at the center of the view
@@ -574,6 +588,7 @@ where P: Projection {
             catalog: self.catalog,
 
             moving: self.moving,
+            inertia: self.inertia,
 
             animation_request: self.animation_request,
             final_pos: self.final_pos,
@@ -627,7 +642,7 @@ where P: Projection {
     /// MOVE EVENT
     fn initialize_move(&mut self, screen_pos: Vector2<f32>) {
         // stop inertia if there is one
-        //self.inertia = None;
+        self.inertia = None;
         //self.viewport.stop_inertia();
 
         if let Some(start_world_pos) = P::screen_to_world_space(screen_pos, &self.viewport) {
@@ -654,7 +669,15 @@ where P: Projection {
         }
     }
 
-    fn stop_move(&mut self, screen_pos: Vector2<f32>) {
+    fn stop_move(&mut self, pos_screen_space: Vector2<f32>, dt: f32, enable_inertia: bool) {
+        if enable_inertia {
+            if let Some(_) = P::screen_to_world_space(pos_screen_space, &self.viewport) {
+                if let Some(moving) = self.moving.clone() {
+                    self.inertia = MouseInertia::new(moving, dt);
+                }
+            }
+        }
+
         self.moving = None;
         /*if let Some(ref mut move_event) = self.move_event {
             console::log_1(&format!("stop moving").into());
@@ -887,12 +910,12 @@ impl AppConfig {
     }
 
     /// Stop move
-    pub fn stop_move(&mut self, screen_pos_x: f32, screen_pos_y: f32) {
+    pub fn stop_move(&mut self, screen_pos_x: f32, screen_pos_y: f32, dt: f32, enable_inertia: bool) {
         let screen_pos = Vector2::new(screen_pos_x, screen_pos_y);
         match self {
-            AppConfig::Aitoff(app, _) => app.stop_move(screen_pos),
-            AppConfig::MollWeide(app, _) => app.stop_move(screen_pos),
-            AppConfig::Ortho(app, _) => app.stop_move(screen_pos),
+            AppConfig::Aitoff(app, _) => app.stop_move(screen_pos, dt, enable_inertia),
+            AppConfig::MollWeide(app, _) => app.stop_move(screen_pos, dt, enable_inertia),
+            AppConfig::Ortho(app, _) => app.stop_move(screen_pos, dt, enable_inertia),
         }
     }
     /// Keep moving
@@ -1030,6 +1053,9 @@ impl AppConfig {
 #[wasm_bindgen]
 pub struct WebClient {
     appconfig: AppConfig,
+    dt: f32,
+    enable_inertia: bool,
+    enable_grid: bool,
 }
 
 #[wasm_bindgen]
@@ -1041,15 +1067,23 @@ impl WebClient {
 
         let app = App::<Aitoff>::new(&gl).unwrap();
         let appconfig = AppConfig::Aitoff(app, "aitoff");
+        let dt = 0_f32;
+        let enable_inertia = true;
+        let enable_grid = true;
 
         WebClient {
             appconfig,
+            dt,
+            enable_inertia,
+            enable_grid,
         }
     }
 
     /// Update our WebGL Water application. `index.html` will call this function in order
     /// to begin rendering.
     pub fn update(&mut self, dt: f32) -> Result<Box<[f32]>, JsValue> {
+
+        self.dt = dt;
         let pos_center_world = self.appconfig.update(dt);
 
         let ra_deg: Deg<f32> = pos_center_world.x.into();
@@ -1080,45 +1114,46 @@ impl WebClient {
         Ok(())
     }
 
-    /*/// Enable equatorial grid
+    /// Enable mouse inertia
+    pub fn enable_inertia(&mut self) -> Result<(), JsValue> {
+        self.enable_inertia = true;
+
+        Ok(())
+    }
+    /// Disable mouse inertia
+    pub fn disable_inertia(&mut self) -> Result<(), JsValue> {
+        self.enable_inertia = false;
+
+        Ok(())
+    }
+
+    /// Enable equatorial grid
     pub fn enable_equatorial_grid(&mut self) -> Result<(), JsValue> {
-        if let Some(grid) = ENABLED_WIDGETS.lock().unwrap().get_mut("grid") {
+        self.enable_grid = true;
+        /*if let Some(grid) = ENABLED_WIDGETS.lock().unwrap().get_mut("grid") {
             *grid = true;
             self.app.grid
                 .update(
                     &self.app.projection,
                     &mut self.app.viewport
                 );
-        }
+        }*/
 
         Ok(())
     }
 
     /// Disable equatorial grid
     pub fn disable_equatorial_grid(&mut self) -> Result<(), JsValue> {
-        if let Some(grid) = ENABLED_WIDGETS.lock().unwrap().get_mut("grid") {
+        self.enable_grid = false;
+
+        /*if let Some(grid) = ENABLED_WIDGETS.lock().unwrap().get_mut("grid") {
             *grid = false;
             self.app.grid.mesh_mut().clear_canvas();
-        }
-        //RENDER_FRAME.lock().unwrap().set(true);
-        //UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
+        }*/
 
         Ok(())
     }
-
-    /// Enable mouse inertia
-    pub fn enable_inertia(&mut self) -> Result<(), JsValue> {
-        ENABLE_INERTIA.store(true, Ordering::Relaxed);
-
-        Ok(())
-    }
-    /// Disable mouse inertia
-    pub fn disable_inertia(&mut self) -> Result<(), JsValue> {
-        ENABLE_INERTIA.store(false, Ordering::Relaxed);
-
-        Ok(())
-    }
-
+    /*
     /// Change grid color
     pub fn change_grid_color(&mut self, red: f32, green: f32, blue: f32) -> Result<(), JsValue> {
         self.app.grid.mesh_mut().set_color_rgb(red, green, blue);
@@ -1155,7 +1190,7 @@ impl WebClient {
     }
     /// Stop move
     pub fn stop_move(&mut self, screen_pos_x: f32, screen_pos_y: f32) -> Result<(), JsValue> {
-        self.appconfig.stop_move(screen_pos_x, screen_pos_y);
+        self.appconfig.stop_move(screen_pos_x, screen_pos_y, self.dt, self.enable_inertia);
 
         Ok(())
     }

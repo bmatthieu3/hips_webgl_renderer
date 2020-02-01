@@ -9,6 +9,7 @@ use crate::renderable::grid::ProjetedGrid;
 
 use crate::renderable::catalog::Catalog;
 
+#[derive(Clone)]
 pub struct Move {
     start_world_pos: Vector4<f32>,
     axis: Vector3<f32>,
