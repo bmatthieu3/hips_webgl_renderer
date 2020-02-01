@@ -520,6 +520,9 @@ where P: Projection {
             Deg(end_aperture)
         };
 
+        let min_anim_duration = 2000_f32;
+        self.animation_duration = (d.0 / 180_f32) * (5000_f32 - min_anim_duration) + min_anim_duration;
+
 /*
         // Get the position at the center of the view
         let center_clip = Vector2::new(0_f32, 0_f32);
