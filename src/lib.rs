@@ -424,15 +424,6 @@ where P: Projection {
             self.render = true;
         }
 
-        // Move
-        if let Some(_) = self.moving {
-            // Moves the viewport
-            self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog, &mut self.grid, enable_grid);
-
-            // Render the next frame
-            self.render = true;
-        }
-
         // Mouse inertia
         if let Some(inertia) = self.inertia.clone() {
             self.inertia = inertia.update::<P>(&mut self.hips_sphere, &mut self.grid, &mut self.catalog, &mut self.viewport, enable_grid);
@@ -449,6 +440,15 @@ where P: Projection {
             // Render the next frame
             self.render = true;
             console::log_1(&format!("not render2").into());
+        }
+
+                // Move
+        if let Some(_) = self.moving {
+            // Moves the viewport
+            self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog, &mut self.grid, enable_grid);
+
+            // Render the next frame
+            self.render = true;
         }
 
         // Return the position of the center of the projection
