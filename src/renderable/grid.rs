@@ -83,16 +83,16 @@ pub struct ProjetedGrid {
     lon: Vec<f32>, // The number of lines in the view
 
     pos_local_space: Vec<cgmath::Vector4<f32>>,
-    pos_screen_space: Vec<f32>,
+    pos_clip_space: Vec<f32>,
     idx_vertices: Vec<u16>,
 
     label_pos_local_space: Vec<cgmath::Vector4<f32>>,
     num_points_lon: usize,
     num_points_lat: usize,
 
-    label_pos_screen_space: Vec<cgmath::Vector2<f64>>,
+    label_pos_screen_space: Vec<cgmath::Vector2<f32>>,
     label_text: Vec<String>,
-    font_size: f64,
+    font_size: f32,
 
     text_canvas: web_sys::CanvasRenderingContext2d,
     color: Color,
@@ -103,8 +103,10 @@ pub struct ProjetedGrid {
 use cgmath::{SquareMatrix, InnerSpace};
 use wasm_bindgen::JsCast;
 use crate::math::radec_to_xyzw;
-
+use crate::renderable::hips_sphere::HiPSSphere;
 use crate::projection::Projection;
+
+use cgmath::Deg;
 impl ProjetedGrid {
     pub fn new<P: Projection>(
         gl: &WebGl2Context,
@@ -149,7 +151,7 @@ impl ProjetedGrid {
         // Build the line vertices
         let num_iso_lon = lon.len() >> 1;
         let (pos_local_space, num_points_lon, num_points_lat) = build_grid_vertices(&lat, &lon, lat_start, lat_end, lon_start, lon_end);
-        let pos_screen_space = vec![];
+        let pos_clip_space = vec![];
         let idx_vertices = vec![];
         // Build the label positions
         let mut label_pos_local_space = lat.iter()
@@ -215,7 +217,7 @@ impl ProjetedGrid {
         text_canvas.set_global_alpha(0.7_f64);
         //console::log_1(&format!("font: {:?}", text_canvas.font()).into());
         
-        let font_size = 12_f64;
+        let font_size = 12_f32;
         let font = (font_size as u8).to_string() + "px sans-serif";
         text_canvas.set_font(&font);
 
@@ -228,7 +230,7 @@ impl ProjetedGrid {
             lon,
 
             pos_local_space,
-            pos_screen_space,
+            pos_clip_space,
             idx_vertices,
             label_pos_local_space,
             num_points_lon,
@@ -244,32 +246,36 @@ impl ProjetedGrid {
             vertex_array_object
         };
 
-        grid.update_grid_positions::<P>(&cgmath::Matrix4::identity());
+        grid.update_grid_positions::<P>(&cgmath::Matrix4::identity(), viewport);
         grid.update_label_positions::<P>(&cgmath::Matrix4::identity(), viewport);
 
         grid
     }
 
-    pub fn update_grid_positions<P: Projection>(&mut self, local_to_world_mat: &Matrix4<f32>) {
-        /*let (mut width_screen, _) = window_size_f32();
+    pub fn update_grid_positions<P: Projection>(&mut self, local_to_world_mat: &Matrix4<f32>, viewport: &ViewPort) {
+        let window_size = viewport.get_window_size();
 
-        self.pos_screen_space.clear();
+        self.pos_clip_space.clear();
         // UPDATE GRID VERTICES POSITIONS
         for pos_local_space in self.pos_local_space.iter() {
-            let pos_world_space = local_to_world_mat * pos_local_space;
+            let pos_clip_space = P::world_to_clip_space(local_to_world_mat * pos_local_space);
 
-            let pos_screen_space = P::world_to_screen_space(pos_world_space.clone()).unwrap();
-
-            self.pos_screen_space.push(pos_screen_space.x);
-            self.pos_screen_space.push(pos_screen_space.y);
+            self.pos_clip_space.push(pos_clip_space.x);
+            self.pos_clip_space.push(pos_clip_space.y);
         }
+
+        // TODO: Remove that this is inacceptable :))!
+        /*let threshold: Rad<f32> = Deg(150_f32).into(); 
+        if viewport.field_of_view().get_aperture() < threshold {
+            return;
+        }*/
 
         // UPDATE IDX VERTICES
         let num_vertices = (self.lat.len() * (self.num_points_lon - 1) + self.lon.len() * (self.num_points_lat - 1)) * 2;
         //let num_vertices = self.lat.len() * (self.num_points_lon - 1) * 2;
         self.idx_vertices = vec![0; num_vertices];
 
-        let mut threshold_px = 2_f32 * (200_f32 / width_screen);
+        let mut threshold_px = 2_f32 * (300_f32 / window_size.x);
         threshold_px = threshold_px * threshold_px;
 
         let mut i = 0;
@@ -282,8 +288,8 @@ impl ProjetedGrid {
                 let next_idx = idx + 1;
 
                 let cur_to_next_screen_pos = cgmath::Vector2::new(
-                    self.pos_screen_space[2*next_idx] - self.pos_screen_space[2*idx],
-                    self.pos_screen_space[2*next_idx + 1] - self.pos_screen_space[2*idx + 1]
+                    self.pos_clip_space[2*next_idx] - self.pos_clip_space[2*idx],
+                    self.pos_clip_space[2*next_idx + 1] - self.pos_clip_space[2*idx + 1]
                 );
 
                 if cur_to_next_screen_pos.magnitude2() < threshold_px {
@@ -303,8 +309,8 @@ impl ProjetedGrid {
                 let next_idx = idx + 1;
 
                 let cur_to_next_screen_pos = cgmath::Vector2::new(
-                    self.pos_screen_space[2*next_idx] - self.pos_screen_space[2*idx],
-                    self.pos_screen_space[2*next_idx + 1] - self.pos_screen_space[2*idx + 1]
+                    self.pos_clip_space[2*next_idx] - self.pos_clip_space[2*idx],
+                    self.pos_clip_space[2*next_idx + 1] - self.pos_clip_space[2*idx + 1]
                 );
 
                 if cur_to_next_screen_pos.magnitude2() < threshold_px {
@@ -314,46 +320,35 @@ impl ProjetedGrid {
                 }
             }
             idx_start += num_points_step;
-        }*/
+        }
     }
 
     pub fn update_label_positions<P: Projection>(&mut self, local_to_world_mat: &Matrix4<f32>, viewport: &ViewPort) {
-        /*let (mut width_screen, mut height_screen) = window_size_f32();
-        let viewport_zoom_factor = viewport.get_scaling_screen_factor();
+        let window_size = viewport.get_window_size();
+        //let viewport_zoom_factor = viewport.get_scaling_screen_factor();
 
         // UPDATE LABEL POSITIONS
         self.label_pos_screen_space.clear();
         for (label_text, pos_local_space) in self.label_text.iter().zip(self.label_pos_local_space.iter()) {
-            let label_pos_world_space = local_to_world_mat * pos_local_space;
+            let offset_pos_screen = self.text_canvas.measure_text(label_text).unwrap().width() as f32;
 
-            let label_pos_screen_space = P::world_to_screen_space(label_pos_world_space).unwrap();
-
-            let offset_pos_screen = self.text_canvas.measure_text(label_text).unwrap().width();
-            
-            // multiply by the zoom factor from the viewport
-            let mut pos_screen_space = cgmath::Vector2::new(
-                (((label_pos_screen_space.x * 0.5_f32) / viewport_zoom_factor.x + 0.5_f32) * width_screen) as f64,
-                ((-label_pos_screen_space.y * 0.5_f32) * width_screen / viewport_zoom_factor.y + 0.5_f32 * height_screen) as f64
-            );
-            pos_screen_space += cgmath::Vector2::new(-offset_pos_screen / (2_f64 * (viewport_zoom_factor.x as f64)), self.font_size / (2_f64 * (viewport_zoom_factor.y as f64)));
+            let mut pos_screen_space = P::world_to_screen_space(local_to_world_mat * pos_local_space, viewport);            
+            //pos_screen_space += cgmath::Vector2::new(pos_screen_space.x - offset_pos_screen / 2_f32, pos_screen_space.y + self.font_size / 2_f32);
 
             self.label_pos_screen_space.push(pos_screen_space);
-        }*/
+        }
     }
 
-    pub fn draw_labels(&self) {
-        // Clear the 2D canvas
-        /*let (mut width_screen, mut height_screen) = window_size_f64();
-        self.text_canvas.clear_rect(0_f64, 0_f64, width_screen, height_screen);
+    pub fn draw_labels(&self, viewport: &ViewPort) {
         // Fill
         for (label_text, pos_screen_space) in self.label_text.iter().zip(self.label_pos_screen_space.iter()) {
             self.text_canvas.fill_text(label_text, pos_screen_space.x as f64, pos_screen_space.y as f64).unwrap();
-        }*/
+        }
     }
 
-    pub fn clear_canvas(&mut self) {
-        /*let (mut width_screen, mut height_screen) = window_size_f64();
-        self.text_canvas.clear_rect(0_f64, 0_f64, width_screen, height_screen); */
+    pub fn clear_canvas(&self, viewport: &ViewPort) {
+        let window_size = viewport.get_window_size();
+        self.text_canvas.clear_rect(0_f64, 0_f64, window_size.x as f64, window_size.y as f64);
     }
 
     pub fn set_color_rgb(&mut self, red: f32, green: f32, blue: f32) {
@@ -375,22 +370,25 @@ impl ProjetedGrid {
         gl.uniform4f(location_color, self.color.red, self.color.green, self.color.blue, self.color.alpha);
     }
 
-    fn update<P: Projection>(&mut self, local_to_world: &Matrix4<f32>, viewport: &ViewPort) {
-        self.update_grid_positions::<P>(
-            local_to_world,
-        );
-        self.update_label_positions::<P>(
-            local_to_world,
-            viewport
-        );
+    pub fn update<P: Projection>(&mut self, hips_sphere: &Renderable<HiPSSphere>, viewport: &ViewPort) {
+        if P::name() != "Orthographic" {
+            self.update_grid_positions::<P>(
+                hips_sphere.get_inverted_model_mat(),
+                viewport,
+            );
+            self.update_label_positions::<P>(
+                hips_sphere.get_inverted_model_mat(),
+                viewport
+            );
 
-        // Update the VAO
-        self.vertex_array_object.bind()
-            .update_array(0, BufferData::VecData(&self.pos_screen_space))
-            .update_element_array(BufferData::VecData(&self.idx_vertices));
+            // Update the VAO
+            self.vertex_array_object.bind()
+                .update_array(0, BufferData::VecData(&self.pos_clip_space))
+                .update_element_array(BufferData::VecData(&self.idx_vertices));
+        }
     }
 
-    fn draw<T: Mesh + DisableDrawing>(
+    pub fn draw<T: Mesh + DisableDrawing>(
         &self,
         gl: &WebGl2Context,
         renderable: &Renderable<T>,
@@ -432,7 +430,7 @@ use crate::utils;
 use std::collections::HashMap;
 impl Mesh for ProjetedGrid {
     fn create_buffers(&mut self, gl: &WebGl2Context) {
-        let ref vertices_data = self.pos_screen_space;
+        let ref vertices_data = self.pos_clip_space;
         let ref idx_data = self.idx_vertices;
 
         self.vertex_array_object.bind()
@@ -460,9 +458,9 @@ impl Mesh for ProjetedGrid {
 
 use crate::renderable::DisableDrawing;
 impl DisableDrawing for ProjetedGrid {
-    fn disable(&mut self) {
+    fn disable(&mut self, viewport: &ViewPort) {
         // Clear the 2D canvas
-        /*let (width_screen, height_screen) = window_size_f64();
-        self.text_canvas.clear_rect(0_f64, 0_f64, width_screen, height_screen);*/
+        let window_size = viewport.get_window_size();
+        self.text_canvas.clear_rect(0_f64, 0_f64, window_size.x as f64, window_size.y as f64);
     }
 }

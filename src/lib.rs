@@ -108,6 +108,9 @@ where P: Projection {
 
     pub start_time: f32,
     pub animation_duration: f32,
+
+    // Render the next frame
+    render: bool,
 }
 /*
 fn add_tile_buffer_uniforms(name: &'static str, size: usize, uniforms: &mut Vec<&'static str>) {
@@ -325,24 +328,6 @@ where P: Projection {
             projeted_grid_mesh,
         );
 
-        // Resize event
-        let onresize = {
-            //let viewport = viewport.clone();
-
-            Closure::wrap(Box::new(move || {
-                console::log_1(&format!("resize").into());
-
-                //RENDER_NEXT_FRAME.store(true, Ordering::Relaxed);
-                //viewport.borrow_mut().resize();
-
-                //hips_sphere
-            }) as Box<dyn FnMut()>)
-        };
-        web_sys::window()
-            .unwrap()
-            .set_onresize(Some(onresize.as_ref().unchecked_ref()));
-        onresize.forget();
-
         let animation_request = false;
         let final_pos = Quaternion::new(1_f32, 0_f32, 0_f32, 0_f32);
         let start_pos = Quaternion::new(1_f32, 0_f32, 0_f32, 0_f32);
@@ -357,6 +342,7 @@ where P: Projection {
         let moving = None;
         let inertia = None;
         let gl = gl.clone();
+        let render = true;
         let app = App {
             gl,
 
@@ -386,12 +372,14 @@ where P: Projection {
 
             animation_duration,
             start_time,
+
+            render,
         };
 
         Ok(app)
     } 
 
-    fn update(&mut self, dt: f32) -> Vector2<Rad<f32>> {
+    fn update(&mut self, dt: f32, enable_grid: bool) -> Vector2<Rad<f32>> {
         /*if !UPDATE_USER_INTERFACE.load(Ordering::Relaxed) {
             RENDER_FRAME.lock().unwrap().update(&self.viewport);
             //UPDATE_FRAME.lock().unwrap().update(&self.viewport);
@@ -400,7 +388,6 @@ where P: Projection {
         }*/
 
         //self.viewport.update(&mut self.inertia, &mut self.grid, &mut self.catalog, &mut self.hips_sphere);
-        
         // Animation request
         let mut hips_sphere_updated = false;
         if self.animation_request {
@@ -426,23 +413,42 @@ where P: Projection {
 
             self.hips_sphere.set_model_mat(&next_pos.into());
             // Moves the viewport
-            self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog);
+            self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog, &mut self.grid, enable_grid);
             hips_sphere_updated = true;
 
             if a == 1_f32 {
                 self.animation_request = false;
             }
+
+            // Render the next frame
+            self.render = true;
+        }
+
+        // Move
+        if let Some(_) = self.moving {
+            // Moves the viewport
+            self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog, &mut self.grid, enable_grid);
+
+            // Render the next frame
+            self.render = true;
         }
 
         // Mouse inertia
         if let Some(inertia) = self.inertia.clone() {
-            self.inertia = inertia.update::<P>(&mut self.hips_sphere, &mut self.grid, &mut self.catalog, &mut self.viewport);
+            self.inertia = inertia.update::<P>(&mut self.hips_sphere, &mut self.grid, &mut self.catalog, &mut self.viewport, enable_grid);
             hips_sphere_updated = true;
+
+            // Render the next frame
+            self.render = true;
         }
 
         // Check whether the HiPS sphere must be updated or not
-        if !hips_sphere_updated && utils::get_current_time() < *LATEST_TIME_TILE_RECEIVED.lock().unwrap() + BLENDING_DURATION_MS {
+        if (!hips_sphere_updated) && utils::get_current_time() < *LATEST_TIME_TILE_RECEIVED.lock().unwrap() + BLENDING_DURATION_MS {
             self.hips_sphere.mesh_mut().update::<P>(&self.viewport);
+
+            // Render the next frame
+            self.render = true;
+            console::log_1(&format!("not render2").into());
         }
 
         // Return the position of the center of the projection
@@ -452,11 +458,13 @@ where P: Projection {
         Vector2::new(Rad(ra), Rad(dec))
     }
 
-    fn render(&self) {
-        if true {
+    fn render(&mut self, enable_grid: bool) {
+       // if self.render {
             // Render the scene
             self.gl.clear_color(0.08, 0.08, 0.08, 1.0);
             self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+            // Clear the grid canvas containing the labels
+            self.grid.mesh().clear_canvas(&self.viewport);
 
             // Draw renderables here
             let ref viewport = self.viewport;
@@ -469,10 +477,6 @@ where P: Projection {
                 shaders,
                 viewport,
             );
-            /*self.ortho_hips_sphere.draw(
-                shaders,
-                viewport
-            );*/
 
             // Draw the catalogs
             self.catalog.mesh().draw(
@@ -483,16 +487,22 @@ where P: Projection {
             );
 
             // Draw the grid
-            /*if *ENABLED_WIDGETS.lock().unwrap().get("grid").unwrap() {
-                // The grid lines
-                self.grid.draw(
+            // The grid lines
+            if P::name() != "Orthographic" && enable_grid {
+                self.grid.mesh().draw(
+                    &self.gl,
+                    &self.grid,
                     shaders,
                     viewport
                 );
                 // The labels
-                self.grid.mesh().draw_labels();
-            }*/
-        }
+                self.grid.mesh().draw_labels(&self.viewport);
+            }
+        /*} else {
+            console::log_1(&format!("not render").into());
+        }*/
+
+        self.render = false;
     }
 
     fn set_position(&mut self, ra: Rad<f32>, dec: Rad<f32>) {
@@ -554,7 +564,7 @@ where P: Projection {
         self.hips_sphere.apply_rotation(axis, angle);
 */
         // Moves the viewport
-        self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog);
+        //self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog, &mut self.grid, self.enable_grid);
     }
 
     fn set_projection<Q: Projection>(mut self) -> App::<Q> {
@@ -600,6 +610,8 @@ where P: Projection {
             
             animation_duration: self.animation_duration,
             start_time: self.start_time,
+
+            render: self.render,
         }
     }
     /*
@@ -637,6 +649,10 @@ where P: Projection {
 
         // Re-initialize the color buffers
         self.hips_sphere.mesh_mut().refresh_buffer_tiles();
+
+        self.hips_sphere.mesh_mut().update::<P>(&self.viewport);
+        // Render the next frame
+        self.render = true;
     }
 
     /// MOVE EVENT
@@ -662,9 +678,6 @@ where P: Projection {
                     &mut self.grid,
                     &mut self.catalog,
                 );
-
-                // Moves the viewport
-                self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog);
             }
         }
     }
@@ -700,36 +713,42 @@ where P: Projection {
 
 
     // Returns true if hips_sphere rendering mode has to be changed to the PerPixel mode
-    fn unzoom(&mut self, delta_y: f32) -> bool {
+    fn unzoom(&mut self, delta_y: f32, enable_grid: bool) -> bool {
         let a0: Deg<f32> = self.viewport
             .field_of_view()
             .get_aperture()
             .into();
 
-        self.viewport.unzoom::<P>(&mut self.hips_sphere, &mut self.catalog);
+        self.viewport.unzoom::<P>(&mut self.hips_sphere, &mut self.catalog, &mut self.grid, enable_grid);
 
         let a1: Deg<f32> = self.viewport
             .field_of_view()
             .get_aperture()
             .into();
+
+        // Render the next frame
+        self.render = true;
 
         a0 < Deg(100_f32) && a1 >= Deg(100_f32)
     }
 
     // ZOOM EVENT
     // Returns true if hips_sphere rendering mode has to be changed to the SmallFOV mode
-    fn zoom(&mut self, delta_y: f32) -> bool {
+    fn zoom(&mut self, delta_y: f32, enable_grid: bool) -> bool {
         let a0: Deg<f32> = self.viewport
             .field_of_view()
             .get_aperture()
             .into();
 
-        self.viewport.zoom::<P>(&mut self.hips_sphere, &mut self.catalog);
+        self.viewport.zoom::<P>(&mut self.hips_sphere, &mut self.catalog, &mut self.grid, enable_grid);
     
         let a1: Deg<f32> = self.viewport
             .field_of_view()
             .get_aperture()
             .into();
+
+        // Render the next frame
+        self.render = true;
 
         a0 >= Deg(100_f32) && a1 < Deg(100_f32)
     }
@@ -766,8 +785,21 @@ where P: Projection {
         self.catalog.mesh_mut().set_max_size_source(source_size.end);
     }
 
-    fn resize_window(&mut self, width: f32, height: f32) {
-        self.viewport.resize_window::<P>(width, height);
+    fn resize_window(&mut self, width: f32, height: f32, enable_grid: bool) {
+        self.viewport.resize_window::<P>(width, height, &mut self.hips_sphere, &mut self.grid, &mut self.catalog, enable_grid);
+        // Render the next frame
+        self.render = true;
+    }
+    pub fn set_color_rgb(&mut self, red: f32, green: f32, blue: f32) {
+        self.grid.mesh_mut().set_color_rgb(red, green, blue);
+    }
+
+    pub fn change_grid_opacity(&mut self, alpha: f32) {
+        self.grid.mesh_mut().set_alpha(alpha);
+    }
+
+    pub fn enable_grid(&mut self) {
+        self.grid.mesh_mut().update::<P>(&self.hips_sphere, &self.viewport);
     }
 
     /*fn update_hips_sphere(&mut self, r: &mut R) {
@@ -882,21 +914,21 @@ impl AppConfig {
         };
     }
 
-    fn update(&mut self, dt: f32) -> Vector2<Rad<f32>> {
+    fn update(&mut self, dt: f32, enable_grid: bool) -> Vector2<Rad<f32>> {
         let pos_center_world = match self {
-            AppConfig::Aitoff(app, _) => app.update(dt),
-            AppConfig::MollWeide(app, _) => app.update(dt),
-            AppConfig::Ortho(app, _) => app.update(dt),
+            AppConfig::Aitoff(app, _) => app.update(dt, enable_grid),
+            AppConfig::MollWeide(app, _) => app.update(dt, enable_grid),
+            AppConfig::Ortho(app, _) => app.update(dt, enable_grid),
         };
 
         pos_center_world
     }
 
-    fn render(&self) {
+    fn render(&mut self, enable_grid: bool) {
         match self {
-            AppConfig::Aitoff(app, _) => app.render(),
-            AppConfig::MollWeide(app, _) => app.render(),
-            AppConfig::Ortho(app, _) => app.render(),
+            AppConfig::Aitoff(app, _) => app.render(enable_grid),
+            AppConfig::MollWeide(app, _) => app.render(enable_grid),
+            AppConfig::Ortho(app, _) => app.render(enable_grid),
         }
     }
 
@@ -929,41 +961,41 @@ impl AppConfig {
     }
 
     /// Wheel event
-    pub fn zoom(self, delta_y: f32) -> AppConfig {
+    pub fn zoom(self, delta_y: f32, enable_grid: bool) -> AppConfig {
         match self {
             AppConfig::Aitoff(mut app, s) => {
-                if app.zoom(delta_y) {
+                if app.zoom(delta_y, enable_grid) {
                     AppConfig::Ortho(app.set_projection::<Orthographic>(), s)
                 } else {
                     AppConfig::Aitoff(app, s)
                 }
             },
             AppConfig::MollWeide(mut app, s) => {
-                if app.zoom(delta_y) {
+                if app.zoom(delta_y, enable_grid) {
                     AppConfig::Ortho(app.set_projection::<Orthographic>(), s)
                 } else {
                     AppConfig::MollWeide(app, s)
                 }
             },
             AppConfig::Ortho(mut app, s) => {
-                app.zoom(delta_y);
+                app.zoom(delta_y, enable_grid);
                 AppConfig::Ortho(app, s)
             },
         }
     }
     /// Wheel event
-    pub fn unzoom(self, delta_y: f32) -> AppConfig {
+    pub fn unzoom(self, delta_y: f32, enable_grid: bool) -> AppConfig {
         match self {
             AppConfig::Aitoff(mut app, s) => {
-                app.unzoom(delta_y);
+                app.unzoom(delta_y, enable_grid);
                 AppConfig::Aitoff(app, s)
             },
             AppConfig::MollWeide(mut app, s) => {
-                app.unzoom(delta_y);
+                app.unzoom(delta_y, enable_grid);
                 AppConfig::MollWeide(app, s)
             },
             AppConfig::Ortho(mut app, s) => {
-                if app.unzoom(delta_y) {
+                if app.unzoom(delta_y, enable_grid) {
                     match s {
                         "aitoff" => AppConfig::Aitoff(app.set_projection::<Aitoff>(), s),
                         "mollweide" => AppConfig::MollWeide(app.set_projection::<MollWeide>(), s),
@@ -1009,11 +1041,11 @@ impl AppConfig {
         }
     }
 
-    pub fn resize(&mut self, width: f32, height: f32) {        
+    pub fn resize(&mut self, width: f32, height: f32, enable_grid: bool) {        
         match self {
-            AppConfig::Aitoff(app, _) => app.resize_window(width, height),
-            AppConfig::MollWeide(app, _) => app.resize_window(width, height),
-            AppConfig::Ortho(app, _) => app.resize_window(width, height),
+            AppConfig::Aitoff(app, _) => app.resize_window(width, height, enable_grid),
+            AppConfig::MollWeide(app, _) => app.resize_window(width, height, enable_grid),
+            AppConfig::Ortho(app, _) => app.resize_window(width, height, enable_grid),
         }
     }
 
@@ -1048,6 +1080,30 @@ impl AppConfig {
             AppConfig::Ortho(app, _) => app.set_position(ra, dec),
         }
     }
+
+    pub fn set_color_rgb(&mut self, red: f32, green: f32, blue: f32) {
+        match self {
+            AppConfig::Aitoff(app, _) => app.set_color_rgb(red, blue, green),
+            AppConfig::MollWeide(app, _) => app.set_color_rgb(red, blue, green),
+            AppConfig::Ortho(app, _) => app.set_color_rgb(red, blue, green),
+        }
+    }
+
+    pub fn change_grid_opacity(&mut self, alpha: f32) {
+        match self {
+            AppConfig::Aitoff(app, _) => app.change_grid_opacity(alpha),
+            AppConfig::MollWeide(app, _) => app.change_grid_opacity(alpha),
+            AppConfig::Ortho(app, _) => app.change_grid_opacity(alpha),
+        }
+    }
+
+    pub fn enable_grid(&mut self) {
+        match self {
+            AppConfig::Aitoff(app, _) => app.enable_grid(),
+            AppConfig::MollWeide(app, _) => app.enable_grid(),
+            AppConfig::Ortho(app, _) => app.enable_grid(),
+        }
+    }
 }
 
 #[wasm_bindgen]
@@ -1068,7 +1124,7 @@ impl WebClient {
         let app = App::<Aitoff>::new(&gl).unwrap();
         let appconfig = AppConfig::Aitoff(app, "aitoff");
         let dt = 0_f32;
-        let enable_inertia = true;
+        let enable_inertia = false;
         let enable_grid = true;
 
         WebClient {
@@ -1082,9 +1138,8 @@ impl WebClient {
     /// Update our WebGL Water application. `index.html` will call this function in order
     /// to begin rendering.
     pub fn update(&mut self, dt: f32) -> Result<Box<[f32]>, JsValue> {
-
         self.dt = dt;
-        let pos_center_world = self.appconfig.update(dt);
+        let pos_center_world = self.appconfig.update(dt, self.enable_grid);
 
         let ra_deg: Deg<f32> = pos_center_world.x.into();
         let dec_deg: Deg<f32> = pos_center_world.y.into();
@@ -1094,8 +1149,8 @@ impl WebClient {
 
     /// Update our WebGL Water application. `index.html` will call this function in order
     /// to begin rendering.
-    pub fn render(&self) -> Result<(), JsValue> {
-        self.appconfig.render();
+    pub fn render(&mut self) -> Result<(), JsValue> {
+        self.appconfig.render(self.enable_grid);
 
         Ok(())
     }
@@ -1130,6 +1185,8 @@ impl WebClient {
     /// Enable equatorial grid
     pub fn enable_equatorial_grid(&mut self) -> Result<(), JsValue> {
         self.enable_grid = true;
+
+        self.appconfig.enable_grid();
         /*if let Some(grid) = ENABLED_WIDGETS.lock().unwrap().get_mut("grid") {
             *grid = true;
             self.app.grid
@@ -1153,28 +1210,21 @@ impl WebClient {
 
         Ok(())
     }
-    /*
+    
     /// Change grid color
     pub fn change_grid_color(&mut self, red: f32, green: f32, blue: f32) -> Result<(), JsValue> {
-        self.app.grid.mesh_mut().set_color_rgb(red, green, blue);
-        //RENDER_FRAME.lock().unwrap().set(true);
-        //UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
+        self.appconfig.set_color_rgb(red, green, blue);
 
         Ok(())
     }
 
     /// Change grid opacity
     pub fn change_grid_opacity(&mut self, alpha: f32) -> Result<(), JsValue> {
-        self.app.grid
-            .mesh_mut()
-            .set_alpha(alpha);
-
-        //RENDER_FRAME.lock().unwrap().set(true);
-        //UPDATE_USER_INTERFACE.store(true, Ordering::Relaxed);
+        self.appconfig.change_grid_opacity(alpha);
 
         Ok(())
     }
-    */
+    
     /// Change HiPS
     pub fn change_hips(&mut self, hips_url: String, hips_depth: i32) -> Result<(), JsValue> {
         self.appconfig.reload_hips_sphere(hips_url, hips_depth as u8);
@@ -1204,9 +1254,9 @@ impl WebClient {
     /// Wheel event
     pub fn zoom(mut self, delta_y: f32) -> Result<WebClient, JsValue> {
         self.appconfig = if delta_y < 0_f32 {
-            self.appconfig.zoom(delta_y)
+            self.appconfig.zoom(delta_y, self.enable_grid)
         } else {
-            self.appconfig.unzoom(delta_y)
+            self.appconfig.unzoom(delta_y, self.enable_grid)
         };
 
         Ok(self)
@@ -1221,7 +1271,7 @@ impl WebClient {
 
     /// Resize the window
     pub fn resize(&mut self, width: f32, height: f32) -> Result<(), JsValue> {
-        self.appconfig.resize(width, height);
+        self.appconfig.resize(width, height, self.enable_grid);
 
         Ok(())
     }

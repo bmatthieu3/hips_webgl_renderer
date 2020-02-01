@@ -349,7 +349,7 @@ impl BufferTiles {
         };
 
         // Push it to the GPU buffer
-        self.push_tile(tile);
+        self.push_tile(tile, false);
 
         texture_idx
     }
@@ -362,9 +362,11 @@ impl BufferTiles {
             .collect::<BinaryHeap<_>>();
     }
 
-    fn push_tile(&mut self, tile: Tile) {
+    fn push_tile(&mut self, tile: Tile, already_buf: bool) {
         self.buffer.push(tile);
-        *LATEST_TIME_TILE_RECEIVED.lock().unwrap() = utils::get_current_time();
+        if !already_buf {
+            *LATEST_TIME_TILE_RECEIVED.lock().unwrap() = utils::get_current_time();
+        }
     }
 
     pub fn add_to_loaded_tiles(&mut self, tile: HEALPixCell) {
@@ -433,8 +435,8 @@ impl BufferTiles {
                     .cloned()
                     .collect();
 
-                // Push it to the GPU buffer
-                self.push_tile(tile);
+                // Push it again in the GPU buffer
+                self.push_tile(tile, true);
             } else {
                 unreachable!();
             }

@@ -123,14 +123,32 @@ impl ViewPort {
         self.set_aperture::<P>(current_aperture);
     }
 
-    pub fn resize_window<P: Projection>(&mut self, width: f32, height: f32) {
+    pub fn resize_window<P: Projection>(&mut self, width: f32, height: f32,
+        hips_sphere: &mut Renderable<HiPSSphere>,
+        grid: &mut Renderable<ProjetedGrid>,
+        catalog: &mut Renderable<Catalog>,
+
+        enable_grid: bool
+    ) {
         self.fov.resize_window::<P>(width, height);
+
+        // Update renderables
+        hips_sphere.mesh_mut().update::<P>(&self);
+        catalog.mesh_mut().update::<P>(&self);
+        
+        if enable_grid {
+            // A refinement of the grid may be necessary at this point
+            grid.mesh_mut().update::<P>(hips_sphere, &self);
+        }
     }
 
     pub fn zoom<P: Projection>(
         &mut self,
         hips_sphere: &mut Renderable<HiPSSphere>,
         catalog: &mut Renderable<Catalog>,
+        grid: &mut Renderable<ProjetedGrid>,
+
+        enable_grid: bool
     ) {
         self.last_zoom_action = LastZoomAction::Zoom;
         self.last_action = LastAction::Zooming;
@@ -143,12 +161,20 @@ impl ViewPort {
         // Update renderables
         hips_sphere.mesh_mut().update::<P>(&self);
         catalog.mesh_mut().update::<P>(&self);
+
+        if enable_grid {
+            // A refinement of the grid may be necessary at this point
+            grid.mesh_mut().update::<P>(hips_sphere, &self);
+        }
     }
 
     pub fn unzoom<P: Projection>(
         &mut self,
         hips_sphere: &mut Renderable<HiPSSphere>,
         catalog: &mut Renderable<Catalog>,
+        grid: &mut Renderable<ProjetedGrid>,
+
+        enable_grid: bool
     ) {
         self.last_zoom_action = LastZoomAction::Unzoom;
         self.last_action = LastAction::Zooming;
@@ -167,12 +193,20 @@ impl ViewPort {
         // Update renderables
         hips_sphere.mesh_mut().update::<P>(&self);
         catalog.mesh_mut().update::<P>(&self);
+
+        if enable_grid {
+            // A refinement of the grid may be necessary at this point
+            grid.mesh_mut().update::<P>(hips_sphere, &self);
+        }
     }
 
     pub fn displacement<P: Projection>(
         &mut self,
         hips_sphere: &mut Renderable<HiPSSphere>,
         catalog: &mut Renderable<Catalog>,
+        grid: &mut Renderable<ProjetedGrid>,
+
+        enable_grid: bool
     ) {
         self.last_action = LastAction::Moving;
 
@@ -183,9 +217,15 @@ impl ViewPort {
         let inv_model_mat = hips_sphere.get_inverted_model_mat();
         //grid.set_model_mat(inv_model_mat);
         catalog.set_model_mat(inv_model_mat);
+
         // Update renderables
-        hips_sphere.mesh_mut().update::<P>(&self);
         catalog.mesh_mut().update::<P>(&self);
+        hips_sphere.mesh_mut().update::<P>(&self);
+        
+        if enable_grid {
+            // A recomputation of the grid may be needed 
+            grid.mesh_mut().update::<P>(hips_sphere, &self);
+        }
     }
 
     pub fn field_of_view(&self) -> &FieldOfView {

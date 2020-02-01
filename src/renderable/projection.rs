@@ -26,7 +26,7 @@ pub fn ndc_to_screen_space(pos_normalized_device: Vector2<f32>, viewport: &ViewP
 
     let pos_screen_space = Vector2::new(
         (pos_normalized_device.x * 0.5_f32 + 0.5_f32) * window_size.x,
-        (pos_normalized_device.y * 0.5_f32 + 0.5_f32) * window_size.y,
+        (0.5_f32 - pos_normalized_device.y * 0.5_f32) * window_size.y,
     );
 
     pos_screen_space

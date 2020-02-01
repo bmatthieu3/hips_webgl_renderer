@@ -52,7 +52,9 @@ impl MouseInertia {
         grid: &mut Renderable<ProjetedGrid>,
         catalog: &mut Renderable<Catalog>,
 
-        viewport: &mut ViewPort
+        viewport: &mut ViewPort,
+
+        enable_grid: bool
     ) -> Option<Self> {
         console::log_1(&format!("inertia").into());
         if self.x < 1e-5 {
@@ -64,7 +66,7 @@ impl MouseInertia {
             let dx = self.x * alpha;
 
             hips_sphere.apply_rotation(-self.axis, cgmath::Rad(dx));
-            viewport.displacement::<P>(hips_sphere, catalog);
+            viewport.displacement::<P>(hips_sphere, catalog, grid, enable_grid);
 
             self.x = dx;
 

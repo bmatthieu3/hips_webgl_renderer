@@ -25,7 +25,7 @@ pub trait Mesh {
 }
 
 pub trait DisableDrawing {
-    fn disable(&mut self);
+    fn disable(&mut self, viewport: &ViewPort);
 }
 
 pub struct Renderable<T>
@@ -105,19 +105,8 @@ where T: Mesh + DisableDrawing {
         self.mesh = mesh;
     }
 
-    /*fn recompute_model_matrix(&mut self) {
-        self.model_mat = self.translation_mat * self.rotation_mat * self.scale_mat;
-        self.inverted_model_mat = self.model_mat.invert().unwrap();
-    }*/
-
-   /* pub fn rotate(&mut self, axis: cgmath::Vector3<f32>, angle: cgmath::Rad<f32>) {
-        self.rotation_mat = cgmath::Matrix4::<f32>::from_axis_angle(axis, angle);
-        self.recompute_model_matrix();
-    }*/
-
     pub fn apply_rotation(&mut self, axis: cgmath::Vector3<f32>, angle: cgmath::Rad<f32>) {
         self.model_mat = cgmath::Matrix4::<f32>::from_axis_angle(axis, angle) * self.model_mat;
-        
         self.inverted_model_mat = self.model_mat.invert().unwrap();
     }
     pub fn apply_quarternion_rotation(&mut self, q: &cgmath::Quaternion<f32>) {
@@ -164,7 +153,7 @@ where T: Mesh + DisableDrawing {
         &mut self.mesh
     }
 
-    pub fn update<P: Projection>(&mut self, viewport: &ViewPort) {
+    /*pub fn update<P: Projection>(&mut self, viewport: &ViewPort) {
         let ref mut mesh = self.mesh;
 
         let ref local_to_world = self.model_mat;
@@ -173,7 +162,7 @@ where T: Mesh + DisableDrawing {
             local_to_world,
             viewport
         );*/
-    }
+    }*/
 
     /*pub fn draw(&self, shaders: &HashMap<&'static str, Shader>, viewport: &ViewPort) {
         let ref gl = self.gl;

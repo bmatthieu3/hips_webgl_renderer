@@ -348,7 +348,7 @@ impl Catalog{
 
         let mut rebuild_binary_heap = true;
 
-        /*if self.prev_field_of_view.symmetric_difference(&current_field_of_view).count() == 0 {
+        if self.prev_field_of_view.symmetric_difference(&current_field_of_view).count() == 0 {
             // The field of view has not changed
             // We do not refresh the sources
             return;
@@ -367,15 +367,15 @@ impl Catalog{
             // from the binary heap too. We must clear it.
             current_field_of_view.clone()
         };
-        self.prev_field_of_view = current_field_of_view.clone();*/
+        self.prev_field_of_view = current_field_of_view.clone();
 
         let mut sources = vec![];
 
         if current_depth > 7 {
-            //if rebuild_binary_heap {
+            if rebuild_binary_heap {
                 self.cells.clear();
-            //}
-            for tile in current_field_of_view.iter() {
+            }
+            for tile in healpix_cells.iter() {
                 let depth = tile.0;
                 let idx = tile.1;
 
@@ -390,7 +390,7 @@ impl Catalog{
                 }
             }
         } else {
-            for tile in current_field_of_view.iter() {
+            for tile in healpix_cells.iter() {
                 let depth = tile.0;
                 let idx = tile.1;
 
@@ -420,7 +420,7 @@ impl Catalog{
         let mut sources = sources[..].concat();
 
         // Get a vector of sources from a f32 vector
-        /*let sources = { 
+        let sources = { 
             let ptr = sources.as_mut_ptr();
             let len = sources.len() / 7;
             let cap = sources.capacity() / 7;
@@ -446,7 +446,7 @@ impl Catalog{
             }
         }
 
-        //let mut sources = self.sources.clone().into_vec();
+        let mut sources = self.sources.clone().into_vec();
         self.num_instances = sources.len();
 
         // Get back a vector of f32 from the vec of Sources for drawing purposes
@@ -458,8 +458,7 @@ impl Catalog{
             mem::forget(sources);
 
             unsafe { Vec::from_raw_parts(ptr as *mut f32, len, cap) }
-        };*/
-        self.num_instances = sources.len() / 7;
+        };
         
         // Update the VAO
         self.vertex_array_object.bind()
@@ -615,8 +614,7 @@ impl Mesh for Catalog {
 
 use crate::renderable::DisableDrawing;
 impl DisableDrawing for Catalog {
-    fn disable(&mut self) {
-    }
+    fn disable(&mut self, viewport: &ViewPort) {}
 }
 
 use cgmath::Vector2;

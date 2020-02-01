@@ -888,6 +888,6 @@ impl Mesh for HiPSSphere {
 
 use crate::renderable::DisableDrawing;
 impl DisableDrawing for HiPSSphere {
-    fn disable(&mut self) {
+    fn disable(&mut self, _: &ViewPort) {
     }
 }
