@@ -520,8 +520,8 @@ pub struct PerPixel<P> where P: Projection {
 }
 
 impl<P> PerPixel<P> where P: Projection {
-    fn create_vertices_array(gl: &WebGl2Context, viewport: &ViewPort) -> Vec<f32> {
-        let vertex_screen_space_positions = <P>::build_screen_map(viewport);
+    fn create_vertices_array(gl: &WebGl2Context, viewport: &ViewPort) -> (Vec<f32>, Vec<u16>) {
+        let (vertex_screen_space_positions, indices) = <P>::build_screen_map(viewport);
 
         let vertices_data = vertex_screen_space_positions
             .into_iter()
@@ -535,59 +535,14 @@ impl<P> PerPixel<P> where P: Projection {
             .collect::<Vec<_>>();
         console::log_1(&format!("End Generation per pixel mode vertices").into());
 
-        vertices_data
-    }
-
-    fn create_index_array() -> Option<Vec<u16>> {
-        let mut indices = Vec::with_capacity(3 * NUM_VERTICES_PER_STEP * NUM_STEPS);
-
-        for j in 0..NUM_STEPS {
-            if j == 0 {
-                for i in 1..NUM_VERTICES_PER_STEP {
-                    indices.push(0 as u16);
-                    indices.push((i + 1) as u16);
-                    indices.push(i as u16);
-                }
-                
-                indices.push(0 as u16);
-                indices.push(1 as u16);
-                indices.push(NUM_VERTICES_PER_STEP as u16);
-            } else {
-                for i in 0..NUM_VERTICES_PER_STEP {
-                    let start_p_idx = (j - 1) * NUM_VERTICES_PER_STEP + i + 1;
-                    let next_p_idx = if i + 1 == NUM_VERTICES_PER_STEP {
-                        (j - 1) * NUM_VERTICES_PER_STEP + 1
-                    } else {
-                        (j - 1) * NUM_VERTICES_PER_STEP + i + 2
-                    };
-
-                    let start_c_idx = j * NUM_VERTICES_PER_STEP + i + 1;
-                    let next_c_idx = if i + 1 == NUM_VERTICES_PER_STEP {
-                        j * NUM_VERTICES_PER_STEP + 1
-                    } else {
-                        j * NUM_VERTICES_PER_STEP + i + 2
-                    };
-
-                    // Triangle touching the prec circle
-                    indices.push(start_p_idx as u16);
-                    indices.push(next_p_idx as u16);
-                    indices.push(start_c_idx as u16);
-                    // Triangle touching the next circle
-                    indices.push(start_c_idx as u16);
-                    indices.push(next_p_idx as u16);
-                    indices.push(next_c_idx as u16);
-                }
-            }
-        }
-
-        Some(indices)
+        (vertices_data, indices)
     }
 }
 
 impl<P> RenderingMode for PerPixel<P> where P: Projection {
     fn new(gl: &WebGl2Context, viewport: &ViewPort) -> PerPixel<P> {
-        let vertices = Self::create_vertices_array(gl, viewport);
-        let idx = Self::create_index_array().unwrap();
+        let (vertices, idx) = Self::create_vertices_array(gl, viewport);
+        //let idx = Self::create_index_array().unwrap();
 
         let mut vertex_array_object = VertexArrayObject::new(gl);
         // VAO for per-pixel computation mode (only in case of large fovs and 2D projections)
@@ -655,6 +610,7 @@ pub struct HiPSSphere {
     aitoff_perpixel: PerPixel<Aitoff>,
     moll_perpixel: PerPixel<MollWeide>,
     arc_perpixel: PerPixel<AzimutalEquidistant>,
+    mercator_perpixel: PerPixel<Mercator>,
 
     gl: WebGl2Context,
 }
@@ -676,6 +632,7 @@ impl HiPSSphere {
         let aitoff_perpixel = PerPixel::<Aitoff>::new(&gl, &viewport);
         let moll_perpixel = PerPixel::<MollWeide>::new(&gl, &viewport);
         let arc_perpixel = PerPixel::<AzimutalEquidistant>::new(&gl, &viewport);
+        let mercator_perpixel = PerPixel::<Mercator>::new(&gl, &viewport);
 
         HiPSSphere {
             buffer: buffer,
@@ -684,6 +641,7 @@ impl HiPSSphere {
             aitoff_perpixel,
             moll_perpixel,
             arc_perpixel,
+            mercator_perpixel,
 
             gl,
         }
@@ -774,6 +732,13 @@ impl HiPSSphere {
 
                 self.send_global_uniforms(gl, shader, viewport, renderable);
                 self.arc_perpixel.draw(gl, shader)
+            },
+            "Mercator" => {
+                let shader = PerPixel::<Mercator>::get_shader(shaders); // TODO: The same shader for all projection
+                shader.bind(gl);
+
+                self.send_global_uniforms(gl, shader, viewport, renderable);
+                self.mercator_perpixel.draw(gl, shader)
             },
             // By construction, we are in orthographic projection when we have zoomed or the ortho projection selected
             "Orthographic" => {

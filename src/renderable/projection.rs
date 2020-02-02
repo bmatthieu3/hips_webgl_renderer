@@ -31,6 +31,23 @@ pub fn ndc_to_screen_space(pos_normalized_device: Vector2<f32>, viewport: &ViewP
 
     pos_screen_space
 }
+pub fn clip_to_screen_space(pos_clip_space: Vector2<f32>, viewport: &ViewPort) -> Vector2<f32> {
+    let ndc_to_clip = viewport.get_ndc_to_clip();
+    let clip_zoom_factor = viewport.get_clip_zoom_factor();
+    
+    let pos_normalized_device = Vector2::new(
+        pos_clip_space.x / (ndc_to_clip.x * clip_zoom_factor),
+        pos_clip_space.y / (ndc_to_clip.y * clip_zoom_factor),
+    );
+
+    let window_size = viewport.get_window_size();
+    let pos_screen_space = Vector2::new(
+        (pos_normalized_device.x * 0.5_f32 + 0.5_f32) * window_size.x,
+        (0.5_f32 - pos_normalized_device.y * 0.5_f32) * window_size.y,
+    );
+
+    pos_screen_space
+}
 
 pub fn screen_to_clip_space(pos_screen_space: Vector2<f32>, viewport: &ViewPort) -> Vector2<f32> {
     let pos_normalized_device = screen_to_ndc_space(pos_screen_space, viewport);
@@ -48,6 +65,51 @@ pub fn ndc_to_clip_space(pos_normalized_device: Vector2<f32>, viewport: &ViewPor
     );
 
     pos_clip_space
+}
+
+fn create_index_array() -> Vec<u16> {
+    let mut indices = Vec::with_capacity(3 * NUM_VERTICES_PER_STEP * NUM_STEPS);
+
+    for j in 0..NUM_STEPS {
+        if j == 0 {
+            for i in 1..NUM_VERTICES_PER_STEP {
+                indices.push(0 as u16);
+                indices.push((i + 1) as u16);
+                indices.push(i as u16);
+            }
+            
+            indices.push(0 as u16);
+            indices.push(1 as u16);
+            indices.push(NUM_VERTICES_PER_STEP as u16);
+        } else {
+            for i in 0..NUM_VERTICES_PER_STEP {
+                let start_p_idx = (j - 1) * NUM_VERTICES_PER_STEP + i + 1;
+                let next_p_idx = if i + 1 == NUM_VERTICES_PER_STEP {
+                    (j - 1) * NUM_VERTICES_PER_STEP + 1
+                } else {
+                    (j - 1) * NUM_VERTICES_PER_STEP + i + 2
+                };
+
+                let start_c_idx = j * NUM_VERTICES_PER_STEP + i + 1;
+                let next_c_idx = if i + 1 == NUM_VERTICES_PER_STEP {
+                    j * NUM_VERTICES_PER_STEP + 1
+                } else {
+                    j * NUM_VERTICES_PER_STEP + i + 2
+                };
+
+                // Triangle touching the prec circle
+                indices.push(start_p_idx as u16);
+                indices.push(next_p_idx as u16);
+                indices.push(start_c_idx as u16);
+                // Triangle touching the next circle
+                indices.push(start_c_idx as u16);
+                indices.push(next_p_idx as u16);
+                indices.push(next_c_idx as u16);
+            }
+        }
+    }
+
+    indices
 }
 
 use cgmath::Vector4;
@@ -128,7 +190,7 @@ pub trait Projection {
 
     /// Build a triangulation map in the screen pixel space of the projection
     /// (used in the per pixel rendering mode for 2D projections!)
-    fn build_screen_map(viewport: &ViewPort) -> Vec<Vector2<f32>>;
+    fn build_screen_map(viewport: &ViewPort) -> (Vec<Vector2<f32>>, Vec<u16>);
 
     // Aperture angle at the start of the application (full view)
     // - 180 degrees for the 3D projections (i.e. ortho)
@@ -148,6 +210,8 @@ pub struct MollWeide;
 pub struct Orthographic;
 #[derive(Clone, Copy)]
 pub struct AzimutalEquidistant;
+#[derive(Clone, Copy)]
+pub struct Mercator;
 
 use cgmath::Vector2;
 
@@ -169,7 +233,7 @@ impl Projection for Aitoff {
     fn name() -> &'static str {
         "Aitoff"
     }
-    fn build_screen_map(viewport: &ViewPort) -> Vec<Vector2<f32>> {
+    fn build_screen_map(viewport: &ViewPort) -> (Vec<Vector2<f32>>, Vec<u16>) {
         let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
 
         let window_size = viewport.get_window_size();
@@ -191,7 +255,7 @@ impl Projection for Aitoff {
             }
         }
 
-        vertices_screen
+        (vertices_screen, create_index_array())
     }
 
     /// View to world space transformation
@@ -291,7 +355,7 @@ impl Projection for MollWeide {
         "MollWeide"
     }
 
-    fn build_screen_map(viewport: &ViewPort) -> Vec<cgmath::Vector2<f32>> {
+    fn build_screen_map(viewport: &ViewPort) -> (Vec<Vector2<f32>>, Vec<u16>) {
         let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
 
         let window_size = viewport.get_window_size();
@@ -313,7 +377,7 @@ impl Projection for MollWeide {
             }
         }
 
-        vertices_screen
+        (vertices_screen, create_index_array())
     }
 
     /// View to world space transformation
@@ -410,7 +474,7 @@ impl Projection for Orthographic {
         "Orthographic"
     }
 
-    fn build_screen_map(viewport: &ViewPort) -> Vec<Vector2<f32>> {
+    fn build_screen_map(viewport: &ViewPort) -> (Vec<Vector2<f32>>, Vec<u16>) {
         let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
 
         let window_size = viewport.get_window_size();
@@ -432,7 +496,7 @@ impl Projection for Orthographic {
             }
         }
 
-        vertices_screen
+        (vertices_screen, create_index_array())
     }
 
     /// View to world space transformation
@@ -487,7 +551,7 @@ impl Projection for AzimutalEquidistant {
         "Arc"
     }
 
-    fn build_screen_map(viewport: &ViewPort) -> Vec<cgmath::Vector2<f32>> {
+    fn build_screen_map(viewport: &ViewPort) -> (Vec<Vector2<f32>>, Vec<u16>) {
         let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
 
         let window_size = viewport.get_window_size();
@@ -509,7 +573,7 @@ impl Projection for AzimutalEquidistant {
             }
         }
 
-        vertices_screen
+        (vertices_screen, create_index_array())
     }
 
     /// View to world space transformation
@@ -535,10 +599,10 @@ impl Projection for AzimutalEquidistant {
 
             let mut delta = 0_f32;
             let mut theta = 0_f32;
-            //if c >= 1e-4 {
-            delta = (y * c.sin() / rho).asin();
-            theta = -(x * c.sin()).atan2(rho * c.cos());
-            //}
+            if c >= 1e-4 {
+                delta = (y * c.sin() / rho).asin() * std::f32::consts::PI;
+                theta = -(x * c.sin()).atan2(rho * c.cos()) * std::f32::consts::PI;
+            }
             let pos_world_space = math::radec_to_xyzw(Rad(theta), Rad(delta));
             Some(pos_world_space)
         } else {
@@ -558,13 +622,120 @@ impl Projection for AzimutalEquidistant {
 
         let k = c / c.sin();
 
-        let x = k* delta.cos() * theta.sin();
+        let x = -k* delta.cos() * theta.sin();
         let y = k*delta.sin();
 
-        Vector2::new(x, y)
+        Vector2::new(x / std::f32::consts::PI, y / std::f32::consts::PI)
     }
 
     fn aperture_start() -> Deg<f32> {
         Deg(180_f32)
+    }
+}
+
+
+impl Projection for Mercator {
+    fn check_for_allsky_fov(depth: u8) -> Option<BTreeSet<HEALPixCell>> {
+        if depth == 0 {
+            Some(ALLSKY_ZERO_DEPTH.lock().unwrap().clone())
+        } else if depth == 1 {
+            Some(ALLSKY_ONE_DEPTH.lock().unwrap().clone())
+        } else {
+            None
+        }
+    }
+
+    fn name() -> &'static str {
+        "Mercator"
+    }
+
+    fn build_screen_map(viewport: &ViewPort) -> (Vec<Vector2<f32>>, Vec<u16>) {
+        let N = 40;
+
+        let mut vertices_screen = Vec::with_capacity(N * N as usize);
+
+        for i in 0..N {
+            for j in 0..N {
+                let pos_clip_space = Vector2::new(
+                    -1_f32 + ((j as f32)/((N-1) as f32))*2_f32,
+                    -1_f32 + ((i as f32)/((N-1) as f32))*2_f32,
+                );
+                vertices_screen.push(crate::projection::clip_to_screen_space(pos_clip_space, viewport));
+            }
+        }
+
+        let mut indices = Vec::with_capacity((N - 1) * (N - 1) * 2 * 3 as usize);
+
+        for i in 0..(N-1) {
+            for j in 0..(N-1) {
+                indices.push((j + i*N) as u16);
+                indices.push((j + i*N + 1) as u16);
+                indices.push((j + (i+1)*N) as u16);
+
+                indices.push((j + i*N + 1) as u16);
+                indices.push((j + (i+1)*N + 1) as u16);
+                indices.push((j + (i+1)*N) as u16);
+            }
+        }
+
+        console::log_1(&format!("indices {:?}", indices).into());
+        //panic!();
+
+        (vertices_screen, indices)
+    }
+
+    /// View to world space transformation
+    /// 
+    /// This returns a normalized vector along its first 3 dimensions.
+    /// Its fourth component is set to 1.
+    /// 
+    /// The Aitoff projection maps screen coordinates from [-pi; pi] x [-pi/2; pi/2]
+    /// 
+    /// # Arguments
+    /// 
+    /// * `x` - in normalized device coordinates between [-1; 1]
+    /// * `y` - in normalized device coordinates between [-1; 1]
+    fn clip_to_world_space(pos_clip_space: Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
+        /*let xw_2 = 1_f32 - pos_clip_space.x*pos_clip_space.x - pos_clip_space.y*pos_clip_space.y;
+        if xw_2 > 0_f32 {
+            let (x, y) = (2_f32 * pos_clip_space.x, 2_f32 * pos_clip_space.y);
+
+            let rho2 = (x*x + y*y);
+            let rho = rho2.sqrt();
+
+            let c = 2_f32 * (0.5_f32 * rho).asin();
+
+            let mut delta = 0_f32;
+            let mut theta = 0_f32;
+            //if c >= 1e-4 {
+            delta = (y * c.sin() / rho).asin();
+            theta = -(x * c.sin()).atan2(rho * c.cos());
+            //}
+            let pos_world_space = math::radec_to_xyzw(Rad(theta), Rad(delta));
+            Some(pos_world_space)
+        } else {
+            // Out of the sphere
+            None
+        }*/
+        let theta = -pos_clip_space.x * std::f32::consts::PI;
+        let delta = (pos_clip_space.y.sinh()).atan() * std::f32::consts::PI;
+
+        let pos_world_space = math::radec_to_xyzw(Rad(theta), Rad(delta));
+        Some(pos_world_space)
+    }
+
+    /// World to screen space transformation
+    /// 
+    /// # Arguments
+    /// 
+    /// * `pos_world_space` - Position in the world space. Must be a normalized vector
+    fn world_to_clip_space(pos_world_space: cgmath::Vector4<f32>) -> Vector2<f32> {
+        let (theta, delta) = math::xyzw_to_radec(pos_world_space);
+
+        Vector2::new(-theta / std::f32::consts::PI, (((std::f32::consts::PI / 4_f32) + (delta / 2_f32)).tan()).ln() / std::f32::consts::PI)
+    }
+
+    fn aperture_start() -> Deg<f32> {
+        Deg(360_f32)
     }
 }

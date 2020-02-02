@@ -316,6 +316,7 @@ impl Catalog{
             "Orthographic" => Catalog_Orthographic::name(),
             "MollWeide" => Catalog_MollWeide::name(),
             "Arc" => Catalog_MollWeide::name(), // TODO
+            "Mercator" => Catalog_Mercator::name(),
             _ => unreachable!()
         };
         self.catalog_shader_key = catalog_shader_key;
