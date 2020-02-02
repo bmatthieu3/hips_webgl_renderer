@@ -567,6 +567,30 @@ impl BufferTiles {
     }
 
     pub fn clear(&mut self) {
+        // Clear all the textures
+        for idx_texture in 0..self.texture_stack.len() {
+            let texture = &self.texture_stack[idx_texture];
+            let texture_unit = texture.idx_texture_unit;
+            let webgl_texture = texture.texture.borrow();
+
+            self.gl.active_texture(texture_unit);
+            self.gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, webgl_texture.as_ref());
+
+            self.gl.tex_sub_image_2d_with_i32_and_i32_and_u32_and_type_and_opt_u8_array(
+                WebGl2RenderingContext::TEXTURE_2D,
+                0,
+                0,
+                0,
+                WIDTH_TEXTURE << 3,
+                HEIGHT_TEXTURE << 3,
+
+                WebGl2RenderingContext::RGB,
+                WebGl2RenderingContext::UNSIGNED_BYTE,
+                Some(&[0 as u8; 3 * (WIDTH_TEXTURE as usize) * (HEIGHT_TEXTURE as usize) << 6]),
+            )
+            .expect("Sub texture 2d");
+        }
+
         // TODO: Clear the texture
         self.buffer.clear();
         self.loaded_tiles.clear();

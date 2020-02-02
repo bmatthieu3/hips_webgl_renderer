@@ -1197,11 +1197,11 @@ impl AppConfig {
 
     pub fn set_color_rgb(&mut self, red: f32, green: f32, blue: f32) {
         match self {
-            AppConfig::Aitoff(app, _) => app.set_color_rgb(red, blue, green),
-            AppConfig::MollWeide(app, _) => app.set_color_rgb(red, blue, green),
-            AppConfig::Arc(app, _) => app.set_color_rgb(red, blue, green),
-            AppConfig::Ortho(app, _) => app.set_color_rgb(red, blue, green),
-            AppConfig::Mercator(app, _) => app.set_color_rgb(red, blue, green),
+            AppConfig::Aitoff(app, _) => app.set_color_rgb(red, green, blue),
+            AppConfig::MollWeide(app, _) => app.set_color_rgb(red, green, blue),
+            AppConfig::Arc(app, _) => app.set_color_rgb(red, green, blue),
+            AppConfig::Ortho(app, _) => app.set_color_rgb(red, green, blue),
+            AppConfig::Mercator(app, _) => app.set_color_rgb(red, green, blue),
 
         }
     }

@@ -275,7 +275,7 @@ impl ProjetedGrid {
         //let num_vertices = self.lat.len() * (self.num_points_lon - 1) * 2;
         self.idx_vertices = vec![0; num_vertices];
 
-        let mut threshold_px = 2_f32 * (300_f32 / window_size.x);
+        let mut threshold_px = 2_f32 * (150_f32 / window_size.x);
         threshold_px = threshold_px * threshold_px;
 
         let mut i = 0;

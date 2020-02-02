@@ -666,10 +666,11 @@ impl HiPSSphere {
     /// Called when the HiPS has been changed
     pub fn refresh_buffer_tiles(&mut self) {
         console::log_1(&format!("refresh buffers").into());
-        load_base_tiles(&self.gl, self.buffer.clone());
 
         self.buffer.borrow_mut()
             .clear();
+
+        load_base_tiles(&self.gl, self.buffer.clone());
     }
 
     pub fn get_buffer(&self) -> Rc<RefCell<BufferTiles>> {
