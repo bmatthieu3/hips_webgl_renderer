@@ -733,7 +733,7 @@ where P: Projection {
         // Render the next frame
         self.render = true;
 
-        a0 < Deg(100_f32) && a1 >= Deg(100_f32)
+        a0 < Deg(80_f32) && a1 >= Deg(80_f32)
     }
 
     // ZOOM EVENT
@@ -754,7 +754,7 @@ where P: Projection {
         // Render the next frame
         self.render = true;
 
-        a0 >= Deg(100_f32) && a1 < Deg(100_f32)
+        a0 >= Deg(80_f32) && a1 < Deg(80_f32)
     }
 
     fn add_catalog(&mut self, sources: Vec<Source>) {
