@@ -478,13 +478,15 @@ where P: Projection {
                 viewport,
             );
 
-            // Draw the catalogs
-            self.catalog.mesh().draw(
-                &self.gl,
-                &self.catalog,
-                shaders,
-                viewport
-            );
+            if self.catalog.mesh().get_alpha() > 0_f32 {
+                // Draw the catalogs
+                self.catalog.mesh().draw(
+                    &self.gl,
+                    &self.catalog,
+                    shaders,
+                    viewport
+                );
+            }
 
             // Draw the grid
             // The grid lines

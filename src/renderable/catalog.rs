@@ -241,7 +241,7 @@ impl Catalog{
             // Unbind the buffer
             .unbind();
 
-        let alpha = 0.7_f32;
+        let alpha = 0_f32;
         let strength = 1_f32;
 
         let cells = HashSet::new();
@@ -324,6 +324,10 @@ impl Catalog{
 
     pub fn set_alpha(&mut self, alpha: f32) {
         self.alpha = alpha;
+    }
+
+    pub fn get_alpha(&self) -> f32 {
+        self.alpha
     }
 
     pub fn set_kernel_strength<P: Projection>(&mut self, strength: f32, viewport: &ViewPort) {
