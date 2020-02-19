@@ -223,7 +223,7 @@ impl RenderingMode for SmallFieldOfView {
                 let tile = HEALPixCell(current_depth, current_idx);
                 if let Some(tile_buffer) = buffer.get(&tile) {
                     let blending_factor = tile_buffer.blending_factor();
-                    let idx_texture_end = tile_buffer.texture_idx;
+                    let idx_texture_end = tile_buffer.texture_idx as u8;
 
                     let (uv_start, idx_texture_start) = if blending_factor == 1_f32 {
                         let uv_start = [Vector2::new(0_f32, 0_f32); 4];
@@ -234,7 +234,7 @@ impl RenderingMode for SmallFieldOfView {
                         let parent_tile_buffer = get_nearest_parent(&tile, &buffer);
 
                         let uv_start = get_uv_in_parent(&current_tile, &parent_tile_buffer);
-                        let idx_texture_start = parent_tile_buffer.texture_idx;
+                        let idx_texture_start = parent_tile_buffer.texture_idx as u8;
 
                         (uv_start, idx_texture_start)
                     };
@@ -264,7 +264,7 @@ impl RenderingMode for SmallFieldOfView {
                     let parent_tile_buffer = get_nearest_parent(&tile, &buffer);
 
                     let uv_start = get_uv_in_parent(&current_tile, &parent_tile_buffer);
-                    let idx_texture_start = parent_tile_buffer.texture_idx;
+                    let idx_texture_start = parent_tile_buffer.texture_idx as u8;
                     
                     let mut vertex_array = Vec::with_capacity(10 * 6);
                     add_vertices_grid(&mut vertex_array,
@@ -292,14 +292,14 @@ impl RenderingMode for SmallFieldOfView {
                 let parent_tile_buffer = get_nearest_parent(tile, &buffer);
 
                 let uv_start = get_uv_in_parent(&Tile::new(*tile), &parent_tile_buffer);
-                let idx_texture_start = parent_tile_buffer.texture_idx;
+                let idx_texture_start = parent_tile_buffer.texture_idx as u8;
 
                 let mut blending_factor = 0_f32;
                 let mut idx_texture_end = 0;
                 let uv_end = if let Some(tile_buffer) = buffer.get(tile) {
                     let uv_end = get_uv(tile_buffer);
 
-                    idx_texture_end = tile_buffer.texture_idx;
+                    idx_texture_end = tile_buffer.texture_idx as u8;
                     blending_factor = tile_buffer.blending_factor();
                     uv_end
                 } else {
@@ -336,7 +336,7 @@ impl RenderingMode for SmallFieldOfView {
                         let mut vertex_array = Vec::with_capacity(10 * 6);
 
                         let idx_texture_start = 0;
-                        let idx_texture_end = tile_buffer.texture_idx;
+                        let idx_texture_end = tile_buffer.texture_idx as u8;
                         add_vertices_grid(
                             &mut vertex_array,
                             depth, idx,
@@ -365,10 +365,10 @@ impl RenderingMode for SmallFieldOfView {
                                 // Find in which position the child tile is in the
                                 // parent to get the uv_end
                                 let uv_end = get_uv_in_parent(child_tile_buffer, tile_buffer);
-                                let idx_texture_end = tile_buffer.texture_idx;
+                                let idx_texture_end = tile_buffer.texture_idx as u8;
 
                                 let uv_start = get_uv(child_tile_buffer);
-                                let idx_texture_start = child_tile_buffer.texture_idx;
+                                let idx_texture_start = child_tile_buffer.texture_idx as u8;
 
                                 let mut vertex_array = Vec::with_capacity(10 * 6);
                                 add_vertices_grid(&mut vertex_array,
@@ -391,11 +391,11 @@ impl RenderingMode for SmallFieldOfView {
                                     let tile_buffer_parent = get_nearest_parent(&tile, &buffer);
 
                                     let uv_start = get_uv_in_parent(&tile_child, &tile_buffer_parent);
-                                    let idx_texture_start = tile_buffer_parent.texture_idx;
+                                    let idx_texture_start = tile_buffer_parent.texture_idx as u8;
 
                                     // Find in which position the child tile is located in the current fov tile
                                     let uv_end = get_uv_in_parent(&tile_child, tile_buffer);
-                                    let idx_texture_end = tile_buffer.texture_idx;
+                                    let idx_texture_end = tile_buffer.texture_idx as u8;
 
                                     let mut vertex_array = Vec::with_capacity(10 * 6);
 
@@ -443,7 +443,7 @@ impl RenderingMode for SmallFieldOfView {
                             let idx_texture_end = 0;
 
                             let uv_start = get_uv(child_tile_buffer);
-                            let idx_texture_start = child_tile_buffer.texture_idx;
+                            let idx_texture_start = child_tile_buffer.texture_idx as u8;
 
                             let mut vertex_array = Vec::with_capacity(10 * 6);
 
@@ -469,7 +469,7 @@ impl RenderingMode for SmallFieldOfView {
                                 let tile_buffer_parent = get_nearest_parent(&tile, &buffer);
 
                                 let uv_start = get_uv_in_parent(&tile_child, &tile_buffer_parent);
-                                let idx_texture_start = tile_buffer_parent.texture_idx;
+                                let idx_texture_start = tile_buffer_parent.texture_idx as u8;
 
                                 // Find in which position the child tile is located in the current fov tile
                                 let uv_end = [Vector2::new(0_f32, 0_f32); 4];

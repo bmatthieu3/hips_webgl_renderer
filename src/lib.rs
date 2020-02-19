@@ -169,8 +169,7 @@ where P: Projection {
             "max_depth",
             "num_tiles",
             // Textures
-            "textures[0]",
-            "textures[1]",
+            "tex",
         ];
         uniforms_2d_proj.extend(crate::shaders::uniform_healpix_tiles::HPX_TILES_BUFFER_UNIFORMS);
 
@@ -218,8 +217,7 @@ where P: Projection {
             "current_depth",
             "max_depth",
             // Textures
-            "textures[0]",
-            "textures[1]",
+            "tex",
             "num_tiles",
         ];
         uniforms_ortho_hips.extend(crate::shaders::uniform_healpix_tiles::HPX_TILES_BUFFER_UNIFORMS);
@@ -1037,7 +1035,8 @@ impl AppConfig {
         match self {
             AppConfig::Aitoff(mut app, s) => {
                 if app.zoom(delta_y, enable_grid) {
-                    AppConfig::Ortho(app.set_projection::<Orthographic>(), s)
+                    //AppConfig::Ortho(app.set_projection::<Orthographic>(), s)
+                    AppConfig::Aitoff(app, s)
                 } else {
                     AppConfig::Aitoff(app, s)
                 }

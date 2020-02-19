@@ -194,8 +194,8 @@ pub static CONTENT: &'static str = r#"#version 300 es
 
     uniform int current_depth;
     
-    uniform sampler2D textures[2];
-    uniform Tile textures_tiles[128];
+    uniform sampler2D tex;
+    uniform Tile textures_tiles[64];
 
     uniform int num_tiles;
 
@@ -209,7 +209,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
     TileColor get_tile_color(vec3 pos, int depth) {
         HashDxDy result = hash_with_dxdy(depth, pos.zxy);
         uint idx = result.idx;
-        int uniq = (16 << (int(depth) << 1)) | int(idx);
+        int uniq = (1 << ((int(depth) + 1) << 1)) + int(idx);
 
         vec2 uv = vec2(result.dy, result.dx);
 
@@ -218,8 +218,6 @@ pub static CONTENT: &'static str = r#"#version 300 es
 
         if (depth == 0) {
             b = 11;
-        } else if (depth == 1) {
-            b = 47;
         }
 
         int i = (b + a) / 2;
@@ -230,20 +228,12 @@ pub static CONTENT: &'static str = r#"#version 300 es
             if (uniq == textures_tiles[i].uniq) {
                 Tile tile = textures_tiles[i];
 
-                int idx_texture = tile.texture_idx / 64;
-                int idx_in_texture = tile.texture_idx % 64;
-
-                float idx_row = float(idx_in_texture / 8); // in [0; 7]
-                float idx_col = float(idx_in_texture % 8); // in [0; 7]
+                float idx_row = float(tile.texture_idx / 8); // in [0; 7]
+                float idx_col = float(tile.texture_idx % 8); // in [0; 7]
 
                 vec2 offset = (vec2(idx_col, idx_row) + uv)/8.f;
 
-                vec3 color = vec3(0.f);
-                if (idx_texture == 0) {
-                    color = texture(textures[0], offset).rgb;
-                } else {
-                    color = texture(textures[1], offset).rgb;
-                }
+                vec3 color = texture(tex, offset).rgb;
 
                 return TileColor(tile, color, true);
             } else if (uniq < textures_tiles[i].uniq) {
