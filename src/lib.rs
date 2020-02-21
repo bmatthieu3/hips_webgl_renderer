@@ -1035,8 +1035,8 @@ impl AppConfig {
         match self {
             AppConfig::Aitoff(mut app, s) => {
                 if app.zoom(delta_y, enable_grid) {
-                    //AppConfig::Ortho(app.set_projection::<Orthographic>(), s)
-                    AppConfig::Aitoff(app, s)
+                    AppConfig::Ortho(app.set_projection::<Orthographic>(), s)
+                    //AppConfig::Aitoff(app, s)
                 } else {
                     AppConfig::Aitoff(app, s)
                 }

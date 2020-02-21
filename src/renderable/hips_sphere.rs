@@ -31,7 +31,7 @@ use crate::projection::Projection;
 pub trait RenderingMode {
     fn new(gl: &WebGl2Context, viewport: &ViewPort) -> Self;
 
-    fn update(&mut self, buffer: &BufferTiles, current_depth: u8, tiles_fov: &BTreeSet<HEALPixCell>, viewport: &ViewPort);
+    fn update(&mut self, buffer: &mut BufferTiles, current_depth: u8, tiles_fov: &BTreeSet<HEALPixCell>, viewport: &ViewPort);
 
     fn draw(&self, gl: &WebGl2Context, shader: &Shader);
     fn get_shader<'a>(shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader;
@@ -211,13 +211,13 @@ impl RenderingMode for SmallFieldOfView {
         );
     }
 
-    fn update(&mut self, buffer: &BufferTiles, current_depth: u8, tiles_fov: &BTreeSet<HEALPixCell>, viewport: &ViewPort) {
+    fn update(&mut self, buffer: &mut BufferTiles, current_depth: u8, tiles_fov: &BTreeSet<HEALPixCell>, viewport: &ViewPort) {
         let num_tiles = tiles_fov.len();
         let mut vertices = Vec::with_capacity(10 * 6 * num_tiles);
 
         if current_depth <= 2 {
             for idx in 0..192 {
-                let current_tile = Tile::new(HEALPixCell(2, idx));
+                let current_tile = HEALPixCell(2, idx);
 
                 let current_idx = idx >> (2*(2 - current_depth));
                 let tile = HEALPixCell(current_depth, current_idx);
@@ -231,7 +231,7 @@ impl RenderingMode for SmallFieldOfView {
 
                         (uv_start, idx_texture_start)
                     } else {
-                        let parent_tile_buffer = get_nearest_parent(&tile, &buffer);
+                        let parent_tile_buffer = get_nearest_parent(&tile, buffer);
 
                         let uv_start = get_uv_in_parent(&current_tile, &parent_tile_buffer);
                         let idx_texture_start = parent_tile_buffer.texture_idx as u8;
@@ -242,7 +242,7 @@ impl RenderingMode for SmallFieldOfView {
                     let uv_end = if blending_factor == 0_f32 {
                         [Vector2::new(0_f32, 0_f32); 4]
                     } else {
-                        get_uv_in_parent(&current_tile, tile_buffer)
+                        get_uv_in_parent(&current_tile, &tile_buffer)
                     };
 
                     let mut vertex_array = Vec::with_capacity(10 * 6);
@@ -261,7 +261,7 @@ impl RenderingMode for SmallFieldOfView {
                     let uv_end = [Vector2::new(0_f32, 0_f32); 4];
                     let idx_texture_end = 0;
 
-                    let parent_tile_buffer = get_nearest_parent(&tile, &buffer);
+                    let parent_tile_buffer = get_nearest_parent(&tile, buffer);
 
                     let uv_start = get_uv_in_parent(&current_tile, &parent_tile_buffer);
                     let idx_texture_start = parent_tile_buffer.texture_idx as u8;
@@ -286,18 +286,18 @@ impl RenderingMode for SmallFieldOfView {
         }
 
         if viewport.last_zoom_action == LastZoomAction::Zoom || viewport.last_action == LastAction::Moving {
-            for tile in tiles_fov.iter() {
+            for cell in tiles_fov.iter() {
                 // If the tile is not already processed
-                let (depth, idx) = (tile.0, tile.1);
-                let parent_tile_buffer = get_nearest_parent(tile, &buffer);
+                let (depth, idx) = (cell.0, cell.1);
+                let parent_tile_buffer = get_nearest_parent(cell, buffer);
 
-                let uv_start = get_uv_in_parent(&Tile::new(*tile), &parent_tile_buffer);
+                let uv_start = get_uv_in_parent(&cell, &parent_tile_buffer);
                 let idx_texture_start = parent_tile_buffer.texture_idx as u8;
 
                 let mut blending_factor = 0_f32;
                 let mut idx_texture_end = 0;
-                let uv_end = if let Some(tile_buffer) = buffer.get(tile) {
-                    let uv_end = get_uv(tile_buffer);
+                let uv_end = if let Some(tile_buffer) = buffer.get(cell) {
+                    let uv_end = get_uv(&tile_buffer);
 
                     idx_texture_end = tile_buffer.texture_idx as u8;
                     blending_factor = tile_buffer.blending_factor();
@@ -330,7 +330,7 @@ impl RenderingMode for SmallFieldOfView {
                     let (depth, idx) = (tile_buffer.cell.0, tile_buffer.cell.1);
 
                     if blending_factor == 1_f32 {
-                        let uv_end = get_uv(tile_buffer);
+                        let uv_end = get_uv(&tile_buffer);
                         let uv_start = [Vector2::new(0_f32, 0_f32); 4];
 
                         let mut vertex_array = Vec::with_capacity(10 * 6);
@@ -364,10 +364,10 @@ impl RenderingMode for SmallFieldOfView {
                             if let Some(child_tile_buffer) = buffer.get(&child_tile) {
                                 // Find in which position the child tile is in the
                                 // parent to get the uv_end
-                                let uv_end = get_uv_in_parent(child_tile_buffer, tile_buffer);
+                                let uv_end = get_uv_in_parent(&child_tile, &tile_buffer);
                                 let idx_texture_end = tile_buffer.texture_idx as u8;
 
-                                let uv_start = get_uv(child_tile_buffer);
+                                let uv_start = get_uv(&child_tile_buffer);
                                 let idx_texture_start = child_tile_buffer.texture_idx as u8;
 
                                 let mut vertex_array = Vec::with_capacity(10 * 6);
@@ -385,16 +385,14 @@ impl RenderingMode for SmallFieldOfView {
                                 if child_depth == depth + 2 {
                                     // The grand children is not in the buffer
 
-                                    let tile_child = Tile::new(HEALPixCell(child_depth, child_idx));
-
                                     // Find in which base cell the current tile is located
-                                    let tile_buffer_parent = get_nearest_parent(&tile, &buffer);
+                                    let tile_buffer_parent = get_nearest_parent(&tile, buffer);
 
-                                    let uv_start = get_uv_in_parent(&tile_child, &tile_buffer_parent);
+                                    let uv_start = get_uv_in_parent(&child_tile, &tile_buffer_parent);
                                     let idx_texture_start = tile_buffer_parent.texture_idx as u8;
 
                                     // Find in which position the child tile is located in the current fov tile
-                                    let uv_end = get_uv_in_parent(&tile_child, tile_buffer);
+                                    let uv_end = get_uv_in_parent(&child_tile, &tile_buffer);
                                     let idx_texture_end = tile_buffer.texture_idx as u8;
 
                                     let mut vertex_array = Vec::with_capacity(10 * 6);
@@ -442,7 +440,7 @@ impl RenderingMode for SmallFieldOfView {
                             let uv_end = [Vector2::new(0_f32, 0_f32); 4];
                             let idx_texture_end = 0;
 
-                            let uv_start = get_uv(child_tile_buffer);
+                            let uv_start = get_uv(&child_tile_buffer);
                             let idx_texture_start = child_tile_buffer.texture_idx as u8;
 
                             let mut vertex_array = Vec::with_capacity(10 * 6);
@@ -463,12 +461,11 @@ impl RenderingMode for SmallFieldOfView {
                         } else {
                             if child_depth == depth + 2 {
                                 // The grand children is not in the buffer
-                                let tile_child = Tile::new(HEALPixCell(child_depth, child_idx));
 
                                 // Find in which base cell the child tile is located
-                                let tile_buffer_parent = get_nearest_parent(&tile, &buffer);
+                                let tile_buffer_parent = get_nearest_parent(&child_tile, buffer);
 
-                                let uv_start = get_uv_in_parent(&tile_child, &tile_buffer_parent);
+                                let uv_start = get_uv_in_parent(&child_tile, &tile_buffer_parent);
                                 let idx_texture_start = tile_buffer_parent.texture_idx as u8;
 
                                 // Find in which position the child tile is located in the current fov tile
@@ -599,7 +596,7 @@ impl<P> RenderingMode for PerPixel<P> where P: Projection {
         &shaders["hips_sphere"]
     }
 
-    fn update(&mut self, buffer: &BufferTiles, current_depth: u8, tiles_fov: &BTreeSet<HEALPixCell>, viewport: &ViewPort) {}
+    fn update(&mut self, buffer: &mut BufferTiles, current_depth: u8, tiles_fov: &BTreeSet<HEALPixCell>, viewport: &ViewPort) {}
 }
 
 use crate::projection::*;
@@ -692,7 +689,7 @@ impl HiPSSphere {
         match P::name() {
             "Orthographic" => {
                 // Ortho mode
-                self.ortho.update(&self.buffer.borrow(),
+                self.ortho.update(&mut self.buffer.borrow_mut(),
                     current_depth,
                     tiles_fov,
                     viewport
@@ -766,13 +763,11 @@ use std::collections::VecDeque;
 use crate::field_of_view::HEALPixCell;
 use crate::viewport::{LastZoomAction, LastAction};
 
-fn get_uv_in_parent(tile: &Tile, parent_tile: &Tile) -> [Vector2<f32>; 4] {
-    let texture_parent_idx = (parent_tile.texture_idx as i32) % 64;
+fn get_uv_in_parent(cell: &HEALPixCell, parent_tile: &Tile) -> [Vector2<f32>; 4] {
+    let parent_idx_row = (parent_tile.texture_idx / 8) as f32; // in [0; 7]
+    let parent_idx_col = (parent_tile.texture_idx % 8) as f32; // in [0; 7]
 
-    let parent_idx_row = (texture_parent_idx / 8) as f32; // in [0; 7]
-    let parent_idx_col = (texture_parent_idx % 8) as f32; // in [0; 7]
-
-    let (depth, idx) = (tile.cell.0, tile.cell.1);
+    let (depth, idx) = (cell.0, cell.1);
     let (parent_depth, parent_idx) = (parent_tile.cell.0, parent_tile.cell.1);
 
     let idx_off = parent_idx << (2*(depth - parent_depth));
@@ -797,11 +792,9 @@ fn get_uv_in_parent(tile: &Tile, parent_tile: &Tile) -> [Vector2<f32>; 4] {
         Vector2::new(u + ds, v + ds)
     ]
 }
-fn get_uv(tile: &Tile) -> [Vector2<f32>; 4] {
-    let texture_idx = (tile.texture_idx as i32) % 64;
-        
-    let idx_row = (texture_idx / 8) as f32; // in [0; 7]
-    let idx_col = (texture_idx % 8) as f32; // in [0; 7]
+fn get_uv(tile: &Tile) -> [Vector2<f32>; 4] {        
+    let idx_row = (tile.texture_idx / 8) as f32; // in [0; 7]
+    let idx_col = (tile.texture_idx % 8) as f32; // in [0; 7]
 
     let (depth, idx) = (tile.cell.0, tile.cell.1);
 
@@ -818,40 +811,44 @@ fn get_uv(tile: &Tile) -> [Vector2<f32>; 4] {
     ]
 }
 
-fn get_parent<'a>(tile: &Tile, parent_depth: u8, buffer: &'a BufferTiles) -> Option<&'a Tile> {
+/*fn get_parent<'a>(tile: &Tile, parent_depth: u8, buffer: &'a BufferTiles) -> Option<&'a Tile> {
     let (depth, idx) = (tile.cell.0, tile.cell.1);
     assert!(parent_depth <= depth);
 
     let parent_idx = idx >> (2*(depth - parent_depth));
 
     buffer.get(&HEALPixCell(parent_depth, parent_idx))
-}
+}*/
 
-fn get_root_parent(tile: &HEALPixCell) -> Tile {
+fn get_root_parent<'a>(tile: &HEALPixCell, buffer: &'a mut BufferTiles) -> &'a Tile {
     let (depth, idx) = (tile.0, tile.1);
     assert!(depth >= 0);
 
     let parent_idx = idx >> (2*depth);
 
-    Tile::new(HEALPixCell(0, parent_idx))
+    buffer.get(&HEALPixCell(0, parent_idx)).unwrap()
 }
 
 // Get the nearest parent tile found in the buffer of `tile`
-fn get_nearest_parent<'a>(tile: &HEALPixCell, buffer: &'a BufferTiles) -> Tile {
+fn get_nearest_parent<'a>(tile: &HEALPixCell, buffer: &'a mut BufferTiles) -> &'a Tile {
+    let depth_start = tile.0;
     let (mut depth, mut idx) = ((tile.0 as i8) - 1, tile.1 >> 2);
 
     while depth > 0 {
-        let current_tile = &HEALPixCell(depth as u8, idx);
-        if let Some(parent_tile) = buffer.get(current_tile) {
-            return parent_tile.clone();
+        let current_tile = HEALPixCell(depth as u8, idx);
+        if let Some(parent_tile) = buffer.get(&current_tile) {
+            //console::log_1(&format!("depth start {:?}, depth found {:?}", depth_start, depth).into());
+            return parent_tile;
         }
 
         depth -= 1;
         idx = idx >> 2;
     }
 
+    //console::log_1(&format!("depth start {:?}, depth found {:?}", depth_start, depth).into());
+
     // Depth equals to 0, it is thus a base tile and we are sure it is located in the buffer
-    get_root_parent(tile)
+    get_root_parent(tile, buffer)
 }
 
 impl Mesh for HiPSSphere {

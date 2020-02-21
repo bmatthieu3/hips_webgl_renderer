@@ -22,7 +22,7 @@ static mut NUM_TEXTURE_UNIT: u32 = WebGl2RenderingContext::TEXTURE0;
 pub struct Tile {
     pub cell: HEALPixCell,
 
-    pub texture_idx: i16,
+    pub texture_idx: u8,
 
     time_request: f32,
     time_received: Option<f32>,
@@ -32,11 +32,11 @@ pub struct Tile {
 
 pub const BLENDING_DURATION_MS: f32 = 500_f32;
 impl Tile {
-    pub fn new(cell: HEALPixCell) -> Tile {
+    fn new(cell: HEALPixCell) -> Tile {
         let time_request = utils::get_current_time();
         let time_received = None;
 
-        let texture_idx = -1;
+        let texture_idx = 0;
 
         let image = Rc::new(RefCell::new(HtmlImageElement::new().unwrap()));
 
@@ -275,7 +275,7 @@ use std::convert::TryInto;
 impl BufferTiles {
     pub fn new(gl: &WebGl2Context) -> BufferTiles {
         let max_size_newest_tiles = 64 - 12;
-        let max_size_oldest_tiles = 512 - (max_size_newest_tiles + 12);
+        let max_size_oldest_tiles = 1024 - (max_size_newest_tiles + 12);
 
         // Base tile slice
         let base_tiles = [
@@ -351,7 +351,7 @@ impl BufferTiles {
         time_request: f32,
         time_received: f32,
         image: Rc<RefCell<HtmlImageElement>>
-    ) -> i16 {
+    ) -> u8 {
         let texture_idx = if self.newest_tiles.len() == self.max_size_newest_tiles {
             // Remove the oldest tile from the newest tiles buffer
             let oldest_tile = self.newest_tiles.pop().unwrap();
@@ -373,7 +373,7 @@ impl BufferTiles {
 
             texture_idx
         } else {
-            (self.newest_tiles.len() as i16) + 12
+            (self.newest_tiles.len() as u8) + 12
         };
 
         let tile = Tile {
@@ -509,6 +509,10 @@ impl BufferTiles {
                         but not among the newest tiles
                         has to be among the oldest ones.");
                 }
+                self.oldest_tiles = oldest_tiles
+                    .into_iter()
+                    .cloned()
+                    .collect::<BinaryHeap<_>>();
 
                 // Now we can add it to the buffer.
                 // The oldest from the newest tile set
@@ -556,15 +560,53 @@ impl BufferTiles {
             .collect::<BTreeSet<_>>()
     }*/
 
-    pub fn get(&self, cell: &HEALPixCell) -> Option<&Tile> {
+    pub fn get(&mut self, cell: &HEALPixCell) -> Option<&Tile> {
         let tile = self.newest_tiles.iter()
             .find(|&x| *cell == x.cell);
         
-        if let Some(_) = tile {
+        if tile.is_some() {
             tile
         } else {
-            self.base_tiles.iter()
-                .find(|&x| *cell == x.cell)
+            let tile = self.base_tiles.iter()
+                .find(|&x| *cell == x.cell);
+            
+            if tile.is_some() {
+                tile
+            } else {
+                if let Some(t) = self.loaded_tiles.get(&cell) {
+                    self.replace_tile(t.cell, t.time_request, false);
+
+                    Some(t)
+                } else {
+                    None
+                }
+                /*// Check in the oldest loaded tiles
+                let tile = self.oldest_tiles.iter()
+                    .find(|&x| *cell == x.cell)
+                    .cloned();
+                if let Some(t) = tile {
+                    self.oldest_tiles = self.oldest_tiles.iter()
+                        .filter(|t| t.cell != *cell)
+                        .cloned()
+                        .collect::<BinaryHeap<_>>();
+
+                    // Now we can add it to the buffer.
+                    // The oldest from the newest tile set
+                    // will be moved to the oldest tile set
+                    let texture_idx = self.add(
+                        t.cell,
+
+                        t.time_request,
+                        t.time_received.unwrap(),
+                        t.image.clone()
+                    );
+                    replace_texture_sampler_2d(&self.gl, &self.texture, texture_idx as i32, &t.image.borrow());
+
+                    Some(t)
+                } else {
+                    None
+                }*/
+            }
         }
     }
 
@@ -684,7 +726,7 @@ pub fn load_base_tiles(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>) {
                 //console::log_1(&format!("load new tile").into());
                 // Add it to the loaded cells hashset
                 // Add the received tile to the buffer
-                let texture_idx = idx as i16;
+                let texture_idx = idx as u8;
                 let cell = HEALPixCell(0, idx as u64);
                 let time_received = Some(utils::get_current_time());
 
@@ -799,7 +841,7 @@ fn load_healpix_tile(gl: &WebGl2Context, buffer: Rc<RefCell<BufferTiles>>, cell:
             let mut buffer = buffer.borrow_mut();
             // Add the received tile to the buffer
             let texture_idx = buffer.add(cell, time_request, time_received, image.clone());
-            console::log_1(&format!("load new tile {:?}", texture_idx).into());
+            //console::log_1(&format!("load new tile {:?}", texture_idx).into());
             //buffer.borrow().replace_texture_sampler_3d(idx_texture as i32, &image.borrow());
             replace_texture_sampler_2d(&gl, &buffer.texture, texture_idx as i32, &image.borrow());
 
