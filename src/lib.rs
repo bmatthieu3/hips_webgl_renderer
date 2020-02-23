@@ -33,6 +33,8 @@ mod field_of_view;
 mod event;
 mod mouse_inertia;
 mod color;
+mod healpix_cell;
+mod binary_heap_tiles;
 
 use shader::Shader;
 
@@ -57,7 +59,7 @@ use std::sync::atomic::{AtomicU32, AtomicU8, AtomicBool};
 use std::sync::atomic::Ordering;
 
 use crate::render_next_frame::LATEST_TIME_TILE_RECEIVED;
-use crate::texture::BLENDING_DURATION_MS;
+use crate::binary_heap_tiles::BLENDING_DURATION_MS;
 
 use crate::event::Move;
 
@@ -149,7 +151,7 @@ use cgmath::InnerSpace;
 
 impl<P> App<P>
 where P: Projection {
-    fn new(gl: &WebGl2Context) -> Result<App<Aitoff>, JsValue> {
+    fn new(gl: &WebGl2Context) -> Result<App<Orthographic>, JsValue> {
         console::log_1(&format!("Init").into());
 
         // Shader definition
@@ -290,7 +292,7 @@ where P: Projection {
         gl.cull_face(WebGl2RenderingContext::BACK);
 
         // Viewport definition
-        let viewport = ViewPort::new::<Aitoff>(&gl);
+        let viewport = ViewPort::new::<Orthographic>(&gl);
 
         // HiPS Sphere definition
         let hips_sphere_mesh = HiPSSphere::new(&gl, &viewport);
@@ -300,7 +302,7 @@ where P: Projection {
             &shaders,
             hips_sphere_mesh,
         );
-        hips_sphere.mesh_mut().update::<Aitoff>(&viewport);
+        hips_sphere.mesh_mut().update::<Orthographic>(&viewport);
         console::log_1(&format!("fffff sfs").into());
         // Catalog definition
         let catalog_mesh = Catalog::new(&gl, vec![]);
@@ -1245,8 +1247,8 @@ impl WebClient {
     pub fn new() -> WebClient {
         let gl = WebGl2Context::new();
 
-        let app = App::<Aitoff>::new(&gl).unwrap();
-        let appconfig = AppConfig::Aitoff(app, "aitoff");
+        let app = App::<Orthographic>::new(&gl).unwrap();
+        let appconfig = AppConfig::Ortho(app, "orthographic");
         let dt = 0_f32;
         let enable_inertia = false;
         let enable_grid = true;

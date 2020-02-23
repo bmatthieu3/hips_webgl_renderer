@@ -19,7 +19,7 @@ pub struct FieldOfView {
     ndc_to_clip: Vector2<f32>,
     clip_zoom_factor: f32,
 
-    cells: BTreeSet<HEALPixCell>,
+    cells: Vec<HEALPixCell>,
     current_depth: u8,
 
     // The width over height ratio
@@ -45,31 +45,9 @@ use crate::MAX_DEPTH;
 use std::sync::atomic;
 use std::cmp;
 
-#[derive(Clone, Copy)]
-#[derive(Debug)]
-#[derive(PartialEq, Eq, Hash)]
-pub struct HEALPixCell(pub u8, pub u64);
+use crate::healpix_cell::HEALPixCell;
 
-impl PartialOrd for HEALPixCell {
-    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        /*let uniq = (1 << (2*((self.0 as u64) + 1))) + self.1;
-        let uniq_other = (1 << (2*((other.0 as u64) + 1))) + other.1;
-
-        uniq.partial_cmp(&uniq_other)*/
-
-        // Compare the two nested cells at MAX_DEPTH in the nested scheme
-        let n1 = self.1 << ((29 - self.0) << 1);
-        let n2 = other.1 << ((29 - other.0) << 1);
-
-        n1.partial_cmp(&n2)
-    }
-}
-impl Ord for HEALPixCell {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.partial_cmp(&other).unwrap()
-    }
-}
-
+/*
 use crate::texture::Tile;
 impl From<Tile> for HEALPixCell {
     fn from(tile: Tile) -> Self {
@@ -82,23 +60,23 @@ impl From<TileRequest> for HEALPixCell {
         tile_request.cell
     }
 }
-
+*/
 use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 lazy_static! {
-    pub static ref ALLSKY_ZERO_DEPTH: Arc<Mutex<BTreeSet<HEALPixCell>>> = {
-        let mut allsky = BTreeSet::new();
+    pub static ref ALLSKY_ZERO_DEPTH: Arc<Mutex<Vec<HEALPixCell>>> = {
+        let mut allsky = Vec::with_capacity(12);
         for idx in 0..12 {
-            allsky.insert(HEALPixCell(0, idx));
+            allsky.push(HEALPixCell(0, idx));
         }
 
         Arc::new(Mutex::new(allsky))
     };
-    pub static ref ALLSKY_ONE_DEPTH: Arc<Mutex<BTreeSet<HEALPixCell>>> = {
-        let mut allsky = BTreeSet::new();
+    pub static ref ALLSKY_ONE_DEPTH: Arc<Mutex<Vec<HEALPixCell>>> = {
+        let mut allsky = Vec::with_capacity(48);
         for idx in 0..48 {
-            allsky.insert(HEALPixCell(1, idx));
+            allsky.push(HEALPixCell(1, idx));
         }
 
         Arc::new(Mutex::new(allsky))
@@ -336,19 +314,19 @@ impl FieldOfView {
                 })
                 .collect::<Vec<_>>();
 
-            let mut cells = BTreeSet::new();
+            let mut cells = Vec::with_capacity(32);
             while depth > 0 {
                 let moc = healpix::nested::polygon_coverage(depth, &lon_lat_world_space, true);
                 let num_tiles = moc.entries.len();
 
                 // Stop when the number of tiles for this depth
                 // can be contained in the tile buffer
-                if num_tiles <= (64 - 12)/2 {
+                if num_tiles <= 32 {
                     cells = moc.flat_iter()
                         .map(|idx| {
                             HEALPixCell(depth, idx)
                         })
-                        .collect::<BTreeSet<_>>();
+                        .collect::<Vec<_>>();
                     break;
                 }
 
@@ -371,7 +349,7 @@ impl FieldOfView {
     }
 
     // Returns the HEALPix cells in the field of view
-    pub fn healpix_cells(&self) -> &BTreeSet<HEALPixCell> {
+    pub fn healpix_cells(&self) -> &Vec<HEALPixCell> {
         &self.cells
     }
 

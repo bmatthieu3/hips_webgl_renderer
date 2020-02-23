@@ -8,12 +8,10 @@ pub static CONTENT: &'static str = r#"#version 300 es
     layout (location = 2) in vec2 uv_start;
     layout (location = 3) in vec2 uv_end;
     layout (location = 4) in float blending_factor;
-    layout (location = 5) in vec2 idx_texture;
 
     out vec2 frag_uv_start;
     out vec2 frag_uv_end;
     out float frag_blending_factor;
-    out vec2 frag_idx_texture;
 
     uniform mat4 model;
     uniform vec2 ndc_to_clip;
@@ -31,6 +29,5 @@ pub static CONTENT: &'static str = r#"#version 300 es
         frag_uv_start = uv_start;
         frag_uv_end = uv_end;
         frag_blending_factor = blending_factor;
-        frag_idx_texture = idx_texture;
     }
 "#;

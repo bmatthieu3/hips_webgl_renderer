@@ -2,7 +2,7 @@ use crate::texture::Texture2D;
 
 use web_sys::WebGlFramebuffer;
 use std::collections::{HashSet, BTreeSet};
-use crate::field_of_view::HEALPixCell;
+use crate::healpix_cell::HEALPixCell;
 
 use crate::renderable::buffers::vertex_array_object::VertexArrayObject;
 
@@ -34,7 +34,7 @@ pub struct Catalog {
     data: Storage,
     cells: HashSet<(u8, u32)>,
 
-    prev_field_of_view: BTreeSet<HEALPixCell>,
+    prev_field_of_view: HashSet<HEALPixCell>,
     sources: BinaryHeap<Source>,
 
     vertex_array_object: VertexArrayObject,
@@ -245,7 +245,7 @@ impl Catalog{
         let strength = 1_f32;
 
         let cells = HashSet::new();
-        let prev_field_of_view = BTreeSet::new();
+        let prev_field_of_view = HashSet::new();
 
         let sources = BinaryHeap::with_capacity(MAX_SOURCES);
         let vertex_array_object = VertexArrayObject::new(gl);
@@ -349,7 +349,10 @@ impl Catalog{
     pub fn update<P: Projection>(&mut self, viewport: &ViewPort) {
         let field_of_view = viewport.field_of_view();
 
-        let mut current_field_of_view = field_of_view.healpix_cells();
+        let mut current_field_of_view = field_of_view.healpix_cells()
+            .iter()
+            .cloned()
+            .collect::<HashSet<_>>();
         let current_depth = field_of_view.current_depth();
 
         let mut rebuild_binary_heap = true;
@@ -360,14 +363,19 @@ impl Catalog{
             return;
         }
 
-        let removed_cells = self.prev_field_of_view.difference(&current_field_of_view).collect::<Vec<_>>();
+        let removed_cells = self.prev_field_of_view
+            .difference(&current_field_of_view)
+            .collect::<Vec<_>>();
         let healpix_cells = if removed_cells.is_empty() {
             // Only new cells must be added. We just can add the corresponding sources
             // to the binary heap without clearing it!
 
             rebuild_binary_heap = false;
             // There is only new cells
-            current_field_of_view.difference(&self.prev_field_of_view).cloned().collect::<BTreeSet<_>>()
+            current_field_of_view
+                .difference(&self.prev_field_of_view)
+                .cloned()
+                .collect::<HashSet<_>>()
         } else {
             // Some cells has been removed so their sources must be removed
             // from the binary heap too. We must clear it.

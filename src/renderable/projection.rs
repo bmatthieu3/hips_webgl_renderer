@@ -117,7 +117,7 @@ use cgmath::InnerSpace;
 use cgmath::Deg;
 
 use std::collections::BTreeSet;
-use crate::field_of_view::HEALPixCell;
+use crate::healpix_cell::HEALPixCell;
 use crate::field_of_view::{ALLSKY_ZERO_DEPTH, ALLSKY_ONE_DEPTH};
 pub trait Projection {
     /// Screen to world space deprojection
@@ -199,7 +199,7 @@ pub trait Projection {
 
     fn name() -> &'static str;
 
-    fn check_for_allsky_fov(depth: u8) -> Option<BTreeSet<HEALPixCell>>;
+    fn check_for_allsky_fov(depth: u8) -> Option<Vec<HEALPixCell>>;
 }
 
 #[derive(Clone, Copy)]
@@ -220,7 +220,7 @@ use crate::renderable::hips_sphere::NUM_STEPS;
 
 use crate::math::is_inside_ellipse;
 impl Projection for Aitoff {
-    fn check_for_allsky_fov(depth: u8) -> Option<BTreeSet<HEALPixCell>> {
+    fn check_for_allsky_fov(depth: u8) -> Option<Vec<HEALPixCell>> {
         if depth == 0 {
             Some(ALLSKY_ZERO_DEPTH.lock().unwrap().clone())
         } else if depth == 1 {
@@ -341,7 +341,7 @@ impl Projection for Aitoff {
 use cgmath::Vector3;
 use crate::math;
 impl Projection for MollWeide {
-    fn check_for_allsky_fov(depth: u8) -> Option<BTreeSet<HEALPixCell>> {
+    fn check_for_allsky_fov(depth: u8) -> Option<Vec<HEALPixCell>> {
         if depth == 0 {
             Some(ALLSKY_ZERO_DEPTH.lock().unwrap().clone())
         } else if depth == 1 {
@@ -462,7 +462,7 @@ impl Projection for MollWeide {
 
 use cgmath::Rad;
 impl Projection for Orthographic {
-    fn check_for_allsky_fov(depth: u8) -> Option<BTreeSet<HEALPixCell>> {
+    fn check_for_allsky_fov(depth: u8) -> Option<Vec<HEALPixCell>> {
         if depth == 0 {
             Some(ALLSKY_ZERO_DEPTH.lock().unwrap().clone())
         } else {
@@ -537,7 +537,7 @@ impl Projection for Orthographic {
 }
 
 impl Projection for AzimutalEquidistant {
-    fn check_for_allsky_fov(depth: u8) -> Option<BTreeSet<HEALPixCell>> {
+    fn check_for_allsky_fov(depth: u8) -> Option<Vec<HEALPixCell>> {
         if depth == 0 {
             Some(ALLSKY_ZERO_DEPTH.lock().unwrap().clone())
         } else if depth == 1 {
@@ -635,7 +635,7 @@ impl Projection for AzimutalEquidistant {
 
 
 impl Projection for Mercator {
-    fn check_for_allsky_fov(depth: u8) -> Option<BTreeSet<HEALPixCell>> {
+    fn check_for_allsky_fov(depth: u8) -> Option<Vec<HEALPixCell>> {
         if depth == 0 {
             Some(ALLSKY_ZERO_DEPTH.lock().unwrap().clone())
         } else if depth == 1 {

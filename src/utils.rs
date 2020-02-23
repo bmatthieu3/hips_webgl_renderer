@@ -26,10 +26,10 @@ pub fn unmortonize(mut x: u64) -> (u32, u32) {
     (x as u32, y as u32)
 }
 
-use crate::field_of_view::HEALPixCell;
-pub fn nested(tile: &HEALPixCell) -> u64 {
-    let depth = (*tile).0;
-    let idx = (*tile).1;
+use crate::healpix_cell::HEALPixCell;
+pub fn nested(cell: &HEALPixCell) -> u64 {
+    let depth = cell.0;
+    let idx = cell.1;
 
     idx << (2*(29 - (depth as i8)))
 }
