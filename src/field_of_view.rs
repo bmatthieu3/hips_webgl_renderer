@@ -1,4 +1,4 @@
-use cgmath::{Rad, Deg};
+use cgmath::Rad;
 use cgmath::Vector2;
 use cgmath::Vector4;
 use cgmath::Matrix4;
@@ -43,7 +43,6 @@ use crate::math;
 use crate::MAX_DEPTH;
 
 use std::sync::atomic;
-use std::cmp;
 
 use crate::healpix_cell::HEALPixCell;
 
@@ -61,7 +60,6 @@ impl From<TileRequest> for HEALPixCell {
     }
 }
 */
-use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 lazy_static! {
@@ -83,13 +81,9 @@ lazy_static! {
     };
 }
 
-use crate::texture::BufferTiles;
 use web_sys::console;
 
 use wasm_bindgen::JsCast;
-
-use crate::renderable::Renderable;
-use crate::renderable::hips_sphere::HiPSSphere;
 use crate::projection::Projection;
 use crate::WebGl2Context;
 

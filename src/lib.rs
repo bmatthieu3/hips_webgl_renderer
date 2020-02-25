@@ -35,6 +35,7 @@ mod mouse_inertia;
 mod color;
 mod healpix_cell;
 mod binary_heap_tiles;
+mod buffer_tiles;
 
 use shader::Shader;
 
@@ -435,7 +436,7 @@ where P: Projection {
         }
 
         // Check whether the HiPS sphere must be updated or not
-        if (!hips_sphere_updated) && utils::get_current_time() < *LATEST_TIME_TILE_RECEIVED.lock().unwrap() + BLENDING_DURATION_MS {
+        if (!hips_sphere_updated) /*&& utils::get_current_time() < *LATEST_TIME_TILE_RECEIVED.lock().unwrap() + BLENDING_DURATION_MS*/ {
             self.hips_sphere.mesh_mut().update::<P>(&self.viewport);
 
             // Render the next frame

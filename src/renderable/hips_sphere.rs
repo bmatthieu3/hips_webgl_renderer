@@ -2,9 +2,6 @@ use web_sys::console;
 
 use web_sys::WebGl2RenderingContext;
 
-use std::rc::Rc;
-use std::cell::RefCell;
-
 use crate::renderable::Mesh;
 use crate::shader::Shader;
 
@@ -13,7 +10,7 @@ pub const NUM_STEPS: usize = 20;
 use crate::MAX_DEPTH;
 use std::sync::atomic::Ordering;
 
-use crate::texture::BufferTiles;
+use crate::buffer_tiles::BufferTiles;
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicU8;
@@ -30,7 +27,7 @@ use crate::projection::Projection;
 pub trait RenderingMode {
     fn new(gl: &WebGl2Context, viewport: &ViewPort) -> Self;
 
-    fn update(&mut self, buffer: &mut BufferTiles, depth: u8, cells_fov: &Vec<HEALPixCell>, viewport: &ViewPort);
+    fn update(&mut self, buffer: &mut BufferTiles, depth: u8, cells_fov: &Vec<HEALPixCell>);
 
     fn draw(&self, gl: &WebGl2Context, shader: &Shader);
     fn get_shader<'a>(shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader;
@@ -82,6 +79,7 @@ struct TileVertices([Vertex; 6]);
 
 pub struct SmallFieldOfView {
     vertex_array_object: VertexArrayObject,
+    num_vertices: usize,
 }
 
 use crate::renderable::buffers::buffer_data::BufferData;
@@ -196,8 +194,10 @@ impl RenderingMode for SmallFieldOfView {
             // Unbind the buffer
             .unbind();
 
+        let num_vertices = NUM_F32_MAX_TO_GPU;
         SmallFieldOfView {
             vertex_array_object,
+            num_vertices,
         }
     }
 
@@ -210,79 +210,87 @@ impl RenderingMode for SmallFieldOfView {
         gl.draw_arrays(
             WebGl2RenderingContext::TRIANGLES,
             0,
-            (NUM_F32_MAX_TO_GPU as i32) / 10,
+            self.num_vertices as i32,
         );
     }
 
-    fn update(&mut self, buffer: &mut BufferTiles, depth: u8, cells_fov: &Vec<HEALPixCell>, viewport: &ViewPort) {
+    fn update(&mut self, buffer: &mut BufferTiles, depth: u8, cells_fov: &Vec<HEALPixCell>) {
+        // If at least the base tiles have not been loaded
+        // then we do nothing
+        if !buffer.is_ready() {
+            return;
+        }
+
         let num_cells = cells_fov.len();
-        // List of cells needed
-        let mut cells = Vec::with_capacity(num_cells * 4);
         // Data sent to the GPU
         let mut tiles = Vec::with_capacity(num_cells * 4);
 
-        if depth <= 2 {
-            let num_subdivision = 1 << (2 - depth);
+        let num_subdivision = if depth <= 2 {
+            1 << (3 - depth)
+        } else {
+            1
+        };
 
-            for cell_fov in cells_fov {
-                let (uv_0, uv_1, alpha) = if let Some(tile_fov) = buffer.get(cell_fov) {
-                    let idx_cell = cells.len();
-                    cells.push(*cell_fov);
+        for cell_fov in cells_fov {
+            let (uv_0, uv_1, alpha) = if let Some(tile_fov) = buffer.get(cell_fov) {
+                let alpha = tile_fov.blending_factor();
+                
+                let parent_cell = get_nearest_parent(cell_fov, buffer);
 
-                    let alpha = tile_fov.blending_factor();
-                    
-                    let parent_cell = get_nearest_parent(cell_fov, buffer).cell;
-                    cells.push(parent_cell);
+                let uv_0 = get_uv_in_parent(cell_fov, &parent_cell, buffer);
+                let uv_1 = get_uv(cell_fov, buffer);
 
-                    let uv_0 = get_uv_in_parent(cell_fov, &parent_cell, idx_cell + 1);
-                    let uv_1 = get_uv(idx_cell);
+                (uv_0, uv_1, alpha)
+            } else {
+                console::log_1(&format!("before get nearest").into());
+                let parent_cell = get_nearest_parent(cell_fov, buffer);
+                let grand_parent_cell = get_nearest_parent(&parent_cell, buffer);
+                //console::log_1(&format!("after get nearest").into());
 
-                    (uv_0, uv_1, alpha)
-                } else {
-                    let idx_parent_cell = cells.len();
+                let uv_0 = get_uv_in_parent(cell_fov, &grand_parent_cell, buffer);
+                let uv_1 = get_uv_in_parent(cell_fov, &parent_cell, buffer);
 
-                    let parent_tile = get_nearest_parent(cell_fov, buffer);
-                    let parent_cell = parent_tile.cell;
-                    cells.push(parent_cell);
-                    let grand_parent_cell = get_nearest_parent(&parent_cell, buffer).cell;
-                    cells.push(grand_parent_cell);
-                        
-                    let uv_0 = get_uv_in_parent(&parent_cell, &grand_parent_cell, idx_parent_cell + 1);
-                    let uv_1 = get_uv(idx_parent_cell);
+                //let alpha = parent_tile.blending_factor();
+                let alpha = buffer.get(&parent_cell).unwrap().blending_factor();
 
-                    let alpha = parent_tile.blending_factor();
+                (uv_0, uv_1, alpha)
+            };
 
-                    (uv_0, uv_1, alpha)
-                };
-
-                add_vertices_grid(
-                    &mut tiles,
-                    cell_fov,
-                    num_subdivision,
-                    &uv_0, &uv_1,
-                    alpha
-                );
-            }
-            // Assert that the number of tiles needed does not overflow the
-            // GPU tile buffer
-            assert!(cells.len() <= 64);
-            // Build the 4096x4096 texture containing all the
-            // tiles we need
-            buffer.build_texture(cells);
-
-            // Convert Vec<TileVertices> to Vec<f32>
-            let len = tiles.len() * 10;
-            let cap = len;
-            let ptr = tiles.as_mut_ptr() as *mut f32;
-        
-            mem::forget(tiles);
-        
-            let tiles = unsafe { Vec::from_raw_parts(ptr, len, cap) };
-
-            // Update the buffers
-            self.vertex_array_object.bind()
-                .update_array(0, BufferData::VecData(&tiles));
+            add_vertices_grid(
+                &mut tiles,
+                cell_fov,
+                num_subdivision,
+                &uv_0, &uv_1,
+                alpha
+            );
         }
+        // Assert that the number of tiles needed does not overflow the
+        // GPU tile buffer
+        //console::log_1(&format!("cells num {:?}", cells.len()).into());
+        //assert!(cells.len() <= 64);
+        // Build the 4096x4096 texture containing all the
+        // tiles we need
+        /*if depth < 2 {
+            buffer.build_texture(cells);
+        }*/
+
+        // There is 6 vertices per tiles
+        let num_vertices = tiles.len() * 6;
+
+        // Convert Vec<TileVertices> to Vec<f32>
+        let len = num_vertices * 10;
+        let cap = len;
+        let ptr = tiles.as_mut_ptr() as *mut f32;
+    
+        mem::forget(tiles);
+    
+        let data = unsafe { Vec::from_raw_parts(ptr, len, cap) };
+        self.num_vertices = num_vertices;
+
+        // Update the buffers
+        self.vertex_array_object.bind()
+            .update_array(0, BufferData::VecData(&data));
+
         /*
         if viewport.last_zoom_action == LastZoomAction::Zoom || viewport.last_action == LastAction::Moving {
             for cell in tiles_fov.iter() {
@@ -560,7 +568,7 @@ impl<P> RenderingMode for PerPixel<P> where P: Projection {
         &shaders["hips_sphere"]
     }
 
-    fn update(&mut self, buffer: &mut BufferTiles, depth: u8, cells_fov: &Vec<HEALPixCell>, viewport: &ViewPort) {
+    fn update(&mut self, buffer: &mut BufferTiles, depth: u8, cells_fov: &Vec<HEALPixCell>) {
     }
 
     fn send_to_shader(buffer: &BufferTiles, shader: &Shader) {
@@ -653,12 +661,9 @@ impl HiPSSphere {
         let depth = field_of_view.current_depth();
         let depth_changed = depth != self.depth;
 
-        self.buffer.request_tiles(
-            tiles_fov,
-            depth_changed,
-            // Async request
-            false
-        );
+        console::log_1(&format!("depth {:?}", depth).into());
+
+        self.buffer.request_tiles(tiles_fov, depth_changed);
 
         match P::name() {
             "Orthographic" => {
@@ -667,7 +672,6 @@ impl HiPSSphere {
                     &mut self.buffer,
                     depth,
                     tiles_fov,
-                    viewport
                 );
             },
             _ => (),
@@ -728,11 +732,8 @@ impl HiPSSphere {
 
 use std::collections::HashMap;
 use crate::renderable::Renderable;
-use cgmath::Matrix4;
 
 use crate::utils;
-use std::collections::BTreeSet;
-use std::collections::VecDeque;
 
 use crate::healpix_cell::HEALPixCell;
 use crate::viewport::{LastZoomAction, LastAction};
@@ -740,7 +741,7 @@ use crate::viewport::{LastZoomAction, LastAction};
 fn get_uv_in_parent(
     cell: &HEALPixCell,
     parent_cell: &HEALPixCell,
-    parent_idx_tile: usize,
+    buffer: &mut BufferTiles
 ) -> [Vector2<f32>; 4] {
     let (depth, idx) = (cell.0, cell.1);
     let (parent_depth, parent_idx) = (parent_cell.0, parent_cell.1);
@@ -755,6 +756,7 @@ fn get_uv_in_parent(
     assert!(x < nside);
     assert!(y < nside);
 
+    let parent_idx_tile = buffer.get_idx_texture(parent_cell);
     let parent_idx_row = (parent_idx_tile / 8) as f32; // in [0; 7]
     let parent_idx_col = (parent_idx_tile % 8) as f32; // in [0; 7]
     let u = (parent_idx_col + ((y as f32)/(nside as f32))) / 8_f32;
@@ -769,7 +771,8 @@ fn get_uv_in_parent(
         Vector2::new(u + ds, v + ds)
     ]
 }
-fn get_uv(idx_tile: usize) -> [Vector2<f32>; 4] {        
+fn get_uv(cell: &HEALPixCell, buffer: &mut BufferTiles) -> [Vector2<f32>; 4] {
+    let idx_tile = buffer.get_idx_texture(cell);
     let idx_row = (idx_tile / 8) as f32; // in [0; 7]
     let idx_col = (idx_tile % 8) as f32; // in [0; 7]
 
@@ -787,27 +790,28 @@ fn get_uv(idx_tile: usize) -> [Vector2<f32>; 4] {
 }
 
 // Get the nearest parent tile found in the buffer of `tile`
-fn get_nearest_parent(cell: &HEALPixCell, buffer: &BufferTiles) -> Tile {
+fn get_nearest_parent(cell: &HEALPixCell, buffer: &BufferTiles) -> HEALPixCell {
     let depth_start = cell.0 as i8;
     let idx_start = cell.1;
     if depth_start == 0 {
-        return buffer.get(cell).unwrap();
+        // Base cells are in the buffer by construction
+        return *cell;
     }
 
     let (mut depth, mut idx) = (depth_start - 1, idx_start >> 2);
 
     while depth > 0 {
         let parent_cell = HEALPixCell(depth as u8, idx);
-        if let Some(parent_tile) = buffer.get(&parent_cell) {
-            return parent_tile;
+        if buffer.contains(&parent_cell) {
+            return parent_cell;
         }
 
         depth -= 1;
         idx = idx >> 2;
     }
 
-    // Depth equals to 0, it is thus a base tile and we are sure it is located in the buffer
-    buffer.get(&HEALPixCell(depth as u8, idx)).unwrap()
+    // Base cells are in the buffer by construction
+    HEALPixCell(depth as u8, idx)
 }
 
 impl Mesh for HiPSSphere {

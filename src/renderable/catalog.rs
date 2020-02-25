@@ -211,7 +211,7 @@ impl Catalog{
         let fbo = gl.create_framebuffer();
         gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, fbo.as_ref());
         // attach the texture as the first color attachment
-        fbo_texture.attach_to_framebuffer(&gl);
+        fbo_texture.attach_to_framebuffer();
         // Unbind the framebuffer
         gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
 
@@ -509,7 +509,8 @@ impl Catalog{
             // Send the viewport uniforms
             viewport.send_to_vertex_shader(gl, shader);
             // Send the gaussian kernel texture
-            self.kernel_texture.send_to_shader(&gl, shader, "kernel_texture");
+            self.kernel_texture.bind()
+                .send_to_shader(shader, "kernel_texture");
             // Send the max strength of one kernel
             let location_strength = shader.get_uniform_location("strength");
             gl.uniform1f(location_strength, self.strength);
@@ -557,8 +558,10 @@ impl Catalog{
 
             self.vao_screen.bind_ref();
 
-            self.colormap_texture.send_to_shader(gl, shader, "colormap");
-            self.fbo_texture.send_to_shader(gl, shader, "texture_fbo");
+            self.colormap_texture.bind()
+                .send_to_shader(shader, "colormap");
+            self.fbo_texture.bind()
+                .send_to_shader(shader, "texture_fbo");
 
             // Send alpha
             let location_alpha = shader.get_uniform_location("alpha");

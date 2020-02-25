@@ -112,15 +112,6 @@ impl PartialEq for Tile {
 }
 impl Eq for Tile {}
 
-/*
-use std::hash::{Hash, Hasher};
-impl Hash for Tile {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.cell.hash(state);
-    }
-}
-*/
-
 use std::collections::BinaryHeap;
 use std::collections::HashMap;
 // Fixed sized binary heap
@@ -131,6 +122,10 @@ pub struct BinaryHeapTiles {
     max_length: usize,
 
     tiles: HashMap<HEALPixCell, Tile>,
+
+    // A boolean ensuring the base tiles
+    // have already been loaded
+    ready: bool
 }
 
 impl BinaryHeapTiles {
@@ -141,6 +136,9 @@ impl BinaryHeapTiles {
 
         let tiles = HashMap::with_capacity(max_length);
 
+        // The base tiles have not been loaded
+        let ready = false;
+
         // Push the 
         BinaryHeapTiles {
             heap,
@@ -149,6 +147,8 @@ impl BinaryHeapTiles {
             max_length,
 
             tiles,
+
+            ready,
         }
     }
 
@@ -159,6 +159,13 @@ impl BinaryHeapTiles {
             if depth == 0 {
                 let node = (&tile).into();
                 self.base_cells.push(node);
+
+                // If the base tiles have all been loaded
+                if self.base_cells.len() == 12 {
+                    // Then the tile buffer is ready
+                    // to be queried
+                    self.ready = true;
+                }
             } else {
                 if self.heap.len() == self.max_length {
                     // Pop the oldest requested tile
@@ -205,5 +212,11 @@ impl BinaryHeapTiles {
         self.heap.clear();
 
         self.tiles.clear();
+
+        self.ready = false;
+    }
+
+    pub fn is_ready(&self) -> bool {
+        self.ready
     }
 }
