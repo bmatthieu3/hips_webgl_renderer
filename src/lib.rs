@@ -451,12 +451,14 @@ where P: Projection {
             // Render the next frame
             self.render = true;
         }
-
+        self.hips_sphere.mesh_mut().update::<P>(&self.viewport);
         // Return the position of the center of the projection
         // to the javascript main code
         let center_world_pos = self.hips_sphere.compute_center_world_pos::<P>();
         let (ra, dec) = math::xyzw_to_radec(center_world_pos);
         Vector2::new(Rad(ra), Rad(dec))
+
+
     }
 
     fn render(&mut self, enable_grid: bool) {
@@ -698,6 +700,7 @@ where P: Projection {
             }
         }
 
+        //self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog, &mut self.grid, enable_grid);
         self.moving = None;
         /*if let Some(ref mut move_event) = self.move_event {
             console::log_1(&format!("stop moving").into());

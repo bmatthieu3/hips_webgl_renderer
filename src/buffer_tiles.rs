@@ -58,15 +58,24 @@ impl HEALPixCells {
                 let dx = (idx_col as i32) * WIDTH_TEXTURE;
                 let dy = (idx_row as i32) * HEIGHT_TEXTURE;
             
-                texture.tex_sub_image_2d_with_u32_and_u32_and_html_image_element(
-                    dx,
-                    dy,
-                    &image.borrow(),
-                );
+                texture.bind()
+                    .tex_sub_image_2d_with_u32_and_u32_and_html_image_element(
+                        dx,
+                        dy,
+                        &image.borrow(),
+                    );
             }
 
             idx
         } else {
+            // Seek the position of the cell in the vecqueue
+            let idx_cell = self.cells.iter().position(|c| *c == cell).unwrap();
+            // Remove it
+            self.cells.remove(idx_cell);
+            // Push it back again
+            self.cells.push_back(cell);
+            // We do not touch the idx_texture hash map
+
             self.idx_texture.get(&cell)
                 .cloned()
                 .unwrap()
@@ -113,7 +122,7 @@ use crate::binary_heap_tiles::Tile;
 
 impl BufferTiles {
     pub fn new(gl: &WebGl2Context) -> BufferTiles {
-        let heap = Rc::new(RefCell::new(BinaryHeapTiles::new(128)));
+        let heap = Rc::new(RefCell::new(BinaryHeapTiles::new(512)));
         let requested_tiles = Rc::new(RefCell::new(HashSet::with_capacity(64)));
 
         let texture = Texture2D::create_empty(
@@ -122,8 +131,8 @@ impl BufferTiles {
             HEIGHT_TEXTURE * 8,
             &[
                 // The HiPS tiles sampling is NEAREST
-                (WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::LINEAR),
-                (WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::LINEAR),
+                (WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::NEAREST),
+                (WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::NEAREST),
                 
                 // Prevents s-coordinate wrapping (repeating)
                 (WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE),
@@ -170,12 +179,10 @@ impl BufferTiles {
     }
 
     pub fn get_idx_texture(&mut self, cell: &HEALPixCell) -> usize {
-        console::log_1(&format!("cell {:?}", *cell).into());
         let texture = self.heap.borrow()
             .get(cell)
             .unwrap()
             .texture.clone();
-        console::log_1(&format!("after").into());
 
         self.cells_texture.insert(
             &self.gl,
@@ -206,6 +213,7 @@ impl BufferTiles {
                     .unwrap()
                     .time_received
             };
+            
             let time_request = utils::get_current_time();
             self.heap.borrow_mut().update_priority(cell, time_request, time_received);
         } else {

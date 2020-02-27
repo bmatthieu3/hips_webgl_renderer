@@ -231,27 +231,40 @@ impl RenderingMode for SmallFieldOfView {
             1
         };
 
+        let mut cells_asked = 0;
         for cell_fov in cells_fov {
             let (uv_0, uv_1, alpha) = if let Some(tile_fov) = buffer.get(cell_fov) {
                 let alpha = tile_fov.blending_factor();
+
+                let uv_0 = if alpha < 1_f32 {
+                    let parent_cell = get_nearest_parent(cell_fov, buffer);
+                    cells_asked +=1 ;
+
+                    get_uv_in_parent(cell_fov, &parent_cell, buffer)
+                } else {
+                    [Vector2::new(0_f32, 0_f32); 4]
+                };
                 
-                let parent_cell = get_nearest_parent(cell_fov, buffer);
-
-                let uv_0 = get_uv_in_parent(cell_fov, &parent_cell, buffer);
                 let uv_1 = get_uv(cell_fov, buffer);
-
+                cells_asked +=1 ;
                 (uv_0, uv_1, alpha)
             } else {
                 console::log_1(&format!("before get nearest").into());
                 let parent_cell = get_nearest_parent(cell_fov, buffer);
-                let grand_parent_cell = get_nearest_parent(&parent_cell, buffer);
-                //console::log_1(&format!("after get nearest").into());
+                cells_asked += 1;
+                
+                let alpha = buffer.get(&parent_cell).unwrap().blending_factor();
+                let uv_0 = if alpha < 1_f32 {
+                    let grand_parent_cell = get_nearest_parent(&parent_cell, buffer);
+                    cells_asked += 1;
 
-                let uv_0 = get_uv_in_parent(cell_fov, &grand_parent_cell, buffer);
+                    get_uv_in_parent(cell_fov, &grand_parent_cell, buffer)
+                } else {
+                    [Vector2::new(0_f32, 0_f32); 4]
+                };
                 let uv_1 = get_uv_in_parent(cell_fov, &parent_cell, buffer);
 
                 //let alpha = parent_tile.blending_factor();
-                let alpha = buffer.get(&parent_cell).unwrap().blending_factor();
 
                 (uv_0, uv_1, alpha)
             };
@@ -264,9 +277,11 @@ impl RenderingMode for SmallFieldOfView {
                 alpha
             );
         }
+
+        //assert!(cells_asked <= 64);
         // Assert that the number of tiles needed does not overflow the
         // GPU tile buffer
-        //console::log_1(&format!("cells num {:?}", cells.len()).into());
+        console::log_1(&format!("cells asked {:?}", cells_asked).into());
         //assert!(cells.len() <= 64);
         // Build the 4096x4096 texture containing all the
         // tiles we need

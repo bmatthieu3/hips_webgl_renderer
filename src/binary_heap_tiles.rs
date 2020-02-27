@@ -1,12 +1,17 @@
 use crate::healpix_cell::HEALPixCell;
 
-#[derive(PartialEq)]
 #[derive(Clone)]
-struct TileNode {
+#[derive(Debug)]
+pub struct TileNode {
     cell: HEALPixCell,
     time_request: f32,
 }
 
+impl PartialEq for TileNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.cell == other.cell
+    }
+}
 impl Eq for TileNode {}
 
 use std::cmp::Ordering;
@@ -57,6 +62,7 @@ impl From<&mut Tile> for TileNode {
 }
 
 #[derive(Clone)]
+#[derive(Debug)]
 pub struct Tile {
     pub cell: HEALPixCell,
     pub uniq: u32,
@@ -112,16 +118,18 @@ impl PartialEq for Tile {
 }
 impl Eq for Tile {}
 
+
+use web_sys::console;
 use std::collections::BinaryHeap;
 use std::collections::HashMap;
 // Fixed sized binary heap
 pub struct BinaryHeapTiles {
     heap: BinaryHeap<TileNode>,
-    base_cells: Vec<TileNode>,
+    pub base_cells: Vec<TileNode>,
 
     max_length: usize,
 
-    tiles: HashMap<HEALPixCell, Tile>,
+    pub tiles: HashMap<HEALPixCell, Tile>,
 
     // A boolean ensuring the base tiles
     // have already been loaded
@@ -169,8 +177,12 @@ impl BinaryHeapTiles {
             } else {
                 if self.heap.len() == self.max_length {
                     // Pop the oldest requested tile
+                    //console::log_1(&format!("aaaAA").into());
                     let node = self.heap.pop()
                         .unwrap();
+                    assert!(node.cell.0 != 0);
+                    //console::log_1(&format!("bbbBB").into());
+
                     self.tiles.remove(&node.cell);
                 }
                 // Add the new one
@@ -191,6 +203,11 @@ impl BinaryHeapTiles {
 
     // Panic if cell is not in the binary heap
     pub fn update_priority(&mut self, cell: &HEALPixCell, time_request: f32, time_received: f32) {
+        let depth = cell.0;
+        if depth == 0 {
+            return;
+        }
+
         let tile = self.tiles.get_mut(cell).unwrap();
         tile.time_request = time_request;
         tile.time_received = time_received;

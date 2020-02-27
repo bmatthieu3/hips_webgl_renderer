@@ -308,7 +308,13 @@ impl FieldOfView {
                 })
                 .collect::<Vec<_>>();
 
-            let mut cells = Vec::with_capacity(32);
+            let moc = healpix::nested::polygon_coverage(depth, &lon_lat_world_space, true);
+            let mut cells = moc.flat_iter()
+                .map(|idx| {
+                    HEALPixCell(depth, idx)
+                })
+                .collect::<Vec<_>>();
+            /*let mut cells = vec![];
             while depth > 0 {
                 let moc = healpix::nested::polygon_coverage(depth, &lon_lat_world_space, true);
                 let num_tiles = moc.entries.len();
@@ -325,7 +331,7 @@ impl FieldOfView {
                 }
 
                 depth -= 1;
-            }
+            }*/
 
             if depth == 0 {
                 cells = ALLSKY_ZERO_DEPTH.lock().unwrap().clone();

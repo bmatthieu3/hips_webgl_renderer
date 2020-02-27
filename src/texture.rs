@@ -203,25 +203,6 @@ impl Texture2D {
         );
     }
 
-    pub fn tex_sub_image_2d_with_u32_and_u32_and_html_image_element(&self, dx: i32, dy: i32, image: &HtmlImageElement) {
-        let texture_unit = self.idx_texture_unit;
-        let webgl_texture = self.texture.borrow();
-
-        self.gl.active_texture(texture_unit);
-        self.gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, webgl_texture.as_ref());
-
-        self.gl.tex_sub_image_2d_with_u32_and_u32_and_html_image_element(
-            WebGl2RenderingContext::TEXTURE_2D,
-            0,
-            dx,
-            dy,
-            WebGl2RenderingContext::RGB,
-            WebGl2RenderingContext::UNSIGNED_BYTE,
-            &image,
-        )
-        .expect("Sub texture 2d");
-    }
-
     pub fn bind(&self) -> Texture2DBound {
         let texture_unit = self.idx_texture_unit;
         let webgl_texture = self.texture.borrow();
