@@ -167,8 +167,63 @@ fn add_vertices_grid(
     }
 }
 
-use crate::binary_heap_tiles::Tile;
+impl SmallFieldOfView {
+    async fn define_needed_hpx_cells(buffer: &mut BufferTiles, depth: u8, cells_fov: &Vec<HEALPixCell>) -> Vec<TileVertices> {
+        let num_cells = cells_fov.len();
+        let mut tiles = Vec::with_capacity(num_cells * 4);
+
+        let num_subdivision = if depth <= 2 {
+            1 << (3 - depth)
+        } else {
+            1
+        };
+        
+        for cell_fov in cells_fov {
+            let (uv_0, uv_1, alpha) = if let Some(tile_fov) = buffer.get(cell_fov) {
+                let alpha = tile_fov.blending_factor();
+
+                let uv_0 = if alpha < 1_f32 {
+                    let parent_cell = get_nearest_parent(cell_fov, buffer);
+
+                    get_uv_in_parent(cell_fov, &parent_cell, buffer)
+                } else {
+                    [Vector2::new(0_f32, 0_f32); 4]
+                };
+                
+                let uv_1 = get_uv(cell_fov, buffer);
+                (uv_0, uv_1, alpha)
+            } else {
+                //console::log_1(&format!("before get nearest").into());
+                let parent_cell = get_nearest_parent(cell_fov, buffer);
+                
+                let alpha = buffer.get(&parent_cell).unwrap().blending_factor();
+                let uv_0 = if alpha < 1_f32 {
+                    let grand_parent_cell = get_nearest_parent(&parent_cell, buffer);
+
+                    get_uv_in_parent(cell_fov, &grand_parent_cell, buffer)
+                } else {
+                    [Vector2::new(0_f32, 0_f32); 4]
+                };
+                let uv_1 = get_uv_in_parent(cell_fov, &parent_cell, buffer);
+
+                (uv_0, uv_1, alpha)
+            };
+
+            add_vertices_grid(
+                &mut tiles,
+                cell_fov,
+                num_subdivision,
+                &uv_0, &uv_1,
+                alpha
+            );
+        }
+
+        tiles
+    }
+}
+
 const NUM_F32_MAX_TO_GPU: usize = 60000;
+
 impl RenderingMode for SmallFieldOfView {
     fn new(gl: &WebGl2Context, viewport: &ViewPort) -> SmallFieldOfView {
         let vertices = vec![0_f32; NUM_F32_MAX_TO_GPU];
@@ -221,67 +276,18 @@ impl RenderingMode for SmallFieldOfView {
             return;
         }
 
-        let num_cells = cells_fov.len();
-        // Data sent to the GPU
-        let mut tiles = Vec::with_capacity(num_cells * 4);
+        // Signals a new frame to the buffer
+        buffer.signals_new_frame();
+        let mut tiles = futures::executor::block_on(
+            Self::define_needed_hpx_cells(
+                buffer,
+                depth,
+                cells_fov
+            )
+        );
 
-        let num_subdivision = if depth <= 2 {
-            1 << (3 - depth)
-        } else {
-            1
-        };
-
-        let mut cells_asked = 0;
-        for cell_fov in cells_fov {
-            let (uv_0, uv_1, alpha) = if let Some(tile_fov) = buffer.get(cell_fov) {
-                let alpha = tile_fov.blending_factor();
-
-                let uv_0 = if alpha < 1_f32 {
-                    let parent_cell = get_nearest_parent(cell_fov, buffer);
-                    cells_asked +=1 ;
-
-                    get_uv_in_parent(cell_fov, &parent_cell, buffer)
-                } else {
-                    [Vector2::new(0_f32, 0_f32); 4]
-                };
-                
-                let uv_1 = get_uv(cell_fov, buffer);
-                cells_asked +=1 ;
-                (uv_0, uv_1, alpha)
-            } else {
-                console::log_1(&format!("before get nearest").into());
-                let parent_cell = get_nearest_parent(cell_fov, buffer);
-                cells_asked += 1;
-                
-                let alpha = buffer.get(&parent_cell).unwrap().blending_factor();
-                let uv_0 = if alpha < 1_f32 {
-                    let grand_parent_cell = get_nearest_parent(&parent_cell, buffer);
-                    cells_asked += 1;
-
-                    get_uv_in_parent(cell_fov, &grand_parent_cell, buffer)
-                } else {
-                    [Vector2::new(0_f32, 0_f32); 4]
-                };
-                let uv_1 = get_uv_in_parent(cell_fov, &parent_cell, buffer);
-
-                //let alpha = parent_tile.blending_factor();
-
-                (uv_0, uv_1, alpha)
-            };
-
-            add_vertices_grid(
-                &mut tiles,
-                cell_fov,
-                num_subdivision,
-                &uv_0, &uv_1,
-                alpha
-            );
-        }
-
-        //assert!(cells_asked <= 64);
         // Assert that the number of tiles needed does not overflow the
         // GPU tile buffer
-        console::log_1(&format!("cells asked {:?}", cells_asked).into());
         //assert!(cells.len() <= 64);
         // Build the 4096x4096 texture containing all the
         // tiles we need
@@ -676,7 +682,7 @@ impl HiPSSphere {
         let depth = field_of_view.current_depth();
         let depth_changed = depth != self.depth;
 
-        console::log_1(&format!("depth {:?}", depth).into());
+        //console::log_1(&format!("depth {:?}", depth).into());
 
         self.buffer.request_tiles(tiles_fov, depth_changed);
 

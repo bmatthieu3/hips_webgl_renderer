@@ -17,22 +17,14 @@ pub struct Move {
     last_time: f32,
 }
 
-use cgmath::Vector2;
 use cgmath::InnerSpace;
-use crate::viewport::ViewPort;
 use crate::math;
 use crate::utils;
 
 use crate::projection::Projection;
-use crate::renderable::hips_sphere::RenderingMode;
-
-use cgmath::Matrix4;
-use cgmath::Quaternion;
-use cgmath::Euler;
-use cgmath::SquareMatrix;
 
 impl Move {
-    pub fn new<P: Projection>(start_world_pos: Vector4<f32>, hips_sphere: &Renderable<HiPSSphere>) -> Move {
+    pub fn new(start_world_pos: Vector4<f32>) -> Move {
         let axis = Vector3::new(0_f32, 0_f32, 0_f32);
         let x = Rad(0_f32);
         let last_time = utils::get_current_time();
@@ -66,14 +58,7 @@ impl Move {
 
         self.axis = axis.normalize();
 
-        /*let q = Quaternion::from_arc(model_pos, start_model_pos, None);
-        let m: Matrix4<f32> = q.into();
-        hips_sphere.apply_quarternion_rotation(&q);
-        hips_sphere.set_model_mat(&(m * model_mat));*/
-
         hips_sphere.apply_rotation(-self.axis, self.x);
-        //catalog.apply_rotation(-self.axis, self.x);
-        // Move the grid the opposite way of the hips sphere
 
         self.start_world_pos = world_pos;
 

@@ -21,24 +21,69 @@ use crate::healpix_cell::HEALPixCell;
 
 use std::collections::VecDeque;
 use std::collections::HashMap;
-pub struct HEALPixCells {
+pub struct HEALPixTexture {
+    gl: WebGl2Context,
+    // A FIFO storing the cells that are needed
+    // to be plot to the screen.
+    // The size is fixed to 64 tiles
     cells: VecDeque<HEALPixCell>,
-    idx_texture: HashMap<HEALPixCell, usize>
+    // A HashMap storing the indices of the cells
+    // in the 8x8 tile texture.
+    idx_texture: HashMap<HEALPixCell, usize>,
+    
+    // The texture storing the 64 tiles
+    texture: Texture2D,
 }
 
 use crate::texture::Texture2D;
-impl HEALPixCells {
-    fn new() -> HEALPixCells {
+impl HEALPixTexture {
+    fn new(gl: &WebGl2Context) -> HEALPixTexture {
         let cells = VecDeque::new();
         let idx_texture = HashMap::new();
 
-        HEALPixCells {
+        let texture = Texture2D::create_empty(
+            gl,
+            WIDTH_TEXTURE * 8,
+            HEIGHT_TEXTURE * 8,
+            &[
+                // The HiPS tiles sampling is NEAREST
+                (WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::NEAREST),
+                (WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::NEAREST),
+                
+                // Prevents s-coordinate wrapping (repeating)
+                (WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE),
+                // Prevents t-coordinate wrapping (repeating)
+                (WebGl2RenderingContext::TEXTURE_WRAP_T, WebGl2RenderingContext::CLAMP_TO_EDGE),
+            ]
+        );
+
+        let gl = gl.clone();
+        HEALPixTexture {
+            gl,
+
             cells,
             idx_texture,
+
+            texture,
         }
     }
 
-    fn insert(&mut self, gl: &WebGl2Context, cell: HEALPixCell, image: Rc<RefCell<HtmlImageElement>>, texture: &Texture2D) -> usize {
+    fn tex_sub_image_2d(&self, image: Rc<RefCell<HtmlImageElement>>, idx: usize) {
+        let idx_row = idx / 8;
+        let idx_col = idx % 8;
+    
+        let dx = (idx_col as i32) * WIDTH_TEXTURE;
+        let dy = (idx_row as i32) * HEIGHT_TEXTURE;
+    
+        self.texture.bind()
+            .tex_sub_image_2d_with_u32_and_u32_and_html_image_element(
+                dx,
+                dy,
+                &image.borrow(),
+            );
+    }
+
+    fn insert(&mut self, cell: HEALPixCell, image: Rc<RefCell<HtmlImageElement>>, num_tiles_per_frame: &mut usize) -> usize {
         let idx = if !self.idx_texture.contains_key(&cell) {
             let idx = if self.cells.len() == 64 {
                 let lost_cell = self.cells.pop_front().unwrap();
@@ -50,21 +95,8 @@ impl HEALPixCells {
             self.cells.push_back(cell.clone());
             self.idx_texture.insert(cell, idx);
 
-            //replace_texture_sampler_2d(&self, cell: &HEALPixCell, idx: i32)
-            {
-                let idx_row = idx / 8;
-                let idx_col = idx % 8;
-            
-                let dx = (idx_col as i32) * WIDTH_TEXTURE;
-                let dy = (idx_row as i32) * HEIGHT_TEXTURE;
-            
-                texture.bind()
-                    .tex_sub_image_2d_with_u32_and_u32_and_html_image_element(
-                        dx,
-                        dy,
-                        &image.borrow(),
-                    );
-            }
+            *num_tiles_per_frame += 1;
+            self.tex_sub_image_2d(image, idx);
 
             idx
         } else {
@@ -85,8 +117,15 @@ impl HEALPixCells {
     }
 
     fn clear(&mut self) {
+        self.texture.bind()
+            .clear();
+
         self.cells.clear();
         self.idx_texture.clear();
+    }
+
+    fn get_texture(&self) -> &Texture2D {
+        &self.texture
     }
 }
 
@@ -105,14 +144,15 @@ pub struct BufferTiles {
     // not yet received
     requested_tiles: Rc<RefCell<HashSet<HEALPixCell>>>,
 
-    // The texture storing the 64 tiles
-    texture: Texture2D,
     // A data-structure storing the cells texture indexes
-    cells_texture: HEALPixCells,
+    hpx_texture: HEALPixTexture,
 
     // A boolean ensuring at least the base
     // tiles have been loaded
     ready: Rc<Cell<bool>>,
+
+    // The number of tiles needed in the current frame
+    num_tiles_per_frame: usize,
 }
 
 use crate::utils;
@@ -125,36 +165,22 @@ impl BufferTiles {
         let heap = Rc::new(RefCell::new(BinaryHeapTiles::new(512)));
         let requested_tiles = Rc::new(RefCell::new(HashSet::with_capacity(64)));
 
-        let texture = Texture2D::create_empty(
-            gl,
-            WIDTH_TEXTURE * 8,
-            HEIGHT_TEXTURE * 8,
-            &[
-                // The HiPS tiles sampling is NEAREST
-                (WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::NEAREST),
-                (WebGl2RenderingContext::TEXTURE_MAG_FILTER, WebGl2RenderingContext::NEAREST),
-                
-                // Prevents s-coordinate wrapping (repeating)
-                (WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE),
-                // Prevents t-coordinate wrapping (repeating)
-                (WebGl2RenderingContext::TEXTURE_WRAP_T, WebGl2RenderingContext::CLAMP_TO_EDGE),
-            ]
-        );
-
-        let cells_texture = HEALPixCells::new();
+        let hpx_texture = HEALPixTexture::new(gl);
 
         let gl = gl.clone();
         let ready = Rc::new(Cell::new(false));
+        let num_tiles_per_frame = 0;
         let mut buffer = BufferTiles {
             gl,
 
             heap,
             requested_tiles,
 
-            texture,
-            cells_texture,
+            hpx_texture,
 
             ready,
+
+            num_tiles_per_frame
         };
 
         buffer.request_tiles(&vec![
@@ -178,18 +204,30 @@ impl BufferTiles {
         buffer
     }
 
+    pub fn signals_new_frame(&mut self) {
+        self.num_tiles_per_frame = 0;
+    }
+
     pub fn get_idx_texture(&mut self, cell: &HEALPixCell) -> usize {
-        let texture = self.heap.borrow()
+        let tile_texture = self.heap.borrow()
             .get(cell)
             .unwrap()
             .texture.clone();
 
-        self.cells_texture.insert(
-            &self.gl,
+        let idx_texture = self.hpx_texture.insert(
+            // The HEALPix cell that we need for drawing purposes
             *cell,
-            texture,
-            &self.texture
-        )
+            // Its texture stored in a HTMLElementImage
+            tile_texture,
+            // The number of HEALPix cells needed for this frame
+            &mut self.num_tiles_per_frame
+        );
+        // Ensure the current frame does not need more than
+        // 64 different tiles. Otherwise it will exceed the texture
+        // size capacity!
+        assert!(self.num_tiles_per_frame <= 64);
+
+        idx_texture
     }
 
     pub fn request_tiles(&mut self, cells: &Vec<HEALPixCell>, depth_changed: bool) {
@@ -213,7 +251,7 @@ impl BufferTiles {
                     .unwrap()
                     .time_received
             };
-            
+
             let time_request = utils::get_current_time();
             self.heap.borrow_mut().update_priority(cell, time_request, time_received);
         } else {
@@ -229,9 +267,9 @@ impl BufferTiles {
                 let url = {
                     let depth = cell.0;
                     let idx = cell.1;
-                    
+
                     let dir_idx = (idx / 10000) * 10000;
-            
+
                     let mut url = HIPS_NAME.lock().unwrap().clone() + "/";
                     url = url + "Norder" + &depth.to_string() + "/";
                     url = url + "Dir" + &dir_idx.to_string() + "/";
@@ -246,18 +284,18 @@ impl BufferTiles {
                     let image = image.clone();
                     let cell = *cell;
                     let ready = self.ready.clone();
-            
+
                     Closure::wrap(Box::new(move || {
                         // Remove the cell from the requested cells set
                         requested_tiles.borrow_mut()
                             .remove(&cell);
-                        
+
                         // Append it to the heap
                         let time_received = utils::get_current_time();
-                        console::log_1(&format!("tile received").into());
+                        //console::log_1(&format!("tile received").into());
                         heap.borrow_mut()
                             .push(Tile::new(cell, time_request, time_received, image.clone()));
-                        
+
                         ready.set(heap.borrow().is_ready());
                     }) as Box<dyn Fn()>)
                 };
@@ -272,13 +310,13 @@ impl BufferTiles {
                             .remove(&cell);
                     }) as Box<dyn Fn()>)
                 };
-            
+
                 image.borrow_mut().set_onload(Some(onload.as_ref().unchecked_ref()));
                 image.borrow_mut().set_onerror(Some(onerror.as_ref().unchecked_ref()));
-            
+
                 image.borrow_mut().set_cross_origin(Some(""));
                 image.borrow_mut().set_src(&url);
-            
+
                 onload.forget();
                 onerror.forget();
             }
@@ -458,7 +496,8 @@ impl BufferTiles {
 
 
     pub fn send_texture_to_shader(&self, shader: &Shader) {
-        self.texture.bind()
+        let texture = self.hpx_texture.get_texture();
+        texture.bind()
             .send_to_shader(shader, "tex");
         /*let tiles = self.uniq_ordered_tiles();
 
@@ -490,16 +529,12 @@ impl BufferTiles {
     //}
 
     pub fn clear(&mut self) {
-        // Clear the texture
-        self.texture.bind()
-            .clear();
-        
         self.heap.borrow_mut()
             .clear();
         self.requested_tiles.borrow_mut()
             .clear();
         
-        self.cells_texture.clear();
+        self.hpx_texture.clear();
     }
 }
 

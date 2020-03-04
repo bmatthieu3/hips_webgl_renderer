@@ -177,11 +177,9 @@ impl BinaryHeapTiles {
             } else {
                 if self.heap.len() == self.max_length {
                     // Pop the oldest requested tile
-                    //console::log_1(&format!("aaaAA").into());
                     let node = self.heap.pop()
                         .unwrap();
                     assert!(node.cell.0 != 0);
-                    //console::log_1(&format!("bbbBB").into());
 
                     self.tiles.remove(&node.cell);
                 }
