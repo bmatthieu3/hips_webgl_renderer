@@ -1,4 +1,4 @@
-trait Event {
+pub trait Event {
     const KEY_NAME: &'static str;
     type Data;
 

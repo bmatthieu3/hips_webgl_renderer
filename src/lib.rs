@@ -22,7 +22,7 @@ use cgmath;
 
 mod shader;
 mod shaders;
-mod renderable;
+pub mod renderable;
 mod finite_state_machine;
 mod viewport;
 mod texture;
@@ -63,8 +63,6 @@ use std::sync::atomic::Ordering;
 use crate::render_next_frame::LATEST_TIME_TILE_RECEIVED;
 use crate::binary_heap_tiles::BLENDING_DURATION_MS;
 
-use crate::event::Move;
-
 use crate::projection::Projection;
 
 #[macro_use]
@@ -77,7 +75,7 @@ use crate::renderable::hips_sphere::RenderingMode;
 
 use cgmath::Quaternion;
 
-use crate::mouse_inertia::MouseInertia;
+use crate::finite_state_machine::{UserMoveSphere, FiniteStateMachine};
 
 struct App<P>
 where P: Projection {
@@ -95,9 +93,8 @@ where P: Projection {
     // The catalogs
     catalog: Renderable<Catalog>,
 
-    // Move event
-    moving: Option<Move>,
-    inertia: Option<MouseInertia>,
+    // Finite State Machine declarations
+    user_move_fsm: UserMoveSphere,
 
     // Animation rotation
     pub animation_request: bool,
@@ -342,8 +339,7 @@ where P: Projection {
 
         let d = Rad(0_f32);
 
-        let moving = None;
-        let inertia = None;
+        let user_move_fsm = UserMoveSphere::init();
         let gl = gl.clone();
         let render = true;
         let app = App {
@@ -361,8 +357,8 @@ where P: Projection {
             // The catalog renderable
             catalog,
 
-            moving,
-            inertia,
+            // Finite state machines,
+            user_move_fsm,
 
             animation_request,
             final_pos,
@@ -412,7 +408,7 @@ where P: Projection {
 
             self.hips_sphere.set_model_mat(&next_pos.into());
             // Moves the viewport
-            self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog, &mut self.grid, enable_grid);
+            self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog, &mut self.grid);
             hips_sphere_updated = true;
 
             if a == 1_f32 {
@@ -423,32 +419,38 @@ where P: Projection {
             self.render = true;
         }
 
-        // Mouse inertia
+        // Run the Finite State Machines
+        self.user_move_fsm.run::<P>(dt, &mut self.hips_sphere, &mut self.catalog, &mut self.grid, &mut self.viewport, &events);
+
+        // Update the HiPS sphere VAO
+        self.hips_sphere.mesh_mut().update::<P>(&self.viewport);
+
+        /*// Mouse inertia
         if let Some(inertia) = self.inertia.clone() {
             self.inertia = inertia.update::<P>(&mut self.hips_sphere, &mut self.grid, &mut self.catalog, &mut self.viewport, enable_grid);
             hips_sphere_updated = true;
 
             // Render the next frame
             self.render = true;
-        }
+        }*/
 
         // Check whether the HiPS sphere must be updated or not
-        if !hips_sphere_updated /*&& utils::get_current_time() < *LATEST_TIME_TILE_RECEIVED.lock().unwrap() + BLENDING_DURATION_MS*/ {
+        /*if !hips_sphere_updated /*&& utils::get_current_time() < *LATEST_TIME_TILE_RECEIVED.lock().unwrap() + BLENDING_DURATION_MS*/ {
             self.hips_sphere.mesh_mut().update::<P>(&self.viewport);
 
             // Render the next frame
             self.render = true;
-        }
+        }*/
 
-        // Move
+        /*// Move
         if let Some(_) = self.moving {
             // Moves the viewport
             self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog, &mut self.grid, enable_grid);
 
             // Render the next frame
             self.render = true;
-        }
-        self.hips_sphere.mesh_mut().update::<P>(&self.viewport);
+        }*/
+        //self.hips_sphere.mesh_mut().update::<P>(&self.viewport);
         // Return the position of the center of the projection
         // to the javascript main code
         let center_world_pos = self.hips_sphere.compute_center_world_pos::<P>();
@@ -547,25 +549,6 @@ where P: Projection {
         let min_anim_duration = 2000_f32;
         let max_anim_duration = 6000_f32;
         self.animation_duration = (d.0 / 180_f32) * (max_anim_duration - min_anim_duration) + min_anim_duration;
-
-/*
-        // Get the position at the center of the view
-        let center_clip = Vector2::new(0_f32, 0_f32);
-        let p = self.hips_sphere.get_model_mat() * P::clip_to_world_space(center_clip).unwrap();
-
-        let pos_center_world = Vector3::new(p.x, p.y, p.z);
-
-        // Compute the angular distance between the two positions
-        let angle = math::angular_distance_xyz(pos_center_world, pos_world);
-        // Compute the axis of rotation
-        let axis = pos_center_world.cross(pos_world);
-
-        // Move the HiPS sphere
-        let axis = axis.normalize();
-        self.hips_sphere.apply_rotation(axis, angle);
-*/
-        // Moves the viewport
-        //self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog, &mut self.grid, self.enable_grid);
     }
 
     fn set_projection<Q: Projection>(mut self) -> App::<Q> {
@@ -579,12 +562,10 @@ where P: Projection {
         //self.hips_sphere.update_mesh(&self.shaders, hips_sphere_mesh);
         self.hips_sphere.mesh_mut().update::<Q>(&self.viewport);
 
-        // Change projection of the catalog & update
         self.catalog.mesh_mut().set_projection::<Q>();
-        self.catalog.mesh_mut().update::<Q>(&self.viewport);
-
-        // A refinement of the grid may be necessary at this point
-        self.grid.mesh_mut().update::<Q>(&self.hips_sphere, &self.viewport);
+        self.catalog.mesh_mut().retrieve_sources_in_fov::<Q>(&self.viewport);
+        // Reproject the grid
+        self.grid.mesh_mut().reproject::<Q>(&self.hips_sphere, &self.viewport);
 
         App::<Q> {
             gl: self.gl,
@@ -601,8 +582,8 @@ where P: Projection {
             // The catalog renderable
             catalog: self.catalog,
 
-            moving: self.moving,
-            inertia: self.inertia,
+            // Finite State Machines
+            user_move_fsm: self.user_move_fsm,
 
             animation_request: self.animation_request,
             final_pos: self.final_pos,
@@ -654,69 +635,11 @@ where P: Projection {
 
         // Re-initialize the color buffers
         self.hips_sphere.mesh_mut().refresh_buffer_tiles();
-
         self.hips_sphere.mesh_mut().update::<P>(&self.viewport);
+
         // Render the next frame
         self.render = true;
     }
-
-    /// MOVE EVENT
-    fn initialize_move(&mut self, screen_pos: Vector2<f32>) {
-        // stop inertia if there is one
-        self.inertia = None;
-        //self.viewport.stop_inertia();
-
-        if let Some(start_world_pos) = P::screen_to_world_space(screen_pos, &self.viewport) {
-            self.moving = Some(Move::new::<P>(start_world_pos, &self.hips_sphere));
-        }
-    }
-
-    fn moves(&mut self, screen_pos: Vector2<f32>) {
-        if let Some(world_pos) = P::screen_to_world_space(screen_pos, &self.viewport) {
-            // If a move is done
-            if let Some(ref mut moving) = &mut self.moving {
-                // Moves the renderables
-                moving.apply_to_renderables::<P>(
-                    world_pos,
-
-                    &mut self.hips_sphere,
-                    &mut self.grid,
-                    &mut self.catalog,
-                );
-            }
-        }
-    }
-
-    fn stop_move(&mut self, pos_screen_space: Vector2<f32>, dt: f32, enable_inertia: bool) {
-        if enable_inertia {
-            if let Some(_) = P::screen_to_world_space(pos_screen_space, &self.viewport) {
-                if let Some(moving) = self.moving.clone() {
-                    self.inertia = MouseInertia::new(moving, dt);
-                }
-            }
-        }
-
-        //self.viewport.displacement::<P>(&mut self.hips_sphere, &mut self.catalog, &mut self.grid, enable_grid);
-        self.moving = None;
-        /*if let Some(ref mut move_event) = self.move_event {
-            console::log_1(&format!("stop moving").into());
-            //self.viewport.stop_displacement();
-
-            if ENABLE_INERTIA.load(Ordering::Relaxed) {
-                // Do not perform the inertia effect if the released
-                // position of the mouse is outside the projection
-                let ref projection = self.projection;
-                let mouse_pos_world = screen_to_world_space(&screen_pos, projection, &self.viewport);
-                if mouse_pos_world.is_some() {
-                    self.inertia = MouseInertia::new(
-                        move_event,
-                        &mut self.viewport
-                    );
-                }
-            }   
-        }*/
-    }
-
 
     // Returns true if hips_sphere rendering mode has to be changed to the PerPixel mode
     fn unzoom(&mut self, delta_y: f32, enable_grid: bool) -> bool {
@@ -725,7 +648,7 @@ where P: Projection {
             .get_aperture()
             .into();
 
-        self.viewport.unzoom::<P>(delta_y,&mut self.hips_sphere, &mut self.catalog, &mut self.grid, enable_grid);
+        self.viewport.unzoom::<P>(delta_y,&mut self.hips_sphere, &mut self.catalog, &mut self.grid);
 
         let a1: Deg<f32> = self.viewport
             .field_of_view()
@@ -746,7 +669,7 @@ where P: Projection {
             .get_aperture()
             .into();
 
-        self.viewport.zoom::<P>(delta_y, &mut self.hips_sphere, &mut self.catalog, &mut self.grid, enable_grid);
+        self.viewport.zoom::<P>(delta_y, &mut self.hips_sphere, &mut self.catalog, &mut self.grid);
     
         let a1: Deg<f32> = self.viewport
             .field_of_view()
@@ -792,7 +715,7 @@ where P: Projection {
     }
 
     fn resize_window(&mut self, width: f32, height: f32, enable_grid: bool) {
-        self.viewport.resize_window::<P>(width, height, &mut self.hips_sphere, &mut self.grid, &mut self.catalog, enable_grid);
+        self.viewport.resize_window::<P>(width, height, &mut self.hips_sphere, &mut self.grid, &mut self.catalog);
         // Render the next frame
         self.render = true;
     }
@@ -805,15 +728,8 @@ where P: Projection {
     }
 
     pub fn enable_grid(&mut self) {
-        self.grid.mesh_mut().update::<P>(&self.hips_sphere, &self.viewport);
+        self.grid.mesh_mut().reproject::<P>(&self.hips_sphere, &self.viewport);
     }
-
-    /*fn update_hips_sphere(&mut self, r: &mut R) {
-        self.hips_sphere.mesh_mut().update(&self.viewport, r);
-    }
-    fn update_catalog(&mut self) {
-        self.catalog.mesh_mut().update::<P>(&self.viewport);
-    }*/
 }
 
 lazy_static! {
@@ -867,7 +783,6 @@ impl Deref for WebGl2Context {
     }
 }
 
-use crate::renderable::hips_sphere::SmallFieldOfView;
 enum AppConfig {
     Aitoff(App<Aitoff>, &'static str),
     MollWeide(App<MollWeide>, &'static str),
@@ -995,41 +910,6 @@ impl AppConfig {
             AppConfig::Arc(app, _) => app.render(enable_grid),
             AppConfig::Mercator(app, _) => app.render(enable_grid),
         }
-    }
-
-    pub fn initialize_move(&mut self, screen_pos_x: f32, screen_pos_y: f32) {
-        let screen_pos = Vector2::new(screen_pos_x, screen_pos_y);
-        match self {
-            AppConfig::Aitoff(app, _) => app.initialize_move(screen_pos),
-            AppConfig::MollWeide(app, _) => app.initialize_move(screen_pos),
-            AppConfig::Ortho(app, _) => app.initialize_move(screen_pos),
-            AppConfig::Arc(app, _) => app.initialize_move(screen_pos),
-            AppConfig::Mercator(app, _) => app.initialize_move(screen_pos),
-        }
-    }
-
-    /// Stop move
-    pub fn stop_move(&mut self, screen_pos_x: f32, screen_pos_y: f32, dt: f32, enable_inertia: bool) {
-        let screen_pos = Vector2::new(screen_pos_x, screen_pos_y);
-        match self {
-            AppConfig::Aitoff(app, _) => app.stop_move(screen_pos, dt, enable_inertia),
-            AppConfig::MollWeide(app, _) => app.stop_move(screen_pos, dt, enable_inertia),
-            AppConfig::Ortho(app, _) => app.stop_move(screen_pos, dt, enable_inertia),
-            AppConfig::Arc(app, _) => app.stop_move(screen_pos, dt, enable_inertia),
-            AppConfig::Mercator(app, _) => app.stop_move(screen_pos, dt, enable_inertia),
-
-        }
-    }
-    /// Keep moving
-    pub fn moves(&mut self, screen_pos_x: f32, screen_pos_y: f32) {
-        let screen_pos = Vector2::new(screen_pos_x, screen_pos_y);
-        match self {
-            AppConfig::Aitoff(app, _) => app.moves(screen_pos),
-            AppConfig::MollWeide(app, _) => app.moves(screen_pos),
-            AppConfig::Ortho(app, _) => app.moves(screen_pos),
-            AppConfig::Arc(app, _) => app.moves(screen_pos),
-            AppConfig::Mercator(app, _) => app.moves(screen_pos),
-        };
     }
 
     /// Wheel event

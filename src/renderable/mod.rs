@@ -8,6 +8,10 @@ pub mod projection;
 pub mod grid;
 pub mod catalog;
 
+pub use hips_sphere::HiPSSphere;
+pub use catalog::Catalog;
+pub use grid::ProjetedGrid;
+
 trait VertexBufferObject {
     fn bind(&self);
     fn unbind(&self);
@@ -20,7 +24,6 @@ use std::collections::HashMap;
 use crate::projection::Projection;
 pub trait Mesh {
     fn create_buffers(&mut self, gl: &WebGl2Context);
-
     fn get_shader<'a>(&self, shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader;
 }
 
@@ -44,7 +47,7 @@ where T: Mesh + DisableDrawing {
 
 use cgmath;
 use cgmath::SquareMatrix;
-use cgmath::{Matrix3};
+use cgmath::Matrix3;
 
 use cgmath::{Vector4, Vector2};
 impl<T> Renderable<T>

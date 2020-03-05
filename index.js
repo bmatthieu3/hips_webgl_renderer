@@ -166,21 +166,21 @@ window.addEventListener('load', function () {
 
             let dt = 1;
             let time_last_fps = Date.now();
+            let t1 = Date.now();
             function render () {
+                t1 = Date.now();
                 // Get the FPS every second
                 if (t1 - time_last_fps > 1000) {
                     fps_counter.innerText = String(1000.0 / dt);
-                    time_last_fps = time;
+                    time_last_fps = t1;
                 }
                 let pos_center = webClient.update(dt);
-            
+                webClient.render()
+                window.requestAnimationFrame(render)
+                dt = Date.now() - t1;
+
                 ra_value.innerText = pos_center[0].toFixed(4);
                 dec_value.innerText = pos_center[1].toFixed(4);
-
-                const t1 = Date.now();
-                webClient.render()
-                dt = Date.now() - t1;
-                window.requestAnimationFrame(render)
             }
 
             let onchange_equatorial_grid = () => {
@@ -316,10 +316,10 @@ window.addEventListener('load', function () {
                     }
                     let touche = ongoingTouches[0];
                     if (ongoingTouches.length == 1) {
-                        webClient.initialize_move(touche.pageX, touche.pageY);
+                        webClient.press_left_mouse_button(touche.pageX, touche.pageY);
                     } else {
                         // If more touches are present, we stop the current move
-                        webClient.stop_move(touche.pageX, touche.pageY);
+                        webClient.release_left_mouse_button(touche.pageX, touche.pageY);
                         console.log('stop moving');
                     }
                 }, false);
@@ -330,7 +330,7 @@ window.addEventListener('load', function () {
                         // move event
                         // Stop moving
                         let touche = ongoingTouches[0];
-                        webClient.stop_move(touche.pageX, touche.pageY);
+                        webClient.release_left_mouse_button(touche.pageX, touche.pageY);
                         console.log('stop moving');
                     } else {
                         // zoom event
@@ -354,7 +354,7 @@ window.addEventListener('load', function () {
                     if (ongoingTouches.length == 1) {
                         // Move event
                         let touche = ongoingTouches[0];
-                        webClient.moves(touche.pageX, touche.pageY);
+                        webClient.move_mouse(touche.pageX, touche.pageY);
             
                         console.log("move!!");
                     } else {
@@ -366,13 +366,13 @@ window.addEventListener('load', function () {
             // Mouse events
             (() => { 
                 canvas.addEventListener("mousedown", (evt) => {
-                    webClient.initialize_move(evt.clientX, evt.clientY);
+                    webClient.press_left_mouse_button(evt.clientX, evt.clientY);
                 });
                 canvas.addEventListener("mouseup", (evt) => {
-                    webClient.stop_move(evt.clientX, evt.clientY);
+                    webClient.release_left_mouse_button(evt.clientX, evt.clientY);
                 });
                 canvas.addEventListener("mousemove", (evt) => {
-                    webClient.moves(evt.clientX, evt.clientY);
+                    webClient.move_mouse(evt.clientX, evt.clientY);
                 });
             })();
             // Wheel events

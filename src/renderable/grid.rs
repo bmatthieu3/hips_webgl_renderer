@@ -370,7 +370,7 @@ impl ProjetedGrid {
         gl.uniform4f(location_color, self.color.red, self.color.green, self.color.blue, self.color.alpha);
     }
 
-    pub fn update<P: Projection>(&mut self, hips_sphere: &Renderable<HiPSSphere>, viewport: &ViewPort) {
+    pub fn reproject<P: Projection>(&mut self, hips_sphere: &Renderable<HiPSSphere>, viewport: &ViewPort) {
         if P::name() != "Orthographic" {
             self.update_grid_positions::<P>(
                 hips_sphere.get_inverted_model_mat(),

@@ -27,7 +27,7 @@ use crate::projection::Projection;
 pub trait RenderingMode {
     fn new(gl: &WebGl2Context, viewport: &ViewPort) -> Self;
 
-    fn update(&mut self, buffer: &mut BufferTiles, depth: u8, cells_fov: &Vec<HEALPixCell>);
+    fn update(&mut self, buffer: &mut BufferTiles, depth: u8, viewport: &ViewPort);
 
     fn draw(&self, gl: &WebGl2Context, shader: &Shader);
     fn get_shader<'a>(shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader;
@@ -269,13 +269,15 @@ impl RenderingMode for SmallFieldOfView {
         );
     }
 
-    fn update(&mut self, buffer: &mut BufferTiles, depth: u8, cells_fov: &Vec<HEALPixCell>) {
+    fn update(&mut self, buffer: &mut BufferTiles, depth: u8, viewport: &ViewPort) {
         // If at least the base tiles have not been loaded
         // then we do nothing
         if !buffer.is_ready() {
             return;
         }
 
+        let field_of_view = viewport.field_of_view();
+        let cells_fov = field_of_view.healpix_cells();
         // Signals a new frame to the buffer
         buffer.signals_new_frame();
         let mut tiles = futures::executor::block_on(
@@ -589,7 +591,7 @@ impl<P> RenderingMode for PerPixel<P> where P: Projection {
         &shaders["hips_sphere"]
     }
 
-    fn update(&mut self, buffer: &mut BufferTiles, depth: u8, cells_fov: &Vec<HEALPixCell>) {
+    fn update(&mut self, buffer: &mut BufferTiles, depth: u8, viewport: &ViewPort) {
     }
 
     fn send_to_shader(buffer: &BufferTiles, shader: &Shader) {
@@ -675,30 +677,30 @@ impl HiPSSphere {
         self.buffer.clone()
     }*/
 
-    pub fn update<P: Projection>(&mut self, viewport: &ViewPort) {
+    pub fn request_tiles(&mut self, viewport: &ViewPort) {
         let field_of_view = viewport.field_of_view();
         let tiles_fov = field_of_view.healpix_cells();
         
         let depth = field_of_view.current_depth();
+        self.depth = depth;
+
         let depth_changed = depth != self.depth;
 
-        //console::log_1(&format!("depth {:?}", depth).into());
-
         self.buffer.request_tiles(tiles_fov, depth_changed);
+    }
 
+    pub fn update<P: Projection>(&mut self, viewport: &ViewPort) {
         match P::name() {
             "Orthographic" => {
                 // Ortho mode
                 self.ortho.update(
                     &mut self.buffer,
-                    depth,
-                    tiles_fov,
+                    self.depth,
+                    viewport,
                 );
             },
             _ => (),
         }
-
-        self.depth = depth;
     }
 
     pub fn draw<T: Mesh + DisableDrawing, P: Projection>(

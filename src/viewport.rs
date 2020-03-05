@@ -61,17 +61,14 @@ fn wheel_idx<P: Projection>(fov: Rad<f32>) -> f32 {
 }
 
 use web_sys::console;
-use cgmath::Matrix4;
 use crate::renderable::hips_sphere::HiPSSphere;
 use crate::renderable::Renderable;
 
 use crate::renderable::catalog::Catalog;
 
 use crate::renderable::grid::ProjetedGrid;
-use crate::mouse_inertia::MouseInertia;
 use crate::projection::Projection;
 
-use crate::renderable::hips_sphere::RenderingMode;
 
 impl ViewPort {
     pub fn new<P: Projection>(gl: &WebGl2Context) -> ViewPort {
@@ -127,19 +124,15 @@ impl ViewPort {
         hips_sphere: &mut Renderable<HiPSSphere>,
         grid: &mut Renderable<ProjetedGrid>,
         catalog: &mut Renderable<Catalog>,
-
-        enable_grid: bool
     ) {
         self.fov.resize_window::<P>(width, height);
 
-        // Update renderables
-        hips_sphere.mesh_mut().update::<P>(&self);
-        catalog.mesh_mut().update::<P>(&self);
-        
-        if enable_grid {
-            // A refinement of the grid may be necessary at this point
-            grid.mesh_mut().update::<P>(hips_sphere, &self);
-        }
+        // Launch the new tile requests
+        hips_sphere.mesh_mut().request_tiles(&self);
+        // Retrieve the sources in the fov
+        catalog.mesh_mut().retrieve_sources_in_fov::<P>(&self);
+        // Reproject the grid
+        grid.mesh_mut().reproject::<P>(hips_sphere, &self);
     }
 
     pub fn zoom<P: Projection>(
@@ -148,8 +141,6 @@ impl ViewPort {
         hips_sphere: &mut Renderable<HiPSSphere>,
         catalog: &mut Renderable<Catalog>,
         grid: &mut Renderable<ProjetedGrid>,
-
-        enable_grid: bool
     ) {
         self.last_zoom_action = LastZoomAction::Zoom;
         self.last_action = LastAction::Zooming;
@@ -159,14 +150,12 @@ impl ViewPort {
 
         self.fov.set_aperture::<P>(aperture);
 
-        // Update renderables
-        hips_sphere.mesh_mut().update::<P>(&self);
-        catalog.mesh_mut().update::<P>(&self);
-
-        if enable_grid {
-            // A refinement of the grid may be necessary at this point
-            grid.mesh_mut().update::<P>(hips_sphere, &self);
-        }
+        // Launch the new tile requests
+        hips_sphere.mesh_mut().request_tiles(&self);
+        // Retrieve the sources in the fov
+        catalog.mesh_mut().retrieve_sources_in_fov::<P>(&self);
+        // Reproject the grid
+        //grid.mesh_mut().reproject::<P>(hips_sphere, &self);
     }
 
     pub fn unzoom<P: Projection>(
@@ -175,8 +164,6 @@ impl ViewPort {
         hips_sphere: &mut Renderable<HiPSSphere>,
         catalog: &mut Renderable<Catalog>,
         grid: &mut Renderable<ProjetedGrid>,
-
-        enable_grid: bool
     ) {
         self.last_zoom_action = LastZoomAction::Unzoom;
         self.last_action = LastAction::Zooming;
@@ -192,14 +179,12 @@ impl ViewPort {
             self.fov.set_aperture::<P>(aperture);
         }
 
-        // Update renderables
-        hips_sphere.mesh_mut().update::<P>(&self);
-        catalog.mesh_mut().update::<P>(&self);
-
-        if enable_grid {
-            // A refinement of the grid may be necessary at this point
-            grid.mesh_mut().update::<P>(hips_sphere, &self);
-        }
+        // Launch the new tile requests
+        hips_sphere.mesh_mut().request_tiles(&self);
+        // Retrieve the sources in the fov
+        catalog.mesh_mut().retrieve_sources_in_fov::<P>(&self);
+        // Reproject the grid
+        //grid.mesh_mut().reproject::<P>(hips_sphere, &self);
     }
 
     pub fn displacement<P: Projection>(
@@ -207,8 +192,6 @@ impl ViewPort {
         hips_sphere: &mut Renderable<HiPSSphere>,
         catalog: &mut Renderable<Catalog>,
         grid: &mut Renderable<ProjetedGrid>,
-
-        enable_grid: bool
     ) {
         self.last_action = LastAction::Moving;
 
@@ -220,14 +203,12 @@ impl ViewPort {
         //grid.set_model_mat(inv_model_mat);
         catalog.set_model_mat(inv_model_mat);
 
-        // Update renderables
-        catalog.mesh_mut().update::<P>(&self);
-        hips_sphere.mesh_mut().update::<P>(&self);
-        
-        if enable_grid {
-            // A recomputation of the grid may be needed 
-            grid.mesh_mut().update::<P>(hips_sphere, &self);
-        }
+        // Launch the new tile requests
+        hips_sphere.mesh_mut().request_tiles(&self);
+        // Retrieve the sources in the fov
+        catalog.mesh_mut().retrieve_sources_in_fov::<P>(&self);
+        // Reproject the grid
+        //grid.mesh_mut().reproject::<P>(hips_sphere, &self);
     }
 
     pub fn field_of_view(&self) -> &FieldOfView {

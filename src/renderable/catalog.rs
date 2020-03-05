@@ -346,7 +346,7 @@ impl Catalog{
         }
     }
 
-    pub fn update<P: Projection>(&mut self, viewport: &ViewPort) {
+    pub fn retrieve_sources_in_fov<P: Projection>(&mut self, viewport: &ViewPort) {
         let field_of_view = viewport.field_of_view();
 
         let mut current_field_of_view = field_of_view.healpix_cells()
