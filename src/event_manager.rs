@@ -6,13 +6,15 @@ trait Event {
     fn get(event: &EventType) -> &Self::Data;
 }
 
-struct MouseLeftButtonPressed;
-struct MouseLeftButtonReleased;
-struct MouseMove;
-struct KeyboardPressed;
+pub struct MouseLeftButtonPressed;
+pub struct MouseLeftButtonReleased;
+pub struct MouseMove;
+pub struct KeyboardPressed;
 
+
+use cgmath::Vector2;
 impl Event for MouseLeftButtonPressed {
-    type Data = (f32, f32);
+    type Data = Vector2<f32>;
     const KEY_NAME: &'static str = "MouseLeftButtonPressed";
     
     fn to(data: Self::Data) -> EventType {
@@ -26,7 +28,7 @@ impl Event for MouseLeftButtonPressed {
     }
 }
 impl Event for MouseLeftButtonReleased {
-    type Data = (f32, f32);
+    type Data = Vector2<f32>;
     const KEY_NAME: &'static str = "MouseLeftButtonReleased";
     
     fn to(data: Self::Data) -> EventType {
@@ -40,7 +42,7 @@ impl Event for MouseLeftButtonReleased {
     }
 }
 impl Event for MouseMove {
-    type Data = (f32, f32);
+    type Data = Vector2<f32>;
     const KEY_NAME: &'static str = "MouseMove";
     
     fn to(data: Self::Data) -> EventType {
@@ -70,14 +72,14 @@ impl Event for KeyboardPressed {
 
 // An enum of the different possible user interactions
 enum EventType {
-    MouseLeftButtonPressed((f32, f32)),
-    MouseLeftButtonReleased((f32, f32)),
-    MouseMove((f32, f32)),
+    MouseLeftButtonPressed(Vector2<f32>),
+    MouseLeftButtonReleased(Vector2<f32>),
+    MouseMove(Vector2<f32>),
     KeyboardPressed(&'static str),
 }
 
 use std::collections::HashMap;
-struct EventManager(HashMap<&'static str, Option<EventType>>);
+pub struct EventManager(HashMap<&'static str, Option<EventType>>);
 
 impl EventManager {
     pub fn new() -> EventManager {
@@ -97,7 +99,7 @@ impl EventManager {
     }
 
     pub fn enable<E: Event>(&mut self, data: E::Data) {
-        let val = E::cast(data);
+        let val = E::to(data);
 
         let v = self.0
             .get_mut(E::KEY_NAME)
@@ -117,6 +119,12 @@ impl EventManager {
             Some(E::get(event))
         } else {
             None
+        }
+    }
+
+    pub fn reset(&mut self) {
+        for (_, val) in self.0.iter_mut() {
+            *val = None;
         }
     }
 }

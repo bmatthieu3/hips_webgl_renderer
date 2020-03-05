@@ -164,12 +164,11 @@ window.addEventListener('load', function () {
             let canvas = document.getElementById("canvas");
             //canvas.focus();
 
-            let time = Date.now();
-            let time_last_fps = time;
+            let dt = 1;
+            let time_last_fps = Date.now();
             function render () {
-                const dt = Date.now() - time;
                 // Get the FPS every second
-                if (time - time_last_fps > 1000) {
+                if (t1 - time_last_fps > 1000) {
                     fps_counter.innerText = String(1000.0 / dt);
                     time_last_fps = time;
                 }
@@ -178,10 +177,10 @@ window.addEventListener('load', function () {
                 ra_value.innerText = pos_center[0].toFixed(4);
                 dec_value.innerText = pos_center[1].toFixed(4);
 
+                const t1 = Date.now();
                 webClient.render()
+                dt = Date.now() - t1;
                 window.requestAnimationFrame(render)
-
-                time = Date.now()
             }
 
             let onchange_equatorial_grid = () => {
@@ -394,7 +393,6 @@ window.addEventListener('load', function () {
             });
 
             // Render
-            time = Date.now();
             render()
         })
         .catch(console.error);

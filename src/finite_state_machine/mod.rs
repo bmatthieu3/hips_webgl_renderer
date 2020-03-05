@@ -1,37 +1,39 @@
-mod inertia;
+//mod inertia;
 mod mousemove;
 
+use crate::renderable::Renderable;
+use crate::renderable::hips_sphere::HiPSSphere;
+
 trait State: std::marker::Sized {
-    fn update(&mut self, clic_screen_pos: Vector2<f32>, sphere: &mut Renderable<HiPSSphere>);
+    fn update(&mut self, dt: f32, sphere: &mut Renderable<HiPSSphere>);
+
+    fn begin(&mut self, sphere: &mut Renderable<HiPSSphere>);
+    fn end(&mut self, sphere: &mut Renderable<HiPSSphere>);
 
     // A method checking if the transition from Self to (E: State) is valid
     // If so, returns the ending state. If not returns None.
     // This method is only defined if the transition between Self and E exists
-    fn check<E: State>(&self) -> Option<E>
+    fn check<E: State, P: Projection>(&self, viewport: &ViewPort, events: &EventManager) -> Option<E>
     where T<Self, E>: Transition<S=Self, E=E> {
-        T::<Self, E>::condition(&self)
+        T::<Self, E>::condition::<P>(&self, viewport, events)
     }
 }
 
 // Some states here
 struct Stalling;
+
+use cgmath::Vector4;
 struct Moving {
     // Starting world position
-    starting_world_pos: Vector4<f32>,
-    // Axis of rotation
-    axis: Vector3<f32>,
-    // Angular distance of displacement on the sphere
-    x: Rad<f32>,
-    // Time of the last move
-    time: f32,
+    previous_world_pos: Vector4<f32>,
 }
 struct Inertia;
 
 impl State for Stalling {
-    fn update(&mut self, _clic_screen_pos: Vector2<f32>, sphere: &mut Renderable<HiPSSphere>) {}
+    fn update(&mut self, dt: f32, sphere: &mut Renderable<HiPSSphere>) {}
 }
 impl State for Moving {
-    fn update(&mut self, sphere: &mut Renderable<HiPSSphere>) {
+    fn update(&mut self, dt: f32, sphere: &mut Renderable<HiPSSphere>) {
         if let Some(start_world_pos) = P::screen_to_world_space(screen_pos, &self.viewport) {
             self.moving = Some(Move::new::<P>(start_world_pos, &self.hips_sphere));
         }
@@ -60,9 +62,12 @@ impl State for Moving {
     }
 }
 impl State for Inertia {
-    fn update(&mut self, sphere: &mut Renderable<HiPSSphere>) {}
+    fn update(&mut self, dt: f32, sphere: &mut Renderable<HiPSSphere>) {}
 }
 
+use crate::event_manager::EventManager;
+use crate::projection::Projection;
+use crate::viewport::ViewPort;
 // The transition trait with two associated type:
 // - a starting state of type S
 // - an ending state of type E
@@ -70,7 +75,12 @@ trait Transition {
     type S: State;
     type E: State;
    
-    fn condition(s: &Self::S) -> Option<Self::E>;
+    fn condition<P: Projection>(
+        s: &Self::S,
+        
+        viewport: &ViewPort,
+        events: &EventManager
+    ) -> Option<Self::E>;
 }
 
 // A generic structure that will implement Transition
@@ -82,24 +92,49 @@ where S: State,
     e: std::marker::PhantomData<E>
 }
 
-// A -> B
-impl Transition for T<A, B> {
-    type S = A;
-    type E = B;
+use crate::event_manager::MouseLeftButtonPressed;
+// Stalling -> Moving
+impl Transition for T<Stalling, Moving> {
+    type S = Stalling;
+    type E = Moving;
    
-    fn condition(s: &Self::S) -> Option<Self::E> {
-        println!("Welcome state B");
-        Some(B {})
+    fn condition<P: Projection>(s: &Self::S, viewport: &ViewPort, events: &EventManager) -> Option<Self::E> {
+        if let Some(screen_pos) = events.get::<MouseLeftButtonPressed>() {
+            if let Some(world_pos) = P::screen_to_world_space(*screen_pos, &viewport) {
+                println!("Welcome state Moving");
+                Some(Moving {
+                    previous_world_pos: world_pos
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 }
-// B -> A
-impl Transition for T<B, A> {
-    type S = B;
-    type E = A;
 
-    fn condition(s: &Self::S) -> Option<Self::E> {
-        // B -> A will never be validated
-        None
+use crate::event_manager::MouseMove;
+// Moving -> Moving
+impl Transition for T<Moving, Moving> {
+    type S = Moving;
+    type E = Moving;
+
+    fn condition<P: Projection>(s: &Self::S, viewport: &ViewPort, events: &EventManager) -> Option<Self::E> {
+        if let Some(screen_pos) = events.get::<MouseMove>() {
+            if let Some(world_pos) = P::screen_to_world_space(*screen_pos, &viewport) {
+
+
+                println!("Welcome state Moving");
+                Some(Moving {
+                    previous_world_pos: world_pos
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 }
 // B -> C

@@ -13,8 +13,6 @@ const HEIGHT_TEXTURE: i32 = 512;
 const WIDTH_TEXTURE: i32 = 512;
 
 use crate::WebGl2Context;
-use web_sys::console;
-use crate::LATEST_TIME_TILE_RECEIVED;
 
 use crate::binary_heap_tiles::BinaryHeapTiles;
 use crate::healpix_cell::HEALPixCell;

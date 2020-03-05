@@ -31,7 +31,8 @@ mod utils;
 mod projeted_grid;
 mod render_next_frame;
 mod field_of_view;
-mod mouse_inertia;
+//mod mouse_inertia;
+mod event_manager;
 mod color;
 mod healpix_cell;
 mod binary_heap_tiles;
@@ -381,15 +382,11 @@ where P: Projection {
         Ok(app)
     } 
 
-    fn update(&mut self, dt: f32, enable_grid: bool) -> Vector2<Rad<f32>> {
-        /*if !UPDATE_USER_INTERFACE.load(Ordering::Relaxed) {
-            RENDER_FRAME.lock().unwrap().update(&self.viewport);
-            //UPDATE_FRAME.lock().unwrap().update(&self.viewport);
-        } else {
-            UPDATE_USER_INTERFACE.store(false, Ordering::Relaxed);
-        }*/
-
-        //self.viewport.update(&mut self.inertia, &mut self.grid, &mut self.catalog, &mut self.hips_sphere);
+    fn update(&mut self,
+        dt: f32,
+        events: &EventManager,
+        enable_grid: bool
+    ) -> Vector2<Rad<f32>> {
         // Animation request
         let mut hips_sphere_updated = false;
         if self.animation_request {
@@ -436,7 +433,7 @@ where P: Projection {
         }
 
         // Check whether the HiPS sphere must be updated or not
-        if (!hips_sphere_updated) /*&& utils::get_current_time() < *LATEST_TIME_TILE_RECEIVED.lock().unwrap() + BLENDING_DURATION_MS*/ {
+        if !hips_sphere_updated /*&& utils::get_current_time() < *LATEST_TIME_TILE_RECEIVED.lock().unwrap() + BLENDING_DURATION_MS*/ {
             self.hips_sphere.mesh_mut().update::<P>(&self.viewport);
 
             // Render the next frame
@@ -456,9 +453,8 @@ where P: Projection {
         // to the javascript main code
         let center_world_pos = self.hips_sphere.compute_center_world_pos::<P>();
         let (ra, dec) = math::xyzw_to_radec(center_world_pos);
+
         Vector2::new(Rad(ra), Rad(dec))
-
-
     }
 
     fn render(&mut self, enable_grid: bool) {
@@ -979,13 +975,13 @@ impl AppConfig {
         };
     }
 
-    fn update(&mut self, dt: f32, enable_grid: bool) -> Vector2<Rad<f32>> {
+    fn update(&mut self, dt: f32, events: &EventManager, enable_grid: bool) -> Vector2<Rad<f32>> {
         let pos_center_world = match self {
-            AppConfig::Aitoff(app, _) => app.update(dt, enable_grid),
-            AppConfig::MollWeide(app, _) => app.update(dt, enable_grid),
-            AppConfig::Ortho(app, _) => app.update(dt, enable_grid),
-            AppConfig::Arc(app, _) => app.update(dt, enable_grid),
-            AppConfig::Mercator(app, _) => app.update(dt, enable_grid),
+            AppConfig::Aitoff(app, _) => app.update(dt, events, enable_grid),
+            AppConfig::MollWeide(app, _) => app.update(dt, events, enable_grid),
+            AppConfig::Ortho(app, _) => app.update(dt, events, enable_grid),
+            AppConfig::Arc(app, _) => app.update(dt, events, enable_grid),
+            AppConfig::Mercator(app, _) => app.update(dt, events, enable_grid),
         };
 
         pos_center_world
@@ -1236,10 +1232,28 @@ impl AppConfig {
     }
 }
 
+use crate::event_manager::{
+ EventManager,
+ MouseLeftButtonPressed,
+ MouseLeftButtonReleased,
+ MouseMove,
+ KeyboardPressed
+};
 #[wasm_bindgen]
 pub struct WebClient {
+    // The app
     appconfig: AppConfig,
+
+    // Stores all the possible events
+    // with some associated data    
+    events: EventManager,
+
+    // The time between the previous and the current
+    // frame
     dt: f32,
+
+    // Some booleans for enabling/desabling
+    // specific computations
     enable_inertia: bool,
     enable_grid: bool,
 }
@@ -1257,23 +1271,43 @@ impl WebClient {
         let enable_inertia = false;
         let enable_grid = true;
 
+        let events = EventManager::new();
+
         WebClient {
             appconfig,
+
+            events,
+
             dt,
             enable_inertia,
             enable_grid,
         }
     }
 
-    /// Update our WebGL Water application. `index.html` will call this function in order
-    /// to begin rendering.
+    /// Main update method
     pub fn update(&mut self, dt: f32) -> Result<Box<[f32]>, JsValue> {
+        // dt refers to the time taking (in ms) rendering the previous frame
         self.dt = dt;
-        let pos_center_world = self.appconfig.update(dt, self.enable_grid);
+        
+        // Update the application and get back the
+        // world coordinates of the center of projection in (ra, dec)
+        let pos_center_world = self.appconfig.update(
+            // Time of the previous frame rendering 
+            dt,
+            // Event manager
+            &self.events,
+            // Some constants
+            self.enable_grid
+        );
 
+        // Reset all the events after the update
+        self.events.reset();
+
+        // Extract the ra and dec
         let ra_deg: Deg<f32> = pos_center_world.x.into();
         let dec_deg: Deg<f32> = pos_center_world.y.into();
 
+        // Return it to the index.js
         Ok(Box::new([ra_deg.0, dec_deg.0]))
     }
 
@@ -1317,14 +1351,6 @@ impl WebClient {
         self.enable_grid = true;
 
         self.appconfig.enable_grid();
-        /*if let Some(grid) = ENABLED_WIDGETS.lock().unwrap().get_mut("grid") {
-            *grid = true;
-            self.app.grid
-                .update(
-                    &self.app.projection,
-                    &mut self.app.viewport
-                );
-        }*/
 
         Ok(())
     }
@@ -1332,11 +1358,6 @@ impl WebClient {
     /// Disable equatorial grid
     pub fn disable_equatorial_grid(&mut self) -> Result<(), JsValue> {
         self.enable_grid = false;
-
-        /*if let Some(grid) = ENABLED_WIDGETS.lock().unwrap().get_mut("grid") {
-            *grid = false;
-            self.app.grid.mesh_mut().clear_canvas();
-        }*/
 
         Ok(())
     }
@@ -1362,22 +1383,39 @@ impl WebClient {
         Ok(())
     }
 
+    /// User-events received from javascript
     /// Start move
-    pub fn initialize_move(&mut self, screen_pos_x: f32, screen_pos_y: f32) -> Result<(), JsValue> {
-        self.appconfig.initialize_move(screen_pos_x, screen_pos_y);
+    pub fn press_left_mouse_button(&mut self, screen_pos_x: f32, screen_pos_y: f32) -> Result<(), JsValue> {
+        // Enable the MouseLeftButtonPressed event
+        self.events.enable::<MouseLeftButtonPressed>(
+            Vector2::new(
+                screen_pos_x,
+                screen_pos_y
+            )
+        );
 
         Ok(())
     }
     /// Stop move
-    pub fn stop_move(&mut self, screen_pos_x: f32, screen_pos_y: f32) -> Result<(), JsValue> {
-        self.appconfig.stop_move(screen_pos_x, screen_pos_y, self.dt, self.enable_inertia);
+    pub fn release_left_mouse_button(&mut self, screen_pos_x: f32, screen_pos_y: f32) -> Result<(), JsValue> {
+        // Enable the MouseLeftButtonReleased event
+        self.events.enable::<MouseLeftButtonReleased>(
+            Vector2::new(
+                screen_pos_x,
+                screen_pos_y
+            )
+        );
 
         Ok(())
     }
     /// Keep moving
-    pub fn moves(&mut self, screen_pos_x: f32, screen_pos_y: f32) -> Result<(), JsValue> {
-        self.appconfig.moves(screen_pos_x, screen_pos_y);
-
+    pub fn move_mouse(&mut self, screen_pos_x: f32, screen_pos_y: f32) -> Result<(), JsValue> {
+        self.events.enable::<MouseMove>(
+            Vector2::new(
+                screen_pos_x,
+                screen_pos_y
+            )
+        );
         Ok(())
     }
 
