@@ -145,7 +145,8 @@ impl ViewPort {
         self.last_zoom_action = LastZoomAction::Zoom;
         self.last_action = LastAction::Zooming;
 
-        self.wheel_idx += delta;
+        //self.wheel_idx += delta;
+        self.wheel_idx += 40_f32;
         let aperture = fov::<P>(self.wheel_idx);
 
         self.fov.set_aperture::<P>(aperture);
@@ -169,7 +170,8 @@ impl ViewPort {
         self.last_action = LastAction::Zooming;
 
         if self.wheel_idx > 0_f32 {
-            self.wheel_idx -= delta;
+            //self.wheel_idx -= delta;
+            self.wheel_idx -= 40_f32;
 
             if self.wheel_idx < 0_f32 {
                 self.wheel_idx = 0_f32;

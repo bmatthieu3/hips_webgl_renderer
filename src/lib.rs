@@ -3,6 +3,7 @@ extern crate lazy_static;
 extern crate itertools_num;
 extern crate rand;
 extern crate serde_derive;
+extern crate num;
 
 use web_sys::console;
 #[macro_export]
@@ -150,7 +151,7 @@ use cgmath::InnerSpace;
 
 impl<P> App<P>
 where P: Projection {
-    fn new(gl: &WebGl2Context) -> Result<App<Orthographic>, JsValue> {
+    fn new(gl: &WebGl2Context, events: &EventManager) -> Result<App<Orthographic>, JsValue> {
         console::log_1(&format!("Init").into());
 
         // Shader definition
@@ -301,7 +302,7 @@ where P: Projection {
             &shaders,
             hips_sphere_mesh,
         );
-        hips_sphere.mesh_mut().update::<Orthographic>(&viewport);
+        hips_sphere.mesh_mut().update::<Orthographic>(&viewport, events);
         console::log_1(&format!("fffff sfs").into());
         // Catalog definition
         let catalog_mesh = Catalog::new(&gl, vec![]);
@@ -423,7 +424,7 @@ where P: Projection {
         self.user_move_fsm.run::<P>(dt, &mut self.hips_sphere, &mut self.catalog, &mut self.grid, &mut self.viewport, &events);
 
         // Update the HiPS sphere VAO
-        self.hips_sphere.mesh_mut().update::<P>(&self.viewport);
+        self.hips_sphere.mesh_mut().update::<P>(&self.viewport, &events);
 
         /*// Mouse inertia
         if let Some(inertia) = self.inertia.clone() {
@@ -551,7 +552,7 @@ where P: Projection {
         self.animation_duration = (d.0 / 180_f32) * (max_anim_duration - min_anim_duration) + min_anim_duration;
     }
 
-    fn set_projection<Q: Projection>(mut self) -> App::<Q> {
+    fn set_projection<Q: Projection>(mut self, events: &EventManager) -> App::<Q> {
         // Reset viewport first
         //self.viewport.reset_zoom_level::<Q>();
         self.viewport.reset::<Q>();
@@ -560,7 +561,7 @@ where P: Projection {
         //let hips_sphere_mesh = HiPSSphere::<R>::new(&self.gl, &self.viewport);
         //let mut hips_sphere = Renderable::new(&self.gl, &self.shaders, hips_sphere_mesh);
         //self.hips_sphere.update_mesh(&self.shaders, hips_sphere_mesh);
-        self.hips_sphere.mesh_mut().update::<Q>(&self.viewport);
+        self.hips_sphere.mesh_mut().update::<Q>(&self.viewport, events);
 
         self.catalog.mesh_mut().set_projection::<Q>();
         self.catalog.mesh_mut().retrieve_sources_in_fov::<Q>(&self.viewport);
@@ -569,7 +570,6 @@ where P: Projection {
 
         App::<Q> {
             gl: self.gl,
-
             shaders: self.shaders,
 
             viewport: self.viewport,
@@ -629,13 +629,13 @@ where P: Projection {
         }
     }*/
 
-    fn reload_hips_sphere(&mut self, hips_url: String, hips_depth: u8) {
+    fn reload_hips_sphere(&mut self, hips_url: String, hips_depth: u8, events: &EventManager) {
         *HIPS_NAME.lock().unwrap() = hips_url;
         MAX_DEPTH.store(hips_depth, Ordering::Relaxed);
 
         // Re-initialize the color buffers
         self.hips_sphere.mesh_mut().refresh_buffer_tiles();
-        self.hips_sphere.mesh_mut().update::<P>(&self.viewport);
+        self.hips_sphere.mesh_mut().update::<P>(&self.viewport, events);
 
         // Render the next frame
         self.render = true;
@@ -794,84 +794,84 @@ enum AppConfig {
 
 use cgmath::Rad;
 impl AppConfig {
-    fn set_projection(self, proj: &str) -> AppConfig {
+    fn set_projection(self, proj: &str, events: &EventManager) -> AppConfig {
         match (self, proj) {
             (AppConfig::Aitoff(app, _), "aitoff") => {
                 AppConfig::Aitoff(app, "aitoff")
             },
             (AppConfig::MollWeide(app, _), "aitoff") => {
-                AppConfig::Aitoff(app.set_projection::<Aitoff>(), "aitoff")
+                AppConfig::Aitoff(app.set_projection::<Aitoff>(events), "aitoff")
             },
             (AppConfig::Ortho(app, _), "aitoff") => {
-                AppConfig::Aitoff(app.set_projection::<Aitoff>(), "aitoff")
+                AppConfig::Aitoff(app.set_projection::<Aitoff>(events), "aitoff")
             },
             (AppConfig::Arc(app, _), "aitoff") => {
-                AppConfig::Aitoff(app.set_projection::<Aitoff>(), "aitoff")
+                AppConfig::Aitoff(app.set_projection::<Aitoff>(events), "aitoff")
             },
             (AppConfig::Mercator(app, _), "aitoff") => {
-                AppConfig::Aitoff(app.set_projection::<Aitoff>(), "aitoff")
+                AppConfig::Aitoff(app.set_projection::<Aitoff>(events), "aitoff")
             },
 
 
             (AppConfig::Aitoff(app, _), "orthographic") => {
-                AppConfig::Ortho(app.set_projection::<Orthographic>(), "orthographic")
+                AppConfig::Ortho(app.set_projection::<Orthographic>(events), "orthographic")
             },
             (AppConfig::MollWeide(app, _), "orthographic") => {
-                AppConfig::Ortho(app.set_projection::<Orthographic>(), "orthographic")
+                AppConfig::Ortho(app.set_projection::<Orthographic>(events), "orthographic")
             },
             (AppConfig::Arc(app, _), "orthographic") => {
-                AppConfig::Ortho(app.set_projection::<Orthographic>(), "orthographic")
+                AppConfig::Ortho(app.set_projection::<Orthographic>(events), "orthographic")
             },
             (AppConfig::Mercator(app, _), "orthographic") => {
-                AppConfig::Ortho(app.set_projection::<Orthographic>(), "orthographic")
+                AppConfig::Ortho(app.set_projection::<Orthographic>(events), "orthographic")
             },
             (AppConfig::Ortho(app, _), "orthographic") => {
                 AppConfig::Ortho(app, "orthographic")
             },
 
             (AppConfig::Aitoff(app, _), "mollweide") => {
-                AppConfig::MollWeide(app.set_projection::<MollWeide>(), "mollweide")
+                AppConfig::MollWeide(app.set_projection::<MollWeide>(events), "mollweide")
             },
             (AppConfig::MollWeide(app, _), "mollweide") => {
                 AppConfig::MollWeide(app, "mollweide")
             },
             (AppConfig::Ortho(app, _), "mollweide") => {
-                AppConfig::MollWeide(app.set_projection::<MollWeide>(), "mollweide")
+                AppConfig::MollWeide(app.set_projection::<MollWeide>(events), "mollweide")
             },
             (AppConfig::Arc(app, _), "mollweide") => {
-                AppConfig::MollWeide(app.set_projection::<MollWeide>(), "mollweide")
+                AppConfig::MollWeide(app.set_projection::<MollWeide>(events), "mollweide")
             },
             (AppConfig::Mercator(app, _), "mollweide") => {
-                AppConfig::MollWeide(app.set_projection::<MollWeide>(), "mollweide")
+                AppConfig::MollWeide(app.set_projection::<MollWeide>(events), "mollweide")
             },
 
             (AppConfig::Aitoff(app, _), "arc") => {
-                AppConfig::Arc(app.set_projection::<AzimutalEquidistant>(), "arc")
+                AppConfig::Arc(app.set_projection::<AzimutalEquidistant>(events), "arc")
             },
             (AppConfig::MollWeide(app, _), "arc") => {
-                AppConfig::Arc(app.set_projection::<AzimutalEquidistant>(), "arc")
+                AppConfig::Arc(app.set_projection::<AzimutalEquidistant>(events), "arc")
             },
             (AppConfig::Ortho(app, _), "arc") => {
-                AppConfig::Arc(app.set_projection::<AzimutalEquidistant>(), "arc")
+                AppConfig::Arc(app.set_projection::<AzimutalEquidistant>(events), "arc")
             },
             (AppConfig::Mercator(app, _), "arc") => {
-                AppConfig::Arc(app.set_projection::<AzimutalEquidistant>(), "arc")
+                AppConfig::Arc(app.set_projection::<AzimutalEquidistant>(events), "arc")
             },
             (AppConfig::Arc(app, _), "arc") => {
                 AppConfig::Arc(app, "arc")
             },
 
             (AppConfig::Aitoff(app, _), "mercator") => {
-                AppConfig::Mercator(app.set_projection::<Mercator>(), "mercator")
+                AppConfig::Mercator(app.set_projection::<Mercator>(events), "mercator")
             },
             (AppConfig::MollWeide(app, _), "mercator") => {
-                AppConfig::Mercator(app.set_projection::<Mercator>(), "mercator")
+                AppConfig::Mercator(app.set_projection::<Mercator>(events), "mercator")
             },
             (AppConfig::Ortho(app, _), "mercator") => {
-                AppConfig::Mercator(app.set_projection::<Mercator>(), "mercator")
+                AppConfig::Mercator(app.set_projection::<Mercator>(events), "mercator")
             },
             (AppConfig::Arc(app, _), "mercator") => {
-                AppConfig::Mercator(app.set_projection::<Mercator>(), "mercator")
+                AppConfig::Mercator(app.set_projection::<Mercator>(events), "mercator")
             },
             (AppConfig::Mercator(app, _), "mercator") => {
                 AppConfig::Mercator(app, "mercator")
@@ -913,11 +913,11 @@ impl AppConfig {
     }
 
     /// Wheel event
-    pub fn zoom(self, delta_y: f32, enable_grid: bool) -> AppConfig {
+    pub fn zoom(self, delta_y: f32, enable_grid: bool, events: &EventManager) -> AppConfig {
         match self {
             AppConfig::Aitoff(mut app, s) => {
                 if app.zoom(delta_y, enable_grid) {
-                    AppConfig::Ortho(app.set_projection::<Orthographic>(), s)
+                    AppConfig::Ortho(app.set_projection::<Orthographic>(events), s)
                     //AppConfig::Aitoff(app, s)
                 } else {
                     AppConfig::Aitoff(app, s)
@@ -925,21 +925,21 @@ impl AppConfig {
             },
             AppConfig::MollWeide(mut app, s) => {
                 if app.zoom(delta_y, enable_grid) {
-                    AppConfig::Ortho(app.set_projection::<Orthographic>(), s)
+                    AppConfig::Ortho(app.set_projection::<Orthographic>(events), s)
                 } else {
                     AppConfig::MollWeide(app, s)
                 }
             },
             AppConfig::Arc(mut app, s) => {
                 if app.zoom(delta_y, enable_grid) {
-                    AppConfig::Ortho(app.set_projection::<Orthographic>(), s)
+                    AppConfig::Ortho(app.set_projection::<Orthographic>(events), s)
                 } else {
                     AppConfig::Arc(app, s)
                 }
             },
             AppConfig::Mercator(mut app, s) => {
                 if app.zoom(delta_y, enable_grid) {
-                    AppConfig::Ortho(app.set_projection::<Orthographic>(), s)
+                    AppConfig::Ortho(app.set_projection::<Orthographic>(events), s)
                 } else {
                     AppConfig::Mercator(app, s)
                 }
@@ -951,7 +951,7 @@ impl AppConfig {
         }
     }
     /// Wheel event
-    pub fn unzoom(self, delta_y: f32, enable_grid: bool) -> AppConfig {
+    pub fn unzoom(self, delta_y: f32, enable_grid: bool, events: &EventManager) -> AppConfig {
         match self {
             AppConfig::Aitoff(mut app, s) => {
                 app.unzoom(delta_y, enable_grid);
@@ -972,10 +972,10 @@ impl AppConfig {
             AppConfig::Ortho(mut app, s) => {
                 if app.unzoom(delta_y, enable_grid) {
                     match s {
-                        "aitoff" => AppConfig::Aitoff(app.set_projection::<Aitoff>(), s),
-                        "mollweide" => AppConfig::MollWeide(app.set_projection::<MollWeide>(), s),
-                        "arc" => AppConfig::Arc(app.set_projection::<AzimutalEquidistant>(), s),
-                        "mercator" => AppConfig::Mercator(app.set_projection::<Mercator>(), s),
+                        "aitoff" => AppConfig::Aitoff(app.set_projection::<Aitoff>(events), s),
+                        "mollweide" => AppConfig::MollWeide(app.set_projection::<MollWeide>(events), s),
+                        "arc" => AppConfig::Arc(app.set_projection::<AzimutalEquidistant>(events), s),
+                        "mercator" => AppConfig::Mercator(app.set_projection::<Mercator>(events), s),
                         "orthographic" => AppConfig::Ortho(app, s),
                         _ => unreachable!()
                     }
@@ -1013,13 +1013,13 @@ impl AppConfig {
         }
     }
 
-    pub fn reload_hips_sphere(&mut self, hips_url: String, max_depth: u8) {        
+    pub fn reload_hips_sphere(&mut self, hips_url: String, max_depth: u8, events: &EventManager) {        
         match self {
-            AppConfig::Aitoff(app, _) => app.reload_hips_sphere(hips_url, max_depth),
-            AppConfig::MollWeide(app, _) => app.reload_hips_sphere(hips_url, max_depth),
-            AppConfig::Arc(app, _) => app.reload_hips_sphere(hips_url, max_depth),
-            AppConfig::Ortho(app, _) => app.reload_hips_sphere(hips_url, max_depth),
-            AppConfig::Mercator(app, _) => app.reload_hips_sphere(hips_url, max_depth),
+            AppConfig::Aitoff(app, _) => app.reload_hips_sphere(hips_url, max_depth, events),
+            AppConfig::MollWeide(app, _) => app.reload_hips_sphere(hips_url, max_depth, events),
+            AppConfig::Arc(app, _) => app.reload_hips_sphere(hips_url, max_depth, events),
+            AppConfig::Ortho(app, _) => app.reload_hips_sphere(hips_url, max_depth, events),
+            AppConfig::Mercator(app, _) => app.reload_hips_sphere(hips_url, max_depth, events),
 
         }
     }
@@ -1117,6 +1117,8 @@ use crate::event_manager::{
  MouseLeftButtonPressed,
  MouseLeftButtonReleased,
  MouseMove,
+ MouseWheelUp,
+ MouseWheelDown,
  KeyboardPressed
 };
 #[wasm_bindgen]
@@ -1144,14 +1146,13 @@ impl WebClient {
     #[wasm_bindgen(constructor)]
     pub fn new() -> WebClient {
         let gl = WebGl2Context::new();
+        let events = EventManager::new();
 
-        let app = App::<Orthographic>::new(&gl).unwrap();
+        let app = App::<Orthographic>::new(&gl, &events).unwrap();
         let appconfig = AppConfig::Ortho(app, "orthographic");
         let dt = 0_f32;
         let enable_inertia = false;
         let enable_grid = true;
-
-        let events = EventManager::new();
 
         WebClient {
             appconfig,
@@ -1201,7 +1202,7 @@ impl WebClient {
 
     /// Change the current projection of the HiPS
     pub fn set_projection(mut self, name: String) -> Result<WebClient, JsValue> {
-        self.appconfig = self.appconfig.set_projection(&name);
+        self.appconfig = self.appconfig.set_projection(&name, &self.events);
 
         Ok(self)
     }
@@ -1258,7 +1259,7 @@ impl WebClient {
     
     /// Change HiPS
     pub fn change_hips(&mut self, hips_url: String, hips_depth: i32) -> Result<(), JsValue> {
-        self.appconfig.reload_hips_sphere(hips_url, hips_depth as u8);
+        self.appconfig.reload_hips_sphere(hips_url, hips_depth as u8, &self.events);
 
         Ok(())
     }
@@ -1300,11 +1301,17 @@ impl WebClient {
     }
 
     /// Wheel event
-    pub fn zoom(mut self, delta_y: f32) -> Result<WebClient, JsValue> {
-        self.appconfig = if delta_y < 0_f32 {
-            self.appconfig.zoom(delta_y.abs(), self.enable_grid)
+    pub fn wheel_mouse(mut self, delta_y: f32) -> Result<WebClient, JsValue> {
+        let up = delta_y < 0_f32;
+        let y = delta_y.abs();
+        // Wheel mouse up
+        self.appconfig = if up {
+            self.events.enable::<MouseWheelUp>(y);
+            self.appconfig.zoom(y, self.enable_grid, &self.events)
+        // Wheel mouse down
         } else {
-            self.appconfig.unzoom(delta_y, self.enable_grid)
+            self.events.enable::<MouseWheelDown>(y);
+            self.appconfig.unzoom(y, self.enable_grid, &self.events)
         };
 
         Ok(self)

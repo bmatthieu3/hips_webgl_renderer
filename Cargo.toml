@@ -18,6 +18,7 @@ healpix = { package = "cdshealpix", git = 'https://github.com/cds-astro/cds-heal
 rand = "*"
 serde = "^1.0.59"
 serde_derive = "^1.0.59"
+num = "*"
 aladinlite-derive = { path = "aladinlite-derive" }
 
 [dependencies.wasm-bindgen]

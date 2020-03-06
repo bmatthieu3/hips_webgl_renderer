@@ -6,11 +6,14 @@ pub trait Event {
     fn get(event: &EventType) -> &Self::Data;
 }
 
+// Mouse events
 pub struct MouseLeftButtonPressed;
 pub struct MouseLeftButtonReleased;
 pub struct MouseMove;
+pub struct MouseWheelUp;
+pub struct MouseWheelDown;
+// Keyboard events
 pub struct KeyboardPressed;
-
 
 use cgmath::Vector2;
 impl Event for MouseLeftButtonPressed {
@@ -70,11 +73,42 @@ impl Event for KeyboardPressed {
     }
 }
 
+impl Event for MouseWheelUp {
+    type Data = f32;
+    const KEY_NAME: &'static str = "MouseWheelUp";
+    
+    fn to(data: Self::Data) -> EventType {
+        EventType::MouseWheelUp(data)
+    }
+    fn get(event: &EventType) -> &Self::Data {
+        match event {
+            EventType::MouseWheelUp(data) => data,
+            _ => unreachable!()
+        }
+    }
+}
+impl Event for MouseWheelDown {
+    type Data = f32;
+    const KEY_NAME: &'static str = "MouseWheelDown";
+    
+    fn to(data: Self::Data) -> EventType {
+        EventType::MouseWheelDown(data)
+    }
+    fn get(event: &EventType) -> &Self::Data {
+        match event {
+            EventType::MouseWheelDown(data) => data,
+            _ => unreachable!()
+        }
+    }
+}
+
 // An enum of the different possible user interactions
 enum EventType {
     MouseLeftButtonPressed(Vector2<f32>),
     MouseLeftButtonReleased(Vector2<f32>),
     MouseMove(Vector2<f32>),
+    MouseWheelUp(f32),
+    MouseWheelDown(f32),
     KeyboardPressed(&'static str),
 }
 
@@ -88,6 +122,8 @@ impl EventManager {
         manager.insert_new_event::<MouseLeftButtonPressed>();
         manager.insert_new_event::<MouseLeftButtonReleased>();
         manager.insert_new_event::<MouseMove>();
+        manager.insert_new_event::<MouseWheelUp>();
+        manager.insert_new_event::<MouseWheelDown>();
         manager.insert_new_event::<KeyboardPressed>();
 
         manager
@@ -122,6 +158,14 @@ impl EventManager {
         }
     }
 
+    pub fn check<E: Event>(&self) -> bool {
+        self.0.get(E::KEY_NAME)
+            .unwrap()
+            .is_some()
+    }
+
+    // Reset the user events at the end
+    // of each frame
     pub fn reset(&mut self) {
         for (_, val) in self.0.iter_mut() {
             *val = None;

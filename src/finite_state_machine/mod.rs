@@ -87,8 +87,14 @@ struct Moving {
 }
 use cgmath::Vector3;
 struct Inertia {
-    dtheta: Rad<f32>, // rotation angle amount
+    // Init angular distance of rotation
+    d0: Rad<f32>,
+    // angular distance
+    d: Rad<f32>,
+    // The axis of rotation when the mouse has been released
     axis: Vector3<f32>,
+    // The time when the inertia begins (in ms)
+    t_start: f32,
 }
 
 impl State for Stalling {
@@ -179,8 +185,8 @@ impl State for Moving {
 
 impl Inertia {
     #[inline]
-    pub fn decrease_ratio() -> f32 {
-        0.9_f32
+    pub fn w0() -> f32 {
+        7_f32
     }
 }
 impl State for Inertia {
@@ -196,11 +202,22 @@ impl State for Inertia {
         // User events
         events: &EventManager
     ) {
-        let fps = 1000_f32 / dt;
-        self.dtheta = self.dtheta * Inertia::decrease_ratio();
-        console::log_1(&format!("dtheta {:?}", self.dtheta).into());
-        sphere.apply_rotation(-self.axis, self.dtheta * fps / 60_f32);
+        // Time elapsed since the beginning of the inertia
+        let t = (utils::get_current_time() - self.t_start)/1000_f32;
+        // Undamped angular frequency of the oscillator
+        // From wiki: https://en.wikipedia.org/wiki/Harmonic_oscillator
+        //
+        // In a damped harmonic oscillator system: w0 = sqrt(k / m)
+        // where: 
+        // * k is the stiffness of the ressort
+        // * m is its mass
+        let theta = self.d0 * (Inertia::w0() * t + 1_f32) * ((-Inertia::w0() * t).exp());
+
+        console::log_1(&format!("dtheta {:?}", theta).into());
+        sphere.apply_rotation(-self.axis, theta);
         viewport.displacement::<P>(sphere, catalog, grid);
+
+        self.d = theta;
     }
 }
 use web_sys::console;
@@ -320,10 +337,14 @@ impl Transition for T<Moving, Inertia> {
                 }
                 console::log_1(&format!("Welcome state Inertia").into());
                 let axis = s.axis;
-                let dtheta = s.angular_dist;
+                let d0 = s.angular_dist;
+                let d = d0;
+                let t_start = utils::get_current_time();
                 Some(Inertia {
-                    dtheta,
-                    axis
+                    d0,
+                    d,
+                    axis,
+                    t_start
                 })
             } else {
                 None
@@ -334,7 +355,7 @@ impl Transition for T<Moving, Inertia> {
     }
 }
 
-// Moving -> Inertia
+// Inertia -> Stalling
 impl Transition for T<Inertia, Stalling> {
     type S = Inertia;
     type E = Stalling;
@@ -349,10 +370,48 @@ impl Transition for T<Inertia, Stalling> {
         // User events
         events: &EventManager
     ) -> Option<Self::E> {
-        if s.dtheta < Rad(1e-5) {
+        if s.d < Rad(1e-3) {
             console::log_1(&format!("Welcome state Stalling").into());
             Some(Stalling {})
         } else {
+            None
+        }
+    }
+}
+
+// Inertia -> Moving
+impl Transition for T<Inertia, Moving> {
+    type S = Inertia;
+    type E = Moving;
+
+    fn condition<P: Projection>(s: &Self::S,
+        // Renderables
+        sphere: &mut Renderable<HiPSSphere>,
+        catalog: &mut Renderable<Catalog>,
+        grid: &mut Renderable<ProjetedGrid>,
+        // Viewport
+        viewport: &mut ViewPort,
+        // User events
+        events: &EventManager
+    ) -> Option<Self::E> {
+        if let Some(screen_pos) = events.get::<MouseLeftButtonPressed>() {
+            if let Some(world_pos) = P::screen_to_world_space(*screen_pos, &viewport) {
+                console::log_1(&format!("Welcome state Moving").into());
+                let time_move = utils::get_current_time();
+                let angular_dist = Rad(0_f32);
+                let axis = Vector3::new(0_f32, 0_f32, 0_f32);
+                Some(Moving {
+                    world_pos,
+                    time_move,
+                    angular_dist,
+                    axis
+                })
+            } else {
+                // The clic is out of the projection, we keep in the inertia state
+                None
+            }
+        } else {
+            // No left button pressed, we keep being in the inertia state
             None
         }
     }
@@ -436,6 +495,9 @@ impl UserMoveSphere {
                 // Checks the Inertia -> Stalling condition
                 if let Some(e) = inertia.check::<_, P>(sphere, catalog, grid, viewport, events) {
                     *self = UserMoveSphere::Stalling(e);
+                // Checks the Inertia -> Moving condition
+                } else if let Some(e) = inertia.check::<_, P>(sphere, catalog, grid, viewport, events) {
+                    *self = UserMoveSphere::Moving(e);
                 }
             },
         }
