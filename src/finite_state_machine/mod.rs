@@ -83,8 +83,13 @@ struct Moving {
     time_move: f32,
 
     angular_dist: Rad<f32>,
+    axis: Vector3<f32>
 }
-struct Inertia;
+use cgmath::Vector3;
+struct Inertia {
+    dtheta: Rad<f32>, // rotation angle amount
+    axis: Vector3<f32>,
+}
 
 impl State for Stalling {
     fn update<P: Projection>(&mut self,
@@ -170,6 +175,13 @@ impl State for Moving {
         }
     }
 }
+
+impl Inertia {
+    #[inline]
+    pub fn decrease_ratio() -> f32 {
+        0.99999_f32
+    }
+}
 impl State for Inertia {
     fn update<P: Projection>(&mut self,
         // Time of the previous frame
@@ -183,10 +195,13 @@ impl State for Inertia {
         // User events
         events: &EventManager
     ) {
-
+        self.dtheta = self.dtheta * Inertia::decrease_ratio();
+        console::log_1(&format!("dtheta {:?}", self.dtheta).into());
+        sphere.apply_rotation(-self.axis, self.dtheta);
+        viewport.displacement::<P>(sphere, catalog, grid);
     }
 }
-
+use web_sys::console;
 use crate::event_manager::MouseLeftButtonPressed;
 // Stalling -> Moving
 impl Transition for T<Stalling, Moving> {
@@ -205,13 +220,15 @@ impl Transition for T<Stalling, Moving> {
     ) -> Option<Self::E> {
         if let Some(screen_pos) = events.get::<MouseLeftButtonPressed>() {
             if let Some(world_pos) = P::screen_to_world_space(*screen_pos, &viewport) {
-                println!("Welcome state Moving");
+                console::log_1(&format!("Welcome state Moving").into());
                 let time_move = utils::get_current_time();
                 let angular_dist = Rad(0_f32);
+                let axis = Vector3::new(0_f32, 0_f32, 0_f32);
                 Some(Moving {
                     world_pos,
                     time_move,
                     angular_dist,
+                    axis
                 })
             } else {
                 // The clic is out of the projection, we keep stalling
@@ -243,7 +260,7 @@ impl Transition for T<Moving, Stalling> {
     ) -> Option<Self::E> {
         if let Some(screen_pos) = events.get::<MouseLeftButtonReleased>() {
             let t = utils::get_current_time() - s.time_move;
-            if t > 100_f32 {
+            if t < 10_f32 {
                 return None;
             }
 
@@ -260,7 +277,7 @@ impl Transition for T<Moving, Stalling> {
                     );
                 }
             }
-            println!("Welcome state Stalling");
+            console::log_1(&format!("Welcome state Stalling").into());
             Some(Stalling {})
         } else {
             None
@@ -284,7 +301,8 @@ impl Transition for T<Moving, Inertia> {
     ) -> Option<Self::E> {
         if let Some(screen_pos) = events.get::<MouseLeftButtonReleased>() {
             let t = utils::get_current_time() - s.time_move;
-            if t <= 100_f32 {
+            // Jump into the inertia mode if the mouse has been released in following 10ms after the last move
+            if t <= 10_f32 {
                 if let Some(world_pos) = P::screen_to_world_space(*screen_pos, &viewport) {
                     // Check whether the mouse has moved
                     if world_pos != s.world_pos {
@@ -298,11 +316,40 @@ impl Transition for T<Moving, Inertia> {
                         );
                     }
                 }
-                println!("Welcome state Inertia");
-                Some(Inertia {})
+                console::log_1(&format!("Welcome state Inertia").into());
+                let axis = s.axis;
+                let dtheta = s.angular_dist;
+                Some(Inertia {
+                    dtheta,
+                    axis
+                })
             } else {
                 None
             }
+        } else {
+            None
+        }
+    }
+}
+
+// Moving -> Inertia
+impl Transition for T<Inertia, Stalling> {
+    type S = Inertia;
+    type E = Stalling;
+
+    fn condition<P: Projection>(s: &Self::S,
+        // Renderables
+        sphere: &mut Renderable<HiPSSphere>,
+        catalog: &mut Renderable<Catalog>,
+        grid: &mut Renderable<ProjetedGrid>,
+        // Viewport
+        viewport: &mut ViewPort,
+        // User events
+        events: &EventManager
+    ) -> Option<Self::E> {
+        if s.dtheta < Rad(1e-5) {
+            console::log_1(&format!("Welcome state Stalling").into());
+            Some(Stalling {})
         } else {
             None
         }
@@ -316,11 +363,12 @@ pub trait FiniteStateMachine {
 pub enum UserMoveSphere {
     Stalling(Stalling),
     Moving(Moving),
+    Inertia(Inertia)
 }
 
 impl FiniteStateMachine for UserMoveSphere {
     fn init() -> Self {
-        println!("Welcome to starting state STALLING");
+        console::log_1(&format!("Welcome starting state Inertia").into());
         UserMoveSphere::Stalling(Stalling {})
     }
 }
@@ -341,6 +389,7 @@ impl UserMoveSphere {
         match self {
             UserMoveSphere::Stalling(s) => s.update::<P>(dt, sphere, catalog, grid, viewport, events),
             UserMoveSphere::Moving(s) => s.update::<P>(dt, sphere, catalog, grid, viewport, events),
+            UserMoveSphere::Inertia(s) => s.update::<P>(dt, sphere, catalog, grid, viewport, events),
         }
     }
 
@@ -375,6 +424,15 @@ impl UserMoveSphere {
             UserMoveSphere::Moving(moving) => {
                 // Checks the Moving -> Stalling condition
                 if let Some(e) = moving.check::<_, P>(sphere, catalog, grid, viewport, events) {
+                    *self = UserMoveSphere::Stalling(e);
+                // Checks the Moving -> Inertia condition
+                } else if let Some(e) = moving.check::<_, P>(sphere, catalog, grid, viewport, events) {
+                    *self = UserMoveSphere::Inertia(e);
+                }
+            },
+            UserMoveSphere::Inertia(inertia) => {
+                // Checks the Inertia -> Stalling condition
+                if let Some(e) = inertia.check::<_, P>(sphere, catalog, grid, viewport, events) {
                     *self = UserMoveSphere::Stalling(e);
                 }
             },

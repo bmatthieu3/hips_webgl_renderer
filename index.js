@@ -163,24 +163,31 @@ window.addEventListener('load', function () {
 
             let canvas = document.getElementById("canvas");
             //canvas.focus();
+            setInterval(function() {
+                // Refresh the FramePerSecond stat every second
+                fps_counter.innerText = String(1000.0 / elapsed);
+            }, 1000);
 
-            let dt = 1;
-            let time_last_fps = Date.now();
-            let t1 = Date.now();
+            let elapsed, now;
             function render () {
-                t1 = Date.now();
-                // Get the FPS every second
-                if (t1 - time_last_fps > 1000) {
-                    fps_counter.innerText = String(1000.0 / dt);
-                    time_last_fps = t1;
-                }
-                let pos_center = webClient.update(dt);
-                webClient.render()
+                // Request another frame
                 window.requestAnimationFrame(render)
-                dt = Date.now() - t1;
 
-                ra_value.innerText = pos_center[0].toFixed(4);
-                dec_value.innerText = pos_center[1].toFixed(4);
+                // Begin of a new frame
+                now = Date.now();
+                // Compute the time between the latest and the new frame
+                elapsed = now - then;
+
+                then = now;
+                // Frame computation
+                {
+                    // Update the client
+                    let pos_center = webClient.update(elapsed);
+                    // Draw the client
+                    webClient.render();
+                    ra_value.innerText = pos_center[0].toFixed(4);
+                    dec_value.innerText = pos_center[1].toFixed(4);
+                }
             }
 
             let onchange_equatorial_grid = () => {
@@ -393,7 +400,8 @@ window.addEventListener('load', function () {
             });
 
             // Render
-            render()
+            let then = Date.now();
+            window.requestAnimationFrame(render);
         })
         .catch(console.error);
   })
