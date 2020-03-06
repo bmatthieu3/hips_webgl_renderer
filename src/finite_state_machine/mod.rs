@@ -119,7 +119,7 @@ fn move_renderables<P: Projection>(
  grid: &mut Renderable<ProjetedGrid>,
  // Viewport
  viewport: &mut ViewPort,
-) -> Rad<f32> {
+) -> (Vector3<f32>, Rad<f32>) {
     let model_mat = sphere.get_model_mat();
 
     let x = (model_mat * x).truncate();
@@ -133,7 +133,7 @@ fn move_renderables<P: Projection>(
 
     // Update all the renderables
     viewport.displacement::<P>(sphere, catalog, grid);
-    d
+    (axis, d)
 }
 
 use crate::event_manager::MouseMove;
@@ -159,7 +159,7 @@ impl State for Moving {
                 // same position. In principle, a new mouse move event
                 // is launched if the position changed
                 if world_pos != self.world_pos {
-                    let angular_dist = move_renderables::<P>(
+                    let (axis, d) = move_renderables::<P>(
                         &self.world_pos,
                         &world_pos,
                         sphere, catalog, grid,
@@ -169,7 +169,8 @@ impl State for Moving {
                     // Update the previous position
                     self.world_pos = world_pos;
                     self.time_move = utils::get_current_time();
-                    self.angular_dist = angular_dist;
+                    self.angular_dist = d;
+                    self.axis = axis;
                 }
             }
         }
@@ -179,7 +180,7 @@ impl State for Moving {
 impl Inertia {
     #[inline]
     pub fn decrease_ratio() -> f32 {
-        0.99999_f32
+        0.9_f32
     }
 }
 impl State for Inertia {
@@ -195,9 +196,10 @@ impl State for Inertia {
         // User events
         events: &EventManager
     ) {
+        let fps = 1000_f32 / dt;
         self.dtheta = self.dtheta * Inertia::decrease_ratio();
         console::log_1(&format!("dtheta {:?}", self.dtheta).into());
-        sphere.apply_rotation(-self.axis, self.dtheta);
+        sphere.apply_rotation(-self.axis, self.dtheta * fps / 60_f32);
         viewport.displacement::<P>(sphere, catalog, grid);
     }
 }
