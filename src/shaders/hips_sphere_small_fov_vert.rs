@@ -7,7 +7,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
     layout (location = 1) in vec3 position;
     layout (location = 2) in vec2 uv_start;
     layout (location = 3) in vec2 uv_end;
-    layout (location = 4) in float blending_factor;
+    layout (location = 4) in float time_tile_received;
 
     out vec2 frag_uv_start;
     out vec2 frag_uv_end;
@@ -17,6 +17,8 @@ pub static CONTENT: &'static str = r#"#version 300 es
     uniform vec2 ndc_to_clip;
     uniform float clip_zoom_factor;
     uniform float aspect;
+    // current time in ms
+    uniform float current_time;
 
     vec2 world2screen_orthographic(vec3 p) {
         return vec2(-p.x, p.y);
@@ -28,6 +30,6 @@ pub static CONTENT: &'static str = r#"#version 300 es
 
         frag_uv_start = uv_start;
         frag_uv_end = uv_end;
-        frag_blending_factor = blending_factor;
+        frag_blending_factor = min((current_time - time_tile_received) / 500.f, 1.f);
     }
 "#;

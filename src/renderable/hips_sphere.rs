@@ -52,7 +52,7 @@ struct Vertex {
     uv_0: Vector2<f32>,
     uv_1: Vector2<f32>,
 
-    alpha: f32,
+    time_received: f32,
 }
 
 impl Vertex {
@@ -60,7 +60,7 @@ impl Vertex {
         lonlat: &(f64, f64),
         uv_0: Vector2<f32>,
         uv_1: Vector2<f32>,
-        alpha: f32
+        time_received: f32
     ) -> Vertex {
         let (lon, lat) = (lonlat.0 as f32, lonlat.1 as f32);
 
@@ -74,8 +74,25 @@ impl Vertex {
             uv_0,
             uv_1,
 
-            alpha,
+            time_received,
         }
+    }
+
+    fn add_to_vertices(&self, vertices: &mut [f32], off: usize) {
+        assert!(off + 10 <= 50000);
+        vertices[off] = self.lon;
+        vertices[off+1] = self.lat;
+
+        vertices[off+2] = self.pos.x;
+        vertices[off+3] = self.pos.y;
+        vertices[off+4] = self.pos.z;
+
+        vertices[off+5] = self.uv_0.x;
+        vertices[off+6] = self.uv_0.y;
+        vertices[off+7] = self.uv_1.x;
+        vertices[off+8] = self.uv_1.y;
+
+        vertices[off+9] = self.time_received;
     }
 }
 
@@ -84,10 +101,10 @@ impl Vertex {
 struct TileVertices([Vertex; 6]);
 
 pub struct SmallFieldOfView {
-    tiles: [TileVertices; 1000],
+    vertices: [f32; 50000],
 
     num_vertices: usize,
-    num_tiles: usize,
+    //num_tiles: usize,
 
     vertex_array_object: VertexArrayObject,
 }
@@ -166,32 +183,23 @@ impl UpdateTextureBufferEvent for MouseMove  {
         // A HEALPix cell located in the field of view
         cell: &HEALPixCell,
     ) -> (TileUV<f32>, TileUV<f32>, f32) {
-        if let Some(tile_fov) = buffer.get(cell) {
-            let alpha = tile_fov.blending_factor();
+        if let Some(time_received) = buffer.get_time_received(cell) {
+            let parent_cell = get_nearest_parent(cell, buffer);
 
-            let uv_0 = if alpha < 1_f32 {
-                let parent_cell = get_nearest_parent(cell, buffer);
-
-                get_uv_in_parent(cell, &parent_cell, buffer)
-            } else {
-                TileUV::<f32>::empty()
-            };
-            
+            let uv_0 = get_uv_in_parent(cell, &parent_cell, buffer);
             let uv_1 = get_uv(cell, buffer);
-            (uv_0, uv_1, alpha)
+
+            (uv_0, uv_1, time_received)
         } else {
             let parent_cell = get_nearest_parent(cell, buffer);
-            
-            let alpha = buffer.get(&parent_cell).unwrap().blending_factor();
-            let uv_0 = if alpha < 1_f32 {
-                let grand_parent_cell = get_nearest_parent(&parent_cell, buffer);
+            let grand_parent_cell = get_nearest_parent(&parent_cell, buffer);
 
-                get_uv_in_parent(cell, &grand_parent_cell, buffer)
-            } else {
-                TileUV::<f32>::empty()
-            };
+            let time_received = buffer.get_time_received(&parent_cell).unwrap();
+            
+            let uv_0 = get_uv_in_parent(cell, &grand_parent_cell, buffer);
             let uv_1 = get_uv_in_parent(cell, &parent_cell, buffer);
-            (uv_0, uv_1, alpha)
+
+            (uv_0, uv_1, time_received)
         }
     }
 }
@@ -207,32 +215,23 @@ impl UpdateTextureBufferEvent for MouseWheelUp {
         // A HEALPix cell located in the field of view
         cell: &HEALPixCell,
     ) -> (TileUV<f32>, TileUV<f32>, f32) {
-        if let Some(tile_fov) = buffer.get(cell) {
-            let alpha = tile_fov.blending_factor();
+        if let Some(time_received) = buffer.get_time_received(cell) {
+            let parent_cell = get_nearest_parent(cell, buffer);
 
-            let uv_0 = if alpha < 1_f32 {
-                let parent_cell = get_nearest_parent(cell, buffer);
-
-                get_uv_in_parent(cell, &parent_cell, buffer)
-            } else {
-                TileUV::<f32>::empty()
-            };
-            
+            let uv_0 = get_uv_in_parent(cell, &parent_cell, buffer);
             let uv_1 = get_uv(cell, buffer);
-            (uv_0, uv_1, alpha)
+
+            (uv_0, uv_1, time_received)
         } else {
             let parent_cell = get_nearest_parent(cell, buffer);
-            
-            let alpha = buffer.get(&parent_cell).unwrap().blending_factor();
-            let uv_0 = if alpha < 1_f32 {
-                let grand_parent_cell = get_nearest_parent(&parent_cell, buffer);
+            let grand_parent_cell = get_nearest_parent(&parent_cell, buffer);
 
-                get_uv_in_parent(cell, &grand_parent_cell, buffer)
-            } else {
-                TileUV::<f32>::empty()
-            };
+            let time_received = buffer.get_time_received(&parent_cell).unwrap();
+            
+            let uv_0 = get_uv_in_parent(cell, &grand_parent_cell, buffer);
             let uv_1 = get_uv_in_parent(cell, &parent_cell, buffer);
-            (uv_0, uv_1, alpha)
+
+            (uv_0, uv_1, time_received)
         }
     }
 }
@@ -248,44 +247,28 @@ impl UpdateTextureBufferEvent for MouseWheelDown {
         // A HEALPix cell located in the field of view
         cell: &HEALPixCell,
     ) -> (TileUV<f32>, TileUV<f32>, f32) {
-        if let Some(tile_fov) = buffer.get(cell) {
-            let alpha = tile_fov.blending_factor();
+        if let Some(time_received) = buffer.get_time_received(cell) {
+            let parent_cell = get_nearest_parent(cell, buffer);
 
-            let uv_0 = if alpha < 1_f32 {
-                let parent_cell = get_nearest_parent(cell, buffer);
-
-                get_uv_in_parent(cell, &parent_cell, buffer)
-            } else {
-                TileUV::<f32>::empty()
-            };
-            
+            let uv_0 = get_uv_in_parent(cell, &parent_cell, buffer);
             let uv_1 = get_uv(cell, buffer);
-            (uv_0, uv_1, alpha)
+
+            (uv_0, uv_1, time_received)
         } else {
             let parent_cell = get_nearest_parent(cell, buffer);
-            
-            let alpha = buffer.get(&parent_cell).unwrap().blending_factor();
-            let uv_0 = if alpha < 1_f32 {
-                let grand_parent_cell = get_nearest_parent(&parent_cell, buffer);
+            let grand_parent_cell = get_nearest_parent(&parent_cell, buffer);
 
-                get_uv_in_parent(cell, &grand_parent_cell, buffer)
-            } else {
-                TileUV::<f32>::empty()
-            };
+            let time_received = buffer.get_time_received(&parent_cell).unwrap();
+            
+            let uv_0 = get_uv_in_parent(cell, &grand_parent_cell, buffer);
             let uv_1 = get_uv_in_parent(cell, &parent_cell, buffer);
-            (uv_0, uv_1, alpha)
+
+            (uv_0, uv_1, time_received)
         }
     }
 }
 
 impl SmallFieldOfView {
-
-    #[inline]
-    // Return the max size of the buffer in f32
-    const fn max_size_buffer() -> usize {
-        (std::mem::size_of::<TileVertices>() / std::mem::size_of::<f32>()) * 1000
-    }
-
 
     fn add_vertices_grid(
         &mut self,
@@ -353,19 +336,35 @@ impl SmallFieldOfView {
                     uv_e_vertex_3,
                 ];
 
-                let idx_tile = self.num_tiles;
-                self.tiles[idx_tile] = TileVertices([
-                    Vertex::new(&lonlat_quad[0], uv_0_quad[0], uv_1_quad[0], alpha),
-                    Vertex::new(&lonlat_quad[1], uv_0_quad[1], uv_1_quad[1], alpha),
-                    Vertex::new(&lonlat_quad[2], uv_0_quad[2], uv_1_quad[2], alpha),
+                let mut num_vertices = self.num_vertices;
+                
+                Vertex::new(&lonlat_quad[0], uv_0_quad[0], uv_1_quad[0], alpha)
+                    .add_to_vertices(&mut self.vertices, 10 * num_vertices);
+                num_vertices += 1;
 
-                    Vertex::new(&lonlat_quad[1], uv_0_quad[1], uv_1_quad[1], alpha),
-                    Vertex::new(&lonlat_quad[3], uv_0_quad[3], uv_1_quad[3], alpha),
-                    Vertex::new(&lonlat_quad[2], uv_0_quad[2], uv_1_quad[2], alpha),
-                ]);
-                self.num_tiles = idx_tile + 1;
+                Vertex::new(&lonlat_quad[1], uv_0_quad[1], uv_1_quad[1], alpha)
+                    .add_to_vertices(&mut self.vertices, 10 * num_vertices);
+                num_vertices += 1;
+
+                Vertex::new(&lonlat_quad[2], uv_0_quad[2], uv_1_quad[2], alpha)
+                    .add_to_vertices(&mut self.vertices, 10 * num_vertices);
+                num_vertices += 1;
+
+                Vertex::new(&lonlat_quad[1], uv_0_quad[1], uv_1_quad[1], alpha)
+                    .add_to_vertices(&mut self.vertices, 10 * num_vertices);
+                num_vertices += 1;
+
+                Vertex::new(&lonlat_quad[3], uv_0_quad[3], uv_1_quad[3], alpha)
+                    .add_to_vertices(&mut self.vertices, 10 * num_vertices);
+                num_vertices += 1;
+
+                Vertex::new(&lonlat_quad[2], uv_0_quad[2], uv_1_quad[2], alpha)
+                    .add_to_vertices(&mut self.vertices, 10 * num_vertices);
+                num_vertices += 1;
+                self.num_vertices = num_vertices;
             }
         }
+        //console::log_1(&format!("num vertices {:?}", self.num_vertices).into());
     }
 
     async fn define_needed_hpx_cells<T: UpdateTextureBufferEvent>(
@@ -384,9 +383,9 @@ impl SmallFieldOfView {
         } else {
             1
         };
-        console::log_1(&format!("Aaah2 ").into());
 
-        self.num_tiles = 0;
+        // Refill the vertices slice
+        // Set its current index to 0
         self.num_vertices = 0;
         for cell in cells_fov {
             let (uv_0, uv_1, alpha) = T::update_texture_buffer(buffer, cell);
@@ -397,16 +396,13 @@ impl SmallFieldOfView {
                 alpha
             );
         }
-
-        self.num_vertices = self.num_tiles * 6;
-        console::log_1(&format!("Aaah {:?}", self.num_vertices * 10).into());
     }
 }
 
 impl RenderingMode for SmallFieldOfView {
     fn new(gl: &WebGl2Context, viewport: &ViewPort) -> SmallFieldOfView {
         // Initialise the buffer of 
-        let data = [0_f32; 60000];
+        let vertices = [0_f32; 50000];
         let mut vertex_array_object = VertexArrayObject::new(gl);
 
         // VAO for the orthographic projection and small fovs on 2D projections
@@ -423,21 +419,21 @@ impl RenderingMode for SmallFieldOfView {
                     9 * mem::size_of::<f32>(),
                 ],
                 WebGl2RenderingContext::DYNAMIC_DRAW,
-                BufferData::SliceData(&data),
+                BufferData::SliceData(&vertices),
             )
             // Unbind the buffer
             .unbind();
 
-        let num_vertices = 6000;
-        let num_tiles = num_vertices / 6;
-        let tiles = unsafe { 
+        let num_vertices = 5000;
+        //let num_tiles = num_vertices / 6;
+        /*let tiles = unsafe { 
             mem::transmute::<[f32; 60000], [TileVertices; 1000]>(data)
-        };
+        };*/
         SmallFieldOfView {
-            tiles,
+            vertices,
 
             num_vertices,
-            num_tiles,
+            //num_tiles,
 
             vertex_array_object,
         }
@@ -466,33 +462,36 @@ impl RenderingMode for SmallFieldOfView {
          events.check::<MouseWheelUp>() |
          events.check::<MouseMove>();*/
 
-        //if user_action {
+        // A tile has been received
+        if buffer.is_sphere_vbo_rebuild_necessary() {
+            console::log_1(&format!("update vbo").into());
             // Signals a new frame to the buffer
             buffer.signals_new_frame();
             if events.check::<MouseWheelDown>() {
                 futures::executor::block_on(
-                    self.define_needed_hpx_cells::<MouseWheelDown>(buffer, viewport)
+                    self.define_needed_hpx_cells::<MouseMove>(buffer, viewport)
                 )
             } else if events.check::<MouseWheelUp>() {
                 futures::executor::block_on(
-                    self.define_needed_hpx_cells::<MouseWheelUp>(buffer, viewport)
+                    self.define_needed_hpx_cells::<MouseMove>(buffer, viewport)
                 )
             } else {
                 futures::executor::block_on(
                     self.define_needed_hpx_cells::<MouseMove>(buffer, viewport)
                 )
             }
+            buffer.signals_end_frame();
 
-            console::log_1(&format!("Aaah2 {:?}", self.num_vertices * 10).into());
+            /*
             let data = unsafe {
                 std::mem::transmute::<&[TileVertices; 1000], &[f32; 60000]>(&self.tiles)
             };
-            console::log_1(&format!("Aaah3 {:?}", self.num_vertices * 10).into());
+            */
 
             // Update the buffers
             self.vertex_array_object.bind()
-                .update_array(0, BufferData::SliceData(data));
-        //}
+                .update_array(0, BufferData::SliceData(&self.vertices));
+        }
 
         /*
         if viewport.last_zoom_action == LastZoomAction::Zoom || viewport.last_action == LastAction::Moving {

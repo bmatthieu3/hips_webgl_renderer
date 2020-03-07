@@ -144,17 +144,21 @@ impl ViewPort {
     ) {
         self.last_zoom_action = LastZoomAction::Zoom;
         self.last_action = LastAction::Zooming;
+        console::log_1(&format!("IAAA").into());
 
-        //self.wheel_idx += delta;
-        self.wheel_idx += 40_f32;
+        self.wheel_idx += delta;
+        //self.wheel_idx += 40_f32;
         let aperture = fov::<P>(self.wheel_idx);
 
         self.fov.set_aperture::<P>(aperture);
+        console::log_1(&format!("IAAA").into());
 
         // Launch the new tile requests
         hips_sphere.mesh_mut().request_tiles(&self);
         // Retrieve the sources in the fov
         catalog.mesh_mut().retrieve_sources_in_fov::<P>(&self);
+        console::log_1(&format!("Izze").into());
+
         // Reproject the grid
         //grid.mesh_mut().reproject::<P>(hips_sphere, &self);
     }
@@ -170,8 +174,8 @@ impl ViewPort {
         self.last_action = LastAction::Zooming;
 
         if self.wheel_idx > 0_f32 {
-            //self.wheel_idx -= delta;
-            self.wheel_idx -= 40_f32;
+            self.wheel_idx -= delta;
+            //self.wheel_idx -= 40_f32;
 
             if self.wheel_idx < 0_f32 {
                 self.wheel_idx = 0_f32;

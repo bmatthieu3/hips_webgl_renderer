@@ -648,7 +648,7 @@ where P: Projection {
             .get_aperture()
             .into();
 
-        self.viewport.unzoom::<P>(delta_y,&mut self.hips_sphere, &mut self.catalog, &mut self.grid);
+        self.viewport.unzoom::<P>(delta_y, &mut self.hips_sphere, &mut self.catalog, &mut self.grid);
 
         let a1: Deg<f32> = self.viewport
             .field_of_view()
@@ -664,6 +664,8 @@ where P: Projection {
     // ZOOM EVENT
     // Returns true if hips_sphere rendering mode has to be changed to the SmallFOV mode
     fn zoom(&mut self, delta_y: f32, enable_grid: bool) -> bool {
+        console::log_1(&format!("IAAA").into());
+
         let a0: Deg<f32> = self.viewport
             .field_of_view()
             .get_aperture()
@@ -913,75 +915,66 @@ impl AppConfig {
     }
 
     /// Wheel event
-    pub fn zoom(self, delta_y: f32, enable_grid: bool, events: &EventManager) -> AppConfig {
+    pub fn zoom(&mut self, delta_y: f32, enable_grid: bool) {
+        console::log_1(&format!("sdfsdf").into());
         match self {
-            AppConfig::Aitoff(mut app, s) => {
-                if app.zoom(delta_y, enable_grid) {
-                    AppConfig::Ortho(app.set_projection::<Orthographic>(events), s)
-                    //AppConfig::Aitoff(app, s)
-                } else {
-                    AppConfig::Aitoff(app, s)
-                }
-            },
-            AppConfig::MollWeide(mut app, s) => {
-                if app.zoom(delta_y, enable_grid) {
-                    AppConfig::Ortho(app.set_projection::<Orthographic>(events), s)
-                } else {
-                    AppConfig::MollWeide(app, s)
-                }
-            },
-            AppConfig::Arc(mut app, s) => {
-                if app.zoom(delta_y, enable_grid) {
-                    AppConfig::Ortho(app.set_projection::<Orthographic>(events), s)
-                } else {
-                    AppConfig::Arc(app, s)
-                }
-            },
-            AppConfig::Mercator(mut app, s) => {
-                if app.zoom(delta_y, enable_grid) {
-                    AppConfig::Ortho(app.set_projection::<Orthographic>(events), s)
-                } else {
-                    AppConfig::Mercator(app, s)
-                }
-            },
-            AppConfig::Ortho(mut app, s) => {
+            AppConfig::Aitoff(ref mut app, _) => {
                 app.zoom(delta_y, enable_grid);
-                AppConfig::Ortho(app, s)
+
             },
+            AppConfig::MollWeide(ref mut app, _) => {
+                app.zoom(delta_y, enable_grid);
+
+            },
+            AppConfig::Arc(ref mut app, _) => {
+                app.zoom(delta_y, enable_grid);
+
+            },
+            AppConfig::Mercator(ref mut app, _) => {
+                app.zoom(delta_y, enable_grid);
+
+            },
+            AppConfig::Ortho(ref mut app, _) => {
+                app.zoom(delta_y, enable_grid);
+                
+                //AppConfig::Ortho(app, s)
+            },
+            _ => unimplemented!(),
         }
     }
     /// Wheel event
-    pub fn unzoom(self, delta_y: f32, enable_grid: bool, events: &EventManager) -> AppConfig {
+    pub fn unzoom(&mut self, delta_y: f32, enable_grid: bool) {
         match self {
-            AppConfig::Aitoff(mut app, s) => {
+            AppConfig::Aitoff(ref mut app, _) => {
                 app.unzoom(delta_y, enable_grid);
-                AppConfig::Aitoff(app, s)
+                //*self = AppConfig::Aitoff(*app, s)
             },
-            AppConfig::MollWeide(mut app, s) => {
+            AppConfig::MollWeide(ref mut app, _) => {
                 app.unzoom(delta_y, enable_grid);
-                AppConfig::MollWeide(app, s)
+                //*self = AppConfig::MollWeide(*app, s)
             },
-            AppConfig::Arc(mut app, s) => {
+            AppConfig::Arc(ref mut app, _) => {
                 app.unzoom(delta_y, enable_grid);
-                AppConfig::Arc(app, s)
+                //*self = AppConfig::Arc(*app, s)
             },
-            AppConfig::Mercator(mut app, s) => {
+            AppConfig::Mercator(ref mut app, _) => {
                 app.unzoom(delta_y, enable_grid);
-                AppConfig::Mercator(app, s)
+                //*self = AppConfig::Mercator(*app, s)
             },
-            AppConfig::Ortho(mut app, s) => {
-                if app.unzoom(delta_y, enable_grid) {
-                    match s {
+            AppConfig::Ortho(ref mut app, s) => {
+                /**self = if app.unzoom(delta_y, enable_grid) {
+                    match *s {
                         "aitoff" => AppConfig::Aitoff(app.set_projection::<Aitoff>(events), s),
                         "mollweide" => AppConfig::MollWeide(app.set_projection::<MollWeide>(events), s),
                         "arc" => AppConfig::Arc(app.set_projection::<AzimutalEquidistant>(events), s),
                         "mercator" => AppConfig::Mercator(app.set_projection::<Mercator>(events), s),
-                        "orthographic" => AppConfig::Ortho(app, s),
+                        "orthographic" => AppConfig::Ortho(*app, s),
                         _ => unreachable!()
                     }
                 } else {
-                    AppConfig::Ortho(app, s)
-                }
+                    AppConfig::Ortho(*app, s)
+                }*/
+                app.unzoom(delta_y, enable_grid);
             }
         }
     }
@@ -1301,20 +1294,21 @@ impl WebClient {
     }
 
     /// Wheel event
-    pub fn wheel_mouse(mut self, delta_y: f32) -> Result<WebClient, JsValue> {
+    pub fn wheel_mouse(&mut self, delta_y: f32) -> Result<(), JsValue> {
         let up = delta_y < 0_f32;
         let y = delta_y.abs();
+
         // Wheel mouse up
-        self.appconfig = if up {
+        if up {
             self.events.enable::<MouseWheelUp>(y);
-            self.appconfig.zoom(y, self.enable_grid, &self.events)
+            self.appconfig.zoom(y, self.enable_grid);
         // Wheel mouse down
         } else {
             self.events.enable::<MouseWheelDown>(y);
-            self.appconfig.unzoom(y, self.enable_grid, &self.events)
-        };
+            self.appconfig.unzoom(y, self.enable_grid);
+        }
 
-        Ok(self)
+        Ok(())
     }
 
     /// Add new catalog

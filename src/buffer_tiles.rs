@@ -149,6 +149,12 @@ pub struct BufferTiles {
     // tiles have been loaded
     ready: Rc<Cell<bool>>,
 
+    // A boolean that is reinitialized at the beginning
+    // of each frame. This tells the sphere object if he has
+    // to recompute its vbo. This is due to the fact the vbo
+    // is built from the tiles found in the buffer at a specific time.
+    update_sphere_vbo: Rc<Cell<bool>>,
+
     // The number of tiles needed in the current frame
     num_tiles_per_frame: usize,
 }
@@ -167,6 +173,7 @@ impl BufferTiles {
 
         let gl = gl.clone();
         let ready = Rc::new(Cell::new(false));
+        let update_sphere_vbo = Rc::new(Cell::new(true));
         let num_tiles_per_frame = 0;
         let mut buffer = BufferTiles {
             gl,
@@ -177,6 +184,7 @@ impl BufferTiles {
             hpx_texture,
 
             ready,
+            update_sphere_vbo,
 
             num_tiles_per_frame
         };
@@ -205,6 +213,18 @@ impl BufferTiles {
     pub fn signals_new_frame(&mut self) {
         self.num_tiles_per_frame = 0;
     }
+    pub fn signals_end_frame(&mut self) {
+        // Ensure the current frame does not need more than
+        // 64 different tiles. Otherwise it will exceed the texture
+        // size capacity!
+        assert!(self.num_tiles_per_frame <= 64);
+
+        // After the vbo has been recomputed
+        // we can put this flag to false.
+        // When a new cell will be received it will
+        // be set to true again.
+        self.update_sphere_vbo.set(false);
+    }
 
     pub fn get_idx_texture(&mut self, cell: &HEALPixCell) -> usize {
         let tile_texture = self.heap.borrow()
@@ -220,15 +240,15 @@ impl BufferTiles {
             // The number of HEALPix cells needed for this frame
             &mut self.num_tiles_per_frame
         );
-        // Ensure the current frame does not need more than
-        // 64 different tiles. Otherwise it will exceed the texture
-        // size capacity!
-        assert!(self.num_tiles_per_frame <= 64);
 
         idx_texture
     }
 
     pub fn request_tiles(&mut self, cells: &Vec<HEALPixCell>, depth_changed: bool) {
+        // The viewport has changed (moving, zooming, resizing)
+        // We will tell the sphere to recompute its vbo.
+        self.update_sphere_vbo.set(true);
+
         for cell in cells.iter() {
             self.load_tile(cell, depth_changed);
         }
@@ -282,6 +302,7 @@ impl BufferTiles {
                     let image = image.clone();
                     let cell = *cell;
                     let ready = self.ready.clone();
+                    let update_sphere_vbo = self.update_sphere_vbo.clone();
 
                     Closure::wrap(Box::new(move || {
                         // Remove the cell from the requested cells set
@@ -295,6 +316,8 @@ impl BufferTiles {
                             .push(Tile::new(cell, time_request, time_received, image.clone()));
 
                         ready.set(heap.borrow().is_ready());
+                        // A cell has been received
+                        update_sphere_vbo.set(true);
                     }) as Box<dyn Fn()>)
                 };
 
@@ -325,17 +348,19 @@ impl BufferTiles {
         self.ready.get()
     }
 
+    pub fn is_sphere_vbo_rebuild_necessary(&self) -> bool {
+        self.update_sphere_vbo.get()
+    }
+
     pub fn contains(&self, cell: &HEALPixCell) -> bool {
         self.heap.borrow()
             .contains(cell)
     }
     
-    pub fn get(&self, cell: &HEALPixCell) -> Option<Tile> {
+    pub fn get_time_received(&self, cell: &HEALPixCell) -> Option<f32> {
         self.heap.borrow()
             .get(cell)
-            // References on a temporary value cannot be returned
-            // out of a function
-            .cloned()
+            .map(|tile| tile.time_received)
     }
 
     // Build the texture from the tiles needed by the

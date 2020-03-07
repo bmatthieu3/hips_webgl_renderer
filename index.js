@@ -387,7 +387,7 @@ window.addEventListener('load', function () {
                 let canvas = document.getElementById("canvas");
 
                 canvas.addEventListener("wheel", (evt) => {
-                    webClient = webClient.wheel_mouse(evt.deltaY);
+                    webClient.wheel_mouse(evt.deltaY);
                 }, false);
             })();
 

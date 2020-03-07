@@ -97,18 +97,6 @@ impl Tile {
             texture
         }
     }
-
-    pub fn blending_factor(&self) -> f32 {
-        let mut t = (utils::get_current_time() - self.time_received) / BLENDING_DURATION_MS;
-
-        if t > 1_f32 {
-            t = 1_f32;
-        } else if t < 0_f32 {
-            t = 0_f32;
-        }
-
-        t
-    }
 }
 
 impl PartialEq for Tile {
