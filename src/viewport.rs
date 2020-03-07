@@ -8,10 +8,11 @@ pub enum LastZoomAction {
     Unzoom = 2,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Copy)]
 pub enum LastAction {
     Zooming = 1,
-    Moving = 2,
+    Unzooming = 2,
+    Moving = 3,
 }
 
 use crate::field_of_view::FieldOfView;
@@ -144,20 +145,17 @@ impl ViewPort {
     ) {
         self.last_zoom_action = LastZoomAction::Zoom;
         self.last_action = LastAction::Zooming;
-        console::log_1(&format!("IAAA").into());
 
         self.wheel_idx += delta;
         //self.wheel_idx += 40_f32;
         let aperture = fov::<P>(self.wheel_idx);
 
         self.fov.set_aperture::<P>(aperture);
-        console::log_1(&format!("IAAA").into());
 
         // Launch the new tile requests
         hips_sphere.mesh_mut().request_tiles(&self);
         // Retrieve the sources in the fov
         catalog.mesh_mut().retrieve_sources_in_fov::<P>(&self);
-        console::log_1(&format!("Izze").into());
 
         // Reproject the grid
         //grid.mesh_mut().reproject::<P>(hips_sphere, &self);
@@ -171,7 +169,7 @@ impl ViewPort {
         grid: &mut Renderable<ProjetedGrid>,
     ) {
         self.last_zoom_action = LastZoomAction::Unzoom;
-        self.last_action = LastAction::Zooming;
+        self.last_action = LastAction::Unzooming;
 
         if self.wheel_idx > 0_f32 {
             self.wheel_idx -= delta;
@@ -227,6 +225,10 @@ impl ViewPort {
 
     pub fn get_clip_zoom_factor(&self) -> f32 {
         self.fov.get_clip_zoom_factor()
+    }
+
+    pub fn get_last_action(&self) -> LastAction {
+        self.last_action
     }
 
     /// Warning: this is executed by all the shaders

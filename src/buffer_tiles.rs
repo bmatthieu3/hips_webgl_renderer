@@ -163,7 +163,7 @@ use crate::utils;
 use crate::shader::Shader;
 
 use crate::binary_heap_tiles::Tile;
-
+use web_sys::console;
 impl BufferTiles {
     pub fn new(gl: &WebGl2Context) -> BufferTiles {
         let heap = Rc::new(RefCell::new(BinaryHeapTiles::new(512)));
@@ -217,6 +217,7 @@ impl BufferTiles {
         // Ensure the current frame does not need more than
         // 64 different tiles. Otherwise it will exceed the texture
         // size capacity!
+        console::log_1(&format!("cell5 {:?}", self.num_tiles_per_frame).into());
         assert!(self.num_tiles_per_frame <= 64);
 
         // After the vbo has been recomputed

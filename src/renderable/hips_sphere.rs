@@ -297,7 +297,17 @@ impl UpdateTextureBufferEvent for MouseMove  {
             let (uv_0, uv_1, time_received) = if let Some(time_received) = buffer.get_time_received(cell) {
                 let parent_cell = get_nearest_parent(cell, buffer);
 
-                let uv_0 = get_uv_in_parent(cell, &parent_cell, buffer);
+                // get_uv_in_parent can lead to a sub_tex_2d call which
+                // is quite costly!
+                // This checks whether the end of the blending animation is reached
+                // and if so, we can forget about moving the parent tile texture to the
+                // 4096x4096 texture!
+                let uv_0 = if utils::get_current_time() - time_received > 500_f32 {
+                    TileUV::empty()
+                } else {
+                    get_uv_in_parent(cell, &parent_cell, buffer)
+                };
+                
                 let uv_1 = get_uv(cell, buffer);
 
                 (uv_0, uv_1, time_received)
@@ -307,7 +317,11 @@ impl UpdateTextureBufferEvent for MouseMove  {
 
                 let time_received = buffer.get_time_received(&parent_cell).unwrap();
                 
-                let uv_0 = get_uv_in_parent(cell, &grand_parent_cell, buffer);
+                let uv_0 = if utils::get_current_time() - time_received > 500_f32 {
+                    TileUV::empty()
+                } else {
+                    get_uv_in_parent(cell, &grand_parent_cell, buffer)
+                };
                 let uv_1 = get_uv_in_parent(cell, &parent_cell, buffer);
 
                 (uv_0, uv_1, time_received)
@@ -353,7 +367,17 @@ impl UpdateTextureBufferEvent for MouseWheelUp {
             let (uv_0, uv_1, time_received) = if let Some(time_received) = buffer.get_time_received(cell) {
                 let parent_cell = get_nearest_parent(cell, buffer);
 
-                let uv_0 = get_uv_in_parent(cell, &parent_cell, buffer);
+                // get_uv_in_parent can lead to a sub_tex_2d call which
+                // is quite costly!
+                // This checks whether the end of the blending animation is reached
+                // and if so, we can forget about moving the parent tile texture to the
+                // 4096x4096 texture!
+                let uv_0 = if utils::get_current_time() - time_received > 500_f32 {
+                    TileUV::empty()
+                } else {
+                    get_uv_in_parent(cell, &parent_cell, buffer)
+                };
+                
                 let uv_1 = get_uv(cell, buffer);
 
                 (uv_0, uv_1, time_received)
@@ -363,7 +387,11 @@ impl UpdateTextureBufferEvent for MouseWheelUp {
 
                 let time_received = buffer.get_time_received(&parent_cell).unwrap();
                 
-                let uv_0 = get_uv_in_parent(cell, &grand_parent_cell, buffer);
+                let uv_0 = if utils::get_current_time() - time_received > 500_f32 {
+                    TileUV::empty()
+                } else {
+                    get_uv_in_parent(cell, &grand_parent_cell, buffer)
+                };
                 let uv_1 = get_uv_in_parent(cell, &parent_cell, buffer);
 
                 (uv_0, uv_1, time_received)
@@ -381,6 +409,7 @@ impl UpdateTextureBufferEvent for MouseWheelUp {
     }
 }
 
+use std::collections::VecDeque;
 impl UpdateTextureBufferEvent for MouseWheelDown {
     // Returns:
     // * The UV of the starting tile in the global 4096x4096 texture
@@ -395,50 +424,100 @@ impl UpdateTextureBufferEvent for MouseWheelDown {
         // The HEALPix cells located in the FOV
         viewport: &ViewPort,
     ) {
-        let cells_fov = viewport.field_of_view()
-            .healpix_cells();
-        let depth = viewport.field_of_view()
-            .current_depth();
+        let depth_plus_two = viewport.field_of_view()
+            .current_depth() + 2;
+        // Retrieve the cells of depth: depth + 1 that are in the fov
+            //console::log_1(&format!("update vbo2").into());
 
-        let num_subdivision = if depth <= 2 {
-            1 << (3 - depth)
+        let cells_fov = viewport.field_of_view()
+            .get_cells_in_fov(depth_plus_two);
+            //console::log_1(&format!("update vbo3").into());
+
+        let num_subdivision = if depth_plus_two <= 2 {
+            1 << (3 - depth_plus_two)
         } else {
             1
         };
+
         for cell in cells_fov {
-            let (uv_0, uv_1, time_received) = if let Some(time_received) = buffer.get_time_received(cell) {
-                let parent_cell = get_nearest_parent(cell, buffer);
+            let parent_cell = HEALPixCell(cell.0 - 1, cell.1 / 4);
+            let grand_parent_cell = HEALPixCell(parent_cell.0 - 1, parent_cell.1 / 4);
 
-                let uv_0 = get_uv_in_parent(cell, &parent_cell, buffer);
-                let uv_1 = get_uv(cell, buffer);
+            if buffer.contains(&grand_parent_cell) {
+                let uv_1 = get_uv_in_parent(&cell, &grand_parent_cell, buffer);
+                let time_received = buffer.get_time_received(&grand_parent_cell).unwrap();
 
-                (uv_0, uv_1, time_received)
+                let uv_0 = if utils::get_current_time() - time_received > 500_f32 {
+                    TileUV::empty()
+                } else if buffer.contains(&parent_cell) {
+                    get_uv_in_parent(&cell, &parent_cell, buffer)
+                } else if buffer.contains(&cell) {
+                    get_uv(&cell, buffer)
+                } else {
+                    let starting_cell = get_nearest_parent(&grand_parent_cell, buffer);
+                    get_uv_in_parent(&cell, &starting_cell, buffer)
+                };
+
+                add_vertices_grid(
+                    vertices,
+                    num_vertices,
+                    &cell,
+                    num_subdivision,
+                    &uv_0, &uv_1,
+                    time_received
+                );
             } else {
-                let parent_cell = get_nearest_parent(cell, buffer);
-                let grand_parent_cell = get_nearest_parent(&parent_cell, buffer);
+                let nearest_parent = get_nearest_parent(&grand_parent_cell, buffer);
+                let ending_cell = if buffer.contains(&parent_cell) {
+                    parent_cell
+                } else if buffer.contains(&cell) {
+                    let d1 = cell.0 - grand_parent_cell.0;
+                    let d2 = grand_parent_cell.0 - nearest_parent.0;
 
-                let time_received = buffer.get_time_received(&parent_cell).unwrap();
-                
-                let uv_0 = get_uv_in_parent(cell, &grand_parent_cell, buffer);
-                let uv_1 = get_uv_in_parent(cell, &parent_cell, buffer);
+                    if d1 < d2 {
+                        cell
+                    } else {
+                        nearest_parent
+                    }
+                } else {
+                    nearest_parent
+                };
 
-                (uv_0, uv_1, time_received)
-            };
+                let starting_cell = if ending_cell.0 == depth_plus_two - 1 && buffer.contains(&cell) {
+                    cell
+                } else {
+                    get_nearest_parent(&ending_cell, buffer)
+                };
 
-            add_vertices_grid(
-                vertices,
-                num_vertices,
-                cell,
-                num_subdivision,
-                &uv_0, &uv_1,
-                time_received
-            );
+                let time_received = buffer.get_time_received(&ending_cell).unwrap();
+
+                let uv_0 = if utils::get_current_time() - time_received > 500_f32 {
+                    TileUV::empty()
+                } else if cell != starting_cell {
+                    get_uv_in_parent(&cell, &starting_cell, buffer)
+                } else {
+                    get_uv(&cell, buffer)
+                };
+                let uv_1 = if cell != ending_cell {
+                    get_uv_in_parent(&cell, &ending_cell, buffer)
+                } else {
+                    get_uv(&cell, buffer)
+                };
+                add_vertices_grid(
+                    vertices,
+                    num_vertices,
+                    &cell,
+                    num_subdivision,
+                    &uv_0, &uv_1,
+                    time_received
+                );
+            }
         }
     }
 }
 
 impl SmallFieldOfView {
-    async fn define_needed_hpx_cells<T: UpdateTextureBufferEvent>(
+    fn define_needed_hpx_cells<T: UpdateTextureBufferEvent>(
         &mut self,
         // The buffer that will be modified due to the need of specific tile textures by the GPU
         buffer: &mut BufferTiles,
@@ -510,28 +589,18 @@ impl RenderingMode for SmallFieldOfView {
         if !buffer.is_ready() {
             return;
         }
-        /*let user_action = events.check::<MouseWheelDown>() |
-         events.check::<MouseWheelUp>() |
-         events.check::<MouseMove>();*/
 
         // A tile has been received
         if buffer.is_sphere_vbo_rebuild_necessary() {
             console::log_1(&format!("update vbo").into());
             // Signals a new frame to the buffer
             buffer.signals_new_frame();
-            if events.check::<MouseWheelDown>() {
-                futures::executor::block_on(
-                    self.define_needed_hpx_cells::<MouseMove>(buffer, viewport)
-                )
-            } else if events.check::<MouseWheelUp>() {
-                futures::executor::block_on(
-                    self.define_needed_hpx_cells::<MouseMove>(buffer, viewport)
-                )
-            } else {
-                futures::executor::block_on(
-                    self.define_needed_hpx_cells::<MouseMove>(buffer, viewport)
-                )
-            }
+            let last_user_action = viewport.get_last_action();
+            match last_user_action {
+                LastAction::Unzooming => self.define_needed_hpx_cells::<MouseWheelDown>(buffer, viewport),
+                LastAction::Zooming => self.define_needed_hpx_cells::<MouseWheelUp>(buffer, viewport),
+                LastAction::Moving => self.define_needed_hpx_cells::<MouseMove>(buffer, viewport)
+            };
             buffer.signals_end_frame();
 
             /*
@@ -544,201 +613,6 @@ impl RenderingMode for SmallFieldOfView {
             self.vertex_array_object.bind()
                 .update_array(0, BufferData::SliceData(&self.vertices));
         }
-
-        /*
-        if viewport.last_zoom_action == LastZoomAction::Zoom || viewport.last_action == LastAction::Moving {
-            for cell in tiles_fov.iter() {
-                // If the tile is not already processed
-                let (depth, idx) = (cell.0, cell.1);
-                let parent_tile_buffer = get_nearest_parent(cell, buffer);
-
-                let uv_start = get_uv_in_parent(&cell, &parent_tile_buffer);
-
-                let mut blending_factor = 0_f32;
-                let uv_end = if let Some(tile_buffer) = buffer.get(cell) {
-                    let uv_end = get_uv(&tile_buffer);
-
-                    blending_factor = tile_buffer.blending_factor();
-                    uv_end
-                } else {
-                    let uv_end = [Vector2::new(0_f32, 0_f32); 4];
-
-                    uv_end
-                };
-
-                let mut vertex_array = Vec::with_capacity(10 * 6);
-                add_vertices_grid(
-                    &mut vertex_array,
-                    depth, idx,
-                    1,
-                    &uv_start, &uv_end,
-                    blending_factor
-                );
-
-                // tile has been found in the buffer, we will
-                // render it
-                vertices.extend(vertex_array.iter());
-            }
-        } else if viewport.last_zoom_action == LastZoomAction::Unzoom {
-            for tile in tiles_fov.iter() {
-                if let Some(tile_buffer) = buffer.get(tile) {
-                    let blending_factor = tile_buffer.blending_factor();
-
-                    let (depth, idx) = (tile_buffer.cell.0, tile_buffer.cell.1);
-
-                    if blending_factor == 1_f32 {
-                        let uv_end = get_uv(&tile_buffer);
-                        let uv_start = [Vector2::new(0_f32, 0_f32); 4];
-
-                        let mut vertex_array = Vec::with_capacity(10 * 6);
-
-                        add_vertices_grid(
-                            &mut vertex_array,
-                            depth, idx,
-                            4,
-                            &uv_start, &uv_end,
-                            blending_factor
-                        );
-
-                        // tile has been found in the buffer, we will render it
-                        vertices.extend(vertex_array.iter());
-                    } else {
-                        // We need to check the children tiles first to get the uv_start!
-                        // Let is see at current_depth + 1 first
-                        let mut children_tiles = VecDeque::with_capacity(4);
-                        children_tiles.push_back(HEALPixCell(depth + 1, idx << 2));
-                        children_tiles.push_back(HEALPixCell(depth + 1, (idx << 2) + 1));
-                        children_tiles.push_back(HEALPixCell(depth + 1, (idx << 2) + 2));
-                        children_tiles.push_back(HEALPixCell(depth + 1, (idx << 2) + 3));
-
-                        while !children_tiles.is_empty() {
-                            let child_tile = children_tiles.pop_front().unwrap();
-                            let (child_depth, child_idx) = (child_tile.0, child_tile.1);
-
-                            if let Some(child_tile_buffer) = buffer.get(&child_tile) {
-                                // Find in which position the child tile is in the
-                                // parent to get the uv_end
-                                let uv_end = get_uv_in_parent(&child_tile, &tile_buffer);
-                                let uv_start = get_uv(&child_tile_buffer);
-
-                                let mut vertex_array = Vec::with_capacity(10 * 6);
-                                add_vertices_grid(&mut vertex_array,
-                                    child_depth,
-                                    child_idx,
-                                    1 << (depth + 2 - child_depth),
-                                    &uv_start, &uv_end,
-                                    blending_factor);
-
-                                // tile has been found in the buffer, we will render it
-                                vertices.extend(vertex_array.iter());
-                            } else {
-                                if child_depth == depth + 2 {
-                                    // The grand children is not in the buffer
-
-                                    // Find in which base cell the current tile is located
-                                    let tile_buffer_parent = get_nearest_parent(&tile, buffer);
-
-                                    let uv_start = get_uv_in_parent(&child_tile, &tile_buffer_parent);
-
-                                    // Find in which position the child tile is located in the current fov tile
-                                    let uv_end = get_uv_in_parent(&child_tile, &tile_buffer);
-
-                                    let mut vertex_array = Vec::with_capacity(10 * 6);
-
-                                    add_vertices_grid(&mut vertex_array,
-                                        child_depth,
-                                        child_idx,
-                                        1,
-                                        &uv_start, &uv_end,
-                                        blending_factor
-                                    );
-
-                                    // tile has been found in the buffer, we will render it
-                                    vertices.extend(vertex_array.iter());
-                                } else {
-                                    // Split the child cell in its 4 children (e.g. grand children of the tile 
-                                    // in the FOV)
-                                    children_tiles.push_back(HEALPixCell(child_depth + 1, child_idx << 2));
-                                    children_tiles.push_back(HEALPixCell(child_depth + 1, (child_idx << 2) + 1));
-                                    children_tiles.push_back(HEALPixCell(child_depth + 1, (child_idx << 2) + 2));
-                                    children_tiles.push_back(HEALPixCell(child_depth + 1, (child_idx << 2) + 3));
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    let (depth, idx) = (tile.0, tile.1);
-                    // We need to check the children tiles first to get the uv_start!
-                    // Let is see at current_depth + 1 first
-                    let mut children_tiles = VecDeque::with_capacity(4);
-                    children_tiles.push_back(HEALPixCell(depth + 1, idx << 2));
-                    children_tiles.push_back(HEALPixCell(depth + 1, (idx << 2) + 1));
-                    children_tiles.push_back(HEALPixCell(depth + 1, (idx << 2) + 2));
-                    children_tiles.push_back(HEALPixCell(depth + 1, (idx << 2) + 3));
-
-                    let blending_factor = 0_f32;
-                    while !children_tiles.is_empty() {
-                        let child_tile = children_tiles.pop_front().unwrap();
-                        let (child_depth, child_idx) = (child_tile.0, child_tile.1);
-
-                        if let Some(child_tile_buffer) = buffer.get(&child_tile) {
-                            // Find in which position the child tile is in the
-                            // parent to get the uv_end
-                            let uv_end = [Vector2::new(0_f32, 0_f32); 4];
-                            let uv_start = get_uv(&child_tile_buffer);
-
-                            let mut vertex_array = Vec::with_capacity(10 * 6);
-
-                            add_vertices_grid(&mut vertex_array,
-                                child_depth,
-                                child_idx,
-                                1 << (depth + 2 - child_depth),
-                                &uv_start,
-                                &uv_end,
-                                blending_factor
-                            );
-
-                            // tile has been found in the buffer, we will render it
-                            vertices.extend(vertex_array.iter());
-                        } else {
-                            if child_depth == depth + 2 {
-                                // The grand children is not in the buffer
-
-                                // Find in which base cell the child tile is located
-                                let tile_buffer_parent = get_nearest_parent(&child_tile, buffer);
-
-                                let uv_start = get_uv_in_parent(&child_tile, &tile_buffer_parent);
-                                // Find in which position the child tile is located in the current fov tile
-                                let uv_end = [Vector2::new(0_f32, 0_f32); 4];
-
-                                let mut vertex_array = Vec::with_capacity(10 * 6);
-                                add_vertices_grid(&mut vertex_array,
-                                    child_depth,
-                                    child_idx,
-                                    1,
-                                    &uv_start,
-                                    &uv_end,
-                                    blending_factor
-                                );
-                                vertices.extend(vertex_array.iter());
-                            } else {
-                                // Split the child cell in its 4 children (e.g. grand children of the tile 
-                                // in the FOV)
-                                children_tiles.push_back(HEALPixCell(child_depth + 1, child_idx << 2));
-                                children_tiles.push_back(HEALPixCell(child_depth + 1, (child_idx << 2) + 1));
-                                children_tiles.push_back(HEALPixCell(child_depth + 1, (child_idx << 2) + 2));
-                                children_tiles.push_back(HEALPixCell(child_depth + 1, (child_idx << 2) + 3));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Update the buffers
-        self.vertex_array_object.bind()
-            .update_array(0, BufferData::VecData(&vertices));
-        */
     }
 
     fn send_to_shader(buffer: &BufferTiles, shader: &Shader) {

@@ -282,6 +282,36 @@ impl FieldOfView {
         self.compute_healpix_cells::<P>();
     }
 
+    pub fn get_cells_in_fov(&self, depth: u8) -> Vec<HEALPixCell> {
+        if let Some(pos_transformed_space) = self.pos_transformed_space {
+            let lon_lat_world_space = pos_transformed_space.iter()
+                .map(|pos_transformed_space| {
+                    let (ra, dec) = math::xyzw_to_radec(*pos_transformed_space);
+                    (ra as f64, dec as f64)
+                })
+                .collect::<Vec<_>>();
+
+            let moc = healpix::nested::polygon_coverage(depth, &lon_lat_world_space, true);
+                moc.flat_iter()
+                .map(|idx| {
+                    HEALPixCell(depth, idx)
+                })
+                .collect()
+        } else {
+            if depth > 3 {
+                // Allsky happens for small depths!
+                unreachable!();
+            } 
+
+            let npix = 12 << (2*depth);
+            let mut cells = Vec::with_capacity(npix);
+            for idx in 0..npix {
+                cells.push(HEALPixCell(depth, idx as u64));
+            }
+            cells
+        }
+    }
+
     fn compute_healpix_cells<P: Projection>(&mut self) {
         // The field of view has changed (zoom or translation, so we recompute the cells)
         if let Some(pos_transformed_space) = self.pos_transformed_space {
