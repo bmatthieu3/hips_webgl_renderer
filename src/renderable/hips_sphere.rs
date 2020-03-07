@@ -152,6 +152,100 @@ where T: Float + Zero {
     }
 }
 
+fn add_vertices_grid(
+    vertices: &mut [f32],
+    num_vertices: &mut usize,
+    cell: &HEALPixCell,
+    n_segments: u16,
+    uv_0: &TileUV<f32>,
+    uv_1: &TileUV<f32>,
+    alpha: f32
+) {
+    let lonlat = healpix::nested::grid(cell.0, cell.1, n_segments);
+
+    let n_vertices_per_segment = n_segments + 1;
+    
+    for i in 0..n_segments {
+        for j in 0..n_segments {
+            let id_vertex_0 = (j + i * n_vertices_per_segment) as usize;
+            let id_vertex_1 = (j + 1 + i * n_vertices_per_segment) as usize;
+            let id_vertex_2 = (j + (i + 1) * n_vertices_per_segment) as usize;
+            let id_vertex_3 = (j + 1 + (i + 1) * n_vertices_per_segment) as usize;
+
+            let lonlat_quad = [
+                lonlat[id_vertex_0],
+                lonlat[id_vertex_1],
+                lonlat[id_vertex_2],
+                lonlat[id_vertex_3],
+            ];
+
+            let hj0 = (j as f32) / (n_segments as f32);
+            let hi0 = (i as f32) / (n_segments as f32);
+
+            let hj1 = ((j + 1) as f32) / (n_segments as f32);
+            let hi1 = (i as f32) / (n_segments as f32);
+
+            let hj2 = (j as f32) / (n_segments as f32);
+            let hi2 = ((i + 1) as f32) / (n_segments as f32);
+
+            let hj3 = ((j + 1) as f32) / (n_segments as f32);
+            let hi3 = ((i + 1) as f32) / (n_segments as f32);
+
+            let d01s = uv_0[TileCorner::BottomRight].x - uv_0[TileCorner::BottomLeft].x;
+            let d02s = uv_0[TileCorner::TopLeft].y - uv_0[TileCorner::BottomLeft].y;
+
+            let uv_s_vertex_0 = Vector2::new(uv_0[TileCorner::BottomLeft].x + hj0 * d01s, uv_0[TileCorner::BottomLeft].y + hi0 * d02s);
+            let uv_s_vertex_1 = Vector2::new(uv_0[TileCorner::BottomLeft].x + hj1 * d01s, uv_0[TileCorner::BottomLeft].y + hi1 * d02s);
+            let uv_s_vertex_2 = Vector2::new(uv_0[TileCorner::BottomLeft].x + hj2 * d01s, uv_0[TileCorner::BottomLeft].y + hi2 * d02s);
+            let uv_s_vertex_3 = Vector2::new(uv_0[TileCorner::BottomLeft].x + hj3 * d01s, uv_0[TileCorner::BottomLeft].y + hi3 * d02s);
+
+            let uv_0_quad = [
+                uv_s_vertex_0,
+                uv_s_vertex_1,
+                uv_s_vertex_2,
+                uv_s_vertex_3,
+            ];
+            let d01e = uv_1[TileCorner::BottomRight].x - uv_1[TileCorner::BottomLeft].x;
+            let d02e = uv_1[TileCorner::TopLeft].y - uv_1[TileCorner::BottomLeft].y;
+            let uv_e_vertex_0 = Vector2::new(uv_1[TileCorner::BottomLeft].x + hj0 * d01e, uv_1[TileCorner::BottomLeft].y + hi0 * d02e);
+            let uv_e_vertex_1 = Vector2::new(uv_1[TileCorner::BottomLeft].x + hj1 * d01e, uv_1[TileCorner::BottomLeft].y + hi1 * d02e);
+            let uv_e_vertex_2 = Vector2::new(uv_1[TileCorner::BottomLeft].x + hj2 * d01e, uv_1[TileCorner::BottomLeft].y + hi2 * d02e);
+            let uv_e_vertex_3 = Vector2::new(uv_1[TileCorner::BottomLeft].x + hj3 * d01e, uv_1[TileCorner::BottomLeft].y + hi3 * d02e);
+
+            let uv_1_quad = [
+                uv_e_vertex_0,
+                uv_e_vertex_1,
+                uv_e_vertex_2,
+                uv_e_vertex_3,
+            ];
+            
+            Vertex::new(&lonlat_quad[0], uv_0_quad[0], uv_1_quad[0], alpha)
+                .add_to_vertices(vertices, 10 * (*num_vertices));
+            *num_vertices += 1;
+
+            Vertex::new(&lonlat_quad[1], uv_0_quad[1], uv_1_quad[1], alpha)
+                .add_to_vertices(vertices, 10 * (*num_vertices));
+            *num_vertices += 1;
+
+            Vertex::new(&lonlat_quad[2], uv_0_quad[2], uv_1_quad[2], alpha)
+                .add_to_vertices(vertices, 10 * (*num_vertices));
+            *num_vertices += 1;
+
+            Vertex::new(&lonlat_quad[1], uv_0_quad[1], uv_1_quad[1], alpha)
+                .add_to_vertices(vertices, 10 * (*num_vertices));
+            *num_vertices += 1;
+
+            Vertex::new(&lonlat_quad[3], uv_0_quad[3], uv_1_quad[3], alpha)
+                .add_to_vertices(vertices, 10 * (*num_vertices));
+            *num_vertices += 1;
+
+            Vertex::new(&lonlat_quad[2], uv_0_quad[2], uv_1_quad[2], alpha)
+                .add_to_vertices(vertices, 10 * (*num_vertices));
+            *num_vertices += 1;
+        }
+    }
+}
+
 use crate::event_manager::Event;
 trait UpdateTextureBufferEvent: Event {
     // Returns:
@@ -159,11 +253,14 @@ trait UpdateTextureBufferEvent: Event {
     // * The UV of the ending tile in the global 4096x4096 texture
     // * the blending factor between the two tiles in the texture
     fn update_texture_buffer(
+        // The VBO data to fill
+        vertices: &mut [f32],
+        num_vertices: &mut usize,
         // The buffer that will be modified due to the need of specific tile textures by the GPU
         buffer: &mut BufferTiles,
-        // A HEALPix cell located in the field of view
-        cell: &HEALPixCell,
-    ) -> (TileUV<f32>, TileUV<f32>, f32);
+        // The HEALPix cells located in the FOV
+        viewport: &ViewPort,
+    );
 }
 
 use crate::event_manager::{
@@ -178,201 +275,14 @@ impl UpdateTextureBufferEvent for MouseMove  {
     // * The UV of the ending tile in the global 4096x4096 texture
     // * the blending factor between the two tiles in the texture
     fn update_texture_buffer(
+        // The VBO data to fill
+        vertices: &mut [f32],
+        num_vertices: &mut usize,
         // The buffer that will be modified due to the need of specific tile textures by the GPU
         buffer: &mut BufferTiles,
-        // A HEALPix cell located in the field of view
-        cell: &HEALPixCell,
-    ) -> (TileUV<f32>, TileUV<f32>, f32) {
-        if let Some(time_received) = buffer.get_time_received(cell) {
-            let parent_cell = get_nearest_parent(cell, buffer);
-
-            let uv_0 = get_uv_in_parent(cell, &parent_cell, buffer);
-            let uv_1 = get_uv(cell, buffer);
-
-            (uv_0, uv_1, time_received)
-        } else {
-            let parent_cell = get_nearest_parent(cell, buffer);
-            let grand_parent_cell = get_nearest_parent(&parent_cell, buffer);
-
-            let time_received = buffer.get_time_received(&parent_cell).unwrap();
-            
-            let uv_0 = get_uv_in_parent(cell, &grand_parent_cell, buffer);
-            let uv_1 = get_uv_in_parent(cell, &parent_cell, buffer);
-
-            (uv_0, uv_1, time_received)
-        }
-    }
-}
-
-impl UpdateTextureBufferEvent for MouseWheelUp {
-    // Returns:
-    // * The UV of the starting tile in the global 4096x4096 texture
-    // * The UV of the ending tile in the global 4096x4096 texture
-    // * the blending factor between the two tiles in the texture
-    fn update_texture_buffer(
-        // The buffer that will be modified due to the need of specific tile textures by the GPU
-        buffer: &mut BufferTiles,
-        // A HEALPix cell located in the field of view
-        cell: &HEALPixCell,
-    ) -> (TileUV<f32>, TileUV<f32>, f32) {
-        if let Some(time_received) = buffer.get_time_received(cell) {
-            let parent_cell = get_nearest_parent(cell, buffer);
-
-            let uv_0 = get_uv_in_parent(cell, &parent_cell, buffer);
-            let uv_1 = get_uv(cell, buffer);
-
-            (uv_0, uv_1, time_received)
-        } else {
-            let parent_cell = get_nearest_parent(cell, buffer);
-            let grand_parent_cell = get_nearest_parent(&parent_cell, buffer);
-
-            let time_received = buffer.get_time_received(&parent_cell).unwrap();
-            
-            let uv_0 = get_uv_in_parent(cell, &grand_parent_cell, buffer);
-            let uv_1 = get_uv_in_parent(cell, &parent_cell, buffer);
-
-            (uv_0, uv_1, time_received)
-        }
-    }
-}
-
-impl UpdateTextureBufferEvent for MouseWheelDown {
-    // Returns:
-    // * The UV of the starting tile in the global 4096x4096 texture
-    // * The UV of the ending tile in the global 4096x4096 texture
-    // * the blending factor between the two tiles in the texture
-    fn update_texture_buffer(
-        // The buffer that will be modified due to the need of specific tile textures by the GPU
-        buffer: &mut BufferTiles,
-        // A HEALPix cell located in the field of view
-        cell: &HEALPixCell,
-    ) -> (TileUV<f32>, TileUV<f32>, f32) {
-        if let Some(time_received) = buffer.get_time_received(cell) {
-            let parent_cell = get_nearest_parent(cell, buffer);
-
-            let uv_0 = get_uv_in_parent(cell, &parent_cell, buffer);
-            let uv_1 = get_uv(cell, buffer);
-
-            (uv_0, uv_1, time_received)
-        } else {
-            let parent_cell = get_nearest_parent(cell, buffer);
-            let grand_parent_cell = get_nearest_parent(&parent_cell, buffer);
-
-            let time_received = buffer.get_time_received(&parent_cell).unwrap();
-            
-            let uv_0 = get_uv_in_parent(cell, &grand_parent_cell, buffer);
-            let uv_1 = get_uv_in_parent(cell, &parent_cell, buffer);
-
-            (uv_0, uv_1, time_received)
-        }
-    }
-}
-
-impl SmallFieldOfView {
-
-    fn add_vertices_grid(
-        &mut self,
-        cell: &HEALPixCell,
-        n_segments: u16,
-        uv_0: &TileUV<f32>,
-        uv_1: &TileUV<f32>,
-        alpha: f32
+        // The HEALPix cells located in the FOV
+        viewport: &ViewPort
     ) {
-        let lonlat = healpix::nested::grid(cell.0, cell.1, n_segments);
-
-        let n_vertices_per_segment = n_segments + 1;
-        
-        for i in 0..n_segments {
-            for j in 0..n_segments {
-                let id_vertex_0 = (j + i * n_vertices_per_segment) as usize;
-                let id_vertex_1 = (j + 1 + i * n_vertices_per_segment) as usize;
-                let id_vertex_2 = (j + (i + 1) * n_vertices_per_segment) as usize;
-                let id_vertex_3 = (j + 1 + (i + 1) * n_vertices_per_segment) as usize;
-
-                let lonlat_quad = [
-                    lonlat[id_vertex_0],
-                    lonlat[id_vertex_1],
-                    lonlat[id_vertex_2],
-                    lonlat[id_vertex_3],
-                ];
-
-                let hj0 = (j as f32) / (n_segments as f32);
-                let hi0 = (i as f32) / (n_segments as f32);
-
-                let hj1 = ((j + 1) as f32) / (n_segments as f32);
-                let hi1 = (i as f32) / (n_segments as f32);
-
-                let hj2 = (j as f32) / (n_segments as f32);
-                let hi2 = ((i + 1) as f32) / (n_segments as f32);
-
-                let hj3 = ((j + 1) as f32) / (n_segments as f32);
-                let hi3 = ((i + 1) as f32) / (n_segments as f32);
-
-                let d01s = uv_0[TileCorner::BottomRight].x - uv_0[TileCorner::BottomLeft].x;
-                let d02s = uv_0[TileCorner::TopLeft].y - uv_0[TileCorner::BottomLeft].y;
-
-                let uv_s_vertex_0 = Vector2::new(uv_0[TileCorner::BottomLeft].x + hj0 * d01s, uv_0[TileCorner::BottomLeft].y + hi0 * d02s);
-                let uv_s_vertex_1 = Vector2::new(uv_0[TileCorner::BottomLeft].x + hj1 * d01s, uv_0[TileCorner::BottomLeft].y + hi1 * d02s);
-                let uv_s_vertex_2 = Vector2::new(uv_0[TileCorner::BottomLeft].x + hj2 * d01s, uv_0[TileCorner::BottomLeft].y + hi2 * d02s);
-                let uv_s_vertex_3 = Vector2::new(uv_0[TileCorner::BottomLeft].x + hj3 * d01s, uv_0[TileCorner::BottomLeft].y + hi3 * d02s);
-
-                let uv_0_quad = [
-                    uv_s_vertex_0,
-                    uv_s_vertex_1,
-                    uv_s_vertex_2,
-                    uv_s_vertex_3,
-                ];
-                let d01e = uv_1[TileCorner::BottomRight].x - uv_1[TileCorner::BottomLeft].x;
-                let d02e = uv_1[TileCorner::TopLeft].y - uv_1[TileCorner::BottomLeft].y;
-                let uv_e_vertex_0 = Vector2::new(uv_1[TileCorner::BottomLeft].x + hj0 * d01e, uv_1[TileCorner::BottomLeft].y + hi0 * d02e);
-                let uv_e_vertex_1 = Vector2::new(uv_1[TileCorner::BottomLeft].x + hj1 * d01e, uv_1[TileCorner::BottomLeft].y + hi1 * d02e);
-                let uv_e_vertex_2 = Vector2::new(uv_1[TileCorner::BottomLeft].x + hj2 * d01e, uv_1[TileCorner::BottomLeft].y + hi2 * d02e);
-                let uv_e_vertex_3 = Vector2::new(uv_1[TileCorner::BottomLeft].x + hj3 * d01e, uv_1[TileCorner::BottomLeft].y + hi3 * d02e);
-
-                let uv_1_quad = [
-                    uv_e_vertex_0,
-                    uv_e_vertex_1,
-                    uv_e_vertex_2,
-                    uv_e_vertex_3,
-                ];
-
-                let mut num_vertices = self.num_vertices;
-                
-                Vertex::new(&lonlat_quad[0], uv_0_quad[0], uv_1_quad[0], alpha)
-                    .add_to_vertices(&mut self.vertices, 10 * num_vertices);
-                num_vertices += 1;
-
-                Vertex::new(&lonlat_quad[1], uv_0_quad[1], uv_1_quad[1], alpha)
-                    .add_to_vertices(&mut self.vertices, 10 * num_vertices);
-                num_vertices += 1;
-
-                Vertex::new(&lonlat_quad[2], uv_0_quad[2], uv_1_quad[2], alpha)
-                    .add_to_vertices(&mut self.vertices, 10 * num_vertices);
-                num_vertices += 1;
-
-                Vertex::new(&lonlat_quad[1], uv_0_quad[1], uv_1_quad[1], alpha)
-                    .add_to_vertices(&mut self.vertices, 10 * num_vertices);
-                num_vertices += 1;
-
-                Vertex::new(&lonlat_quad[3], uv_0_quad[3], uv_1_quad[3], alpha)
-                    .add_to_vertices(&mut self.vertices, 10 * num_vertices);
-                num_vertices += 1;
-
-                Vertex::new(&lonlat_quad[2], uv_0_quad[2], uv_1_quad[2], alpha)
-                    .add_to_vertices(&mut self.vertices, 10 * num_vertices);
-                num_vertices += 1;
-                self.num_vertices = num_vertices;
-            }
-        }
-        //console::log_1(&format!("num vertices {:?}", self.num_vertices).into());
-    }
-
-    async fn define_needed_hpx_cells<T: UpdateTextureBufferEvent>(
-        &mut self,
-        // The buffer that will be modified due to the need of specific tile textures by the GPU
-        buffer: &mut BufferTiles,
-        // The HEALPix cells at the depth
-        viewport: &ViewPort) {
         let cells_fov = viewport.field_of_view()
             .healpix_cells();
         let depth = viewport.field_of_view()
@@ -383,19 +293,161 @@ impl SmallFieldOfView {
         } else {
             1
         };
-
-        // Refill the vertices slice
-        // Set its current index to 0
-        self.num_vertices = 0;
         for cell in cells_fov {
-            let (uv_0, uv_1, alpha) = T::update_texture_buffer(buffer, cell);
-            self.add_vertices_grid(
+            let (uv_0, uv_1, time_received) = if let Some(time_received) = buffer.get_time_received(cell) {
+                let parent_cell = get_nearest_parent(cell, buffer);
+
+                let uv_0 = get_uv_in_parent(cell, &parent_cell, buffer);
+                let uv_1 = get_uv(cell, buffer);
+
+                (uv_0, uv_1, time_received)
+            } else {
+                let parent_cell = get_nearest_parent(cell, buffer);
+                let grand_parent_cell = get_nearest_parent(&parent_cell, buffer);
+
+                let time_received = buffer.get_time_received(&parent_cell).unwrap();
+                
+                let uv_0 = get_uv_in_parent(cell, &grand_parent_cell, buffer);
+                let uv_1 = get_uv_in_parent(cell, &parent_cell, buffer);
+
+                (uv_0, uv_1, time_received)
+            };
+
+            add_vertices_grid(
+                vertices,
+                num_vertices,
                 cell,
                 num_subdivision,
                 &uv_0, &uv_1,
-                alpha
+                time_received
             );
         }
+    }
+}
+
+impl UpdateTextureBufferEvent for MouseWheelUp {
+    // Returns:
+    // * The UV of the starting tile in the global 4096x4096 texture
+    // * The UV of the ending tile in the global 4096x4096 texture
+    // * the blending factor between the two tiles in the texture
+    fn update_texture_buffer(
+        // The VBO data to fill
+        vertices: &mut [f32],
+        num_vertices: &mut usize,
+        // The buffer that will be modified due to the need of specific tile textures by the GPU
+        buffer: &mut BufferTiles,
+        // The HEALPix cells located in the FOV
+        viewport: &ViewPort,
+    ) {
+        let cells_fov = viewport.field_of_view()
+            .healpix_cells();
+        let depth = viewport.field_of_view()
+            .current_depth();
+
+        let num_subdivision = if depth <= 2 {
+            1 << (3 - depth)
+        } else {
+            1
+        };
+        for cell in cells_fov {
+            let (uv_0, uv_1, time_received) = if let Some(time_received) = buffer.get_time_received(cell) {
+                let parent_cell = get_nearest_parent(cell, buffer);
+
+                let uv_0 = get_uv_in_parent(cell, &parent_cell, buffer);
+                let uv_1 = get_uv(cell, buffer);
+
+                (uv_0, uv_1, time_received)
+            } else {
+                let parent_cell = get_nearest_parent(cell, buffer);
+                let grand_parent_cell = get_nearest_parent(&parent_cell, buffer);
+
+                let time_received = buffer.get_time_received(&parent_cell).unwrap();
+                
+                let uv_0 = get_uv_in_parent(cell, &grand_parent_cell, buffer);
+                let uv_1 = get_uv_in_parent(cell, &parent_cell, buffer);
+
+                (uv_0, uv_1, time_received)
+            };
+
+            add_vertices_grid(
+                vertices,
+                num_vertices,
+                cell,
+                num_subdivision,
+                &uv_0, &uv_1,
+                time_received
+            );
+        }
+    }
+}
+
+impl UpdateTextureBufferEvent for MouseWheelDown {
+    // Returns:
+    // * The UV of the starting tile in the global 4096x4096 texture
+    // * The UV of the ending tile in the global 4096x4096 texture
+    // * the blending factor between the two tiles in the texture
+    fn update_texture_buffer(
+        // The VBO data to fill
+        vertices: &mut [f32],
+        num_vertices: &mut usize,
+        // The buffer that will be modified due to the need of specific tile textures by the GPU
+        buffer: &mut BufferTiles,
+        // The HEALPix cells located in the FOV
+        viewport: &ViewPort,
+    ) {
+        let cells_fov = viewport.field_of_view()
+            .healpix_cells();
+        let depth = viewport.field_of_view()
+            .current_depth();
+
+        let num_subdivision = if depth <= 2 {
+            1 << (3 - depth)
+        } else {
+            1
+        };
+        for cell in cells_fov {
+            let (uv_0, uv_1, time_received) = if let Some(time_received) = buffer.get_time_received(cell) {
+                let parent_cell = get_nearest_parent(cell, buffer);
+
+                let uv_0 = get_uv_in_parent(cell, &parent_cell, buffer);
+                let uv_1 = get_uv(cell, buffer);
+
+                (uv_0, uv_1, time_received)
+            } else {
+                let parent_cell = get_nearest_parent(cell, buffer);
+                let grand_parent_cell = get_nearest_parent(&parent_cell, buffer);
+
+                let time_received = buffer.get_time_received(&parent_cell).unwrap();
+                
+                let uv_0 = get_uv_in_parent(cell, &grand_parent_cell, buffer);
+                let uv_1 = get_uv_in_parent(cell, &parent_cell, buffer);
+
+                (uv_0, uv_1, time_received)
+            };
+
+            add_vertices_grid(
+                vertices,
+                num_vertices,
+                cell,
+                num_subdivision,
+                &uv_0, &uv_1,
+                time_received
+            );
+        }
+    }
+}
+
+impl SmallFieldOfView {
+    async fn define_needed_hpx_cells<T: UpdateTextureBufferEvent>(
+        &mut self,
+        // The buffer that will be modified due to the need of specific tile textures by the GPU
+        buffer: &mut BufferTiles,
+        // The HEALPix cells at the depth
+        viewport: &ViewPort) {
+        // Refill the vertices slice
+        // Set its current index to 0
+        self.num_vertices = 0;
+        T::update_texture_buffer(&mut self.vertices, &mut self.num_vertices, buffer, viewport);
     }
 }
 
