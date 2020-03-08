@@ -210,36 +210,28 @@ impl Texture2D {
         self.gl.active_texture(texture_unit);
         self.gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, webgl_texture.as_ref());
 
-        let gl = self.gl.clone();
-        let data = self.data.clone();
-        let idx_texture_unit = self.idx_texture_unit;
         Texture2DBound {
-            gl,
-            data,
-            idx_texture_unit,
+            texture_2d: self
         }
     }
 }
 
-pub struct Texture2DBound {
-    gl: WebGl2Context,
-
-    idx_texture_unit: u32,
-    data: TextureType,
+pub struct Texture2DBound<'a> {
+    texture_2d: &'a Texture2D,
 }
-impl Texture2DBound {
+impl<'a> Texture2DBound<'a> {
     pub fn send_to_shader(&self, shader: &Shader, name: &'static str) {        
-        let idx_sampler: i32 = (self.idx_texture_unit - WebGl2RenderingContext::TEXTURE0).try_into().unwrap();
+        let idx_sampler: i32 = (self.texture_2d.idx_texture_unit - WebGl2RenderingContext::TEXTURE0).try_into().unwrap();
 
         let location_tex = shader.get_uniform_location(name);
-        self.gl.uniform1i(location_tex, idx_sampler);
+        self.texture_2d.gl.uniform1i(location_tex, idx_sampler);
     }
 
     pub fn clear(&self) {
-        let (width, height) = (self.data.get_width(), self.data.get_height());
+        let (width, height) = (self.texture_2d.data.get_width(), self.texture_2d.data.get_height());
 
         let data = vec![0 as u8; 3 * (height as usize) * (width as usize)];
-        self.gl.tex_sub_image_2d_with_i32_and_i32_and_u32_and_type_and_opt_u8_array(
+        self.texture_2d.gl.tex_sub_image_2d_with_i32_and_i32_and_u32_and_type_and_opt_u8_array(
             WebGl2RenderingContext::TEXTURE_2D,
             0,
             0,
@@ -256,7 +248,7 @@ impl Texture2DBound {
     }
 
     pub fn tex_sub_image_2d_with_u32_and_u32_and_html_image_element(&self, dx: i32, dy: i32, image: &HtmlImageElement) {
-        self.gl.tex_sub_image_2d_with_u32_and_u32_and_html_image_element(
+        self.texture_2d.gl.tex_sub_image_2d_with_u32_and_u32_and_html_image_element(
             WebGl2RenderingContext::TEXTURE_2D,
             0,
             dx,

@@ -173,52 +173,42 @@ impl Texture2DArray {
         self.gl.active_texture(idx_texture_unit);
         self.gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D_ARRAY, webgl_texture.as_ref());
 
-        let gl = self.gl.clone();
         Texture2DArrayBound {
-            gl,
-            idx_texture_unit,
-
-            format: self.format,
-            width: self.width,
-            height: self.height,
-            num_textures: self.num_textures,
+            texture_2d_array: self
         }
     }
 }
 
-pub struct Texture2DArrayBound {
-    gl: WebGl2Context,
-
-    idx_texture_unit: u32,
-
-    format: u32,
-
-    width: i32,
-    height: i32,
-    num_textures: i32
+pub struct Texture2DArrayBound<'a> {
+    texture_2d_array: &'a Texture2DArray,
 }
-impl Texture2DArrayBound {
+impl<'a> Texture2DArrayBound<'a> {
     pub fn send_to_shader(&self, shader: &Shader, name: &'static str) {        
-        let idx_sampler: i32 = (self.idx_texture_unit - WebGl2RenderingContext::TEXTURE0).try_into().unwrap();
+        let idx_sampler: i32 = (self.texture_2d_array.idx_texture_unit - WebGl2RenderingContext::TEXTURE0).try_into().unwrap();
 
         let location_tex = shader.get_uniform_location(name);
-        self.gl.uniform1i(location_tex, idx_sampler);
+        self.texture_2d_array.gl.uniform1i(location_tex, idx_sampler);
     }
 
     pub fn clear(&self) {
-        let data = vec![0 as u8; 3 * (self.height as usize) * (self.width as usize) * (self.num_textures as usize)];
-        self.gl.tex_sub_image_3d_with_opt_u8_array(
+        let data = vec![0 as u8;
+            3 * // TODO: Take into account the format
+            (self.texture_2d_array.height as usize) *
+            (self.texture_2d_array.width as usize) *
+            (self.texture_2d_array.num_textures as usize)
+        ];
+        self.texture_2d_array.gl.tex_sub_image_3d_with_opt_u8_array(
             WebGl2RenderingContext::TEXTURE_2D_ARRAY, // target: u32,
             0, // level: i32,
             0, // xoffset: i32,
             0, // yoffset: i32,
             0, // zoffset: i32,
 
-            self.width, // width: i32,
-            self.height, // height: i32,
-            self.num_textures, // depth: i32,
+            self.texture_2d_array.width, // width: i32,
+            self.texture_2d_array.height, // height: i32,
+            self.texture_2d_array.num_textures, // depth: i32,
 
-            self.format, // format: u32,
+            self.texture_2d_array.format, // format: u32,
             WebGl2RenderingContext::UNSIGNED_BYTE, // type: u32
             Some(&data),
         )
@@ -232,7 +222,7 @@ impl Texture2DArrayBound {
         height: i32, // Height of the image
         image: &HtmlImageElement // image data
     ) {
-        self.gl.tex_sub_image_3d_with_html_image_element(
+        self.texture_2d_array.gl.tex_sub_image_3d_with_html_image_element(
             WebGl2RenderingContext::TEXTURE_2D_ARRAY, // target: u32,
             0, // level: i32,
             xoffset, // xoffset: i32,
@@ -241,7 +231,7 @@ impl Texture2DArrayBound {
             width, // width: i32,
             height, // height: i32,
             1, // depth: i32,
-            self.format, // format: u32,
+            self.texture_2d_array.format, // format: u32,
             WebGl2RenderingContext::UNSIGNED_BYTE, // type: u32
             image,
         )
