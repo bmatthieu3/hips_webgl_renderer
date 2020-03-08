@@ -1,12 +1,15 @@
 use web_sys::WebGl2RenderingContext;
 use web_sys::WebGlBuffer;
 
-use crate::renderable::VertexBufferObject;
-
 use crate::WebGl2Context;
 
-use crate::renderable::buffers::buffer_data::BufferData;
+use crate::core::BufferData;
 use std::convert::TryInto;
+
+pub trait VertexBufferObject {
+    fn bind(&self);
+    fn unbind(&self);
+}
 
 pub trait VertexAttribPointerType: std::marker::Sized {
     /// Link the vertex attrib to the shader

@@ -2,7 +2,6 @@ use crate::shader::Shader;
 
 use crate::viewport::ViewPort;
 
-pub mod buffers;
 pub mod hips_sphere;
 pub mod projection;
 pub mod grid;
@@ -11,11 +10,6 @@ pub mod catalog;
 pub use hips_sphere::HiPSSphere;
 pub use catalog::Catalog;
 pub use grid::ProjetedGrid;
-
-trait VertexBufferObject {
-    fn bind(&self);
-    fn unbind(&self);
-}
 
 use crate::WebGl2Context;
 use cgmath::Matrix4;

@@ -26,7 +26,7 @@ mod shaders;
 pub mod renderable;
 mod finite_state_machine;
 mod viewport;
-mod texture;
+mod core;
 mod math;
 mod utils;
 mod projeted_grid;

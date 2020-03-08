@@ -1,5 +1,3 @@
-//mod inertia;
-//mod mousemove;
 use crate::renderable::Renderable;
 use crate::renderable::{
  HiPSSphere,

@@ -1,10 +1,12 @@
-use crate::texture::Texture2D;
+use crate::core::{
+ Texture2D,
+ BufferData,
+ VertexArrayObject
+};
 
 use web_sys::WebGlFramebuffer;
-use std::collections::{HashSet, BTreeSet};
+use std::collections::HashSet;
 use crate::healpix_cell::HEALPixCell;
-
-use crate::renderable::buffers::vertex_array_object::VertexArrayObject;
 
 use std::collections::HashMap;
 
@@ -579,10 +581,6 @@ impl Catalog{
 
 use crate::renderable::Mesh;
 use crate::shader::Shader;
-
-use crate::renderable::buffers::buffer_data::BufferData;
-
-use cgmath::Matrix4;
 
 use web_sys::WebGl2RenderingContext;
 use crate::WebGl2Context;

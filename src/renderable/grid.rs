@@ -1,17 +1,12 @@
-use crate::math;
-use crate::renderable::buffers::buffer_data::BufferData;
-
-use std::convert::TryInto;
-
+use crate::core::{
+ BufferData,
+ VertexArrayObject
+};
 
 const NUM_POINTS: usize = 40;
 
 use crate::renderable::Mesh;
 use web_sys::WebGl2RenderingContext;
-
-use crate::renderable::buffers::vertex_array_object::VertexArrayObject;
-use crate::renderable::buffers::array_buffer::ArrayBuffer;
-use crate::renderable::buffers::element_array_buffer::ElementArrayBuffer;
 
 use crate::color::Color;
 

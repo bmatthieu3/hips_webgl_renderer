@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 
-use crate::renderable::buffers::array_buffer::VertexAttribPointerType;
+use crate::core::VertexAttribPointerType;
 
 pub enum BufferData<'a, T>
 where T: VertexAttribPointerType {

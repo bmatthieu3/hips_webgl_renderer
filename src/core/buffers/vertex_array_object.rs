@@ -1,9 +1,9 @@
 use web_sys::WebGlVertexArrayObject;
 
-use crate::renderable::buffers::array_buffer::ArrayBuffer;
-use crate::renderable::buffers::array_buffer_instanced::ArrayBufferInstanced;
-use crate::renderable::buffers::element_array_buffer::ElementArrayBuffer;
-use crate::renderable::buffers::buffer_data::BufferData;
+use crate::core::ArrayBuffer;
+use crate::core::ArrayBufferInstanced;
+use crate::core::ElementArrayBuffer;
+use crate::core::BufferData;
 
 use crate::WebGl2Context;
 
@@ -19,7 +19,7 @@ pub struct VertexArrayObject {
     gl: WebGl2Context,
 }
 
-impl<'a> VertexArrayObject {
+impl VertexArrayObject {
     pub fn new(gl: &WebGl2Context) -> VertexArrayObject {
         let vao = gl.create_vertex_array()
             .ok_or("failed to create the vertex array buffer")
@@ -77,7 +77,7 @@ pub struct VertexArrayObjectBound<'a> {
     vao: &'a mut VertexArrayObject,
 }
 
-use crate::renderable::buffers::array_buffer::VertexAttribPointerType;
+use crate::core::VertexAttribPointerType;
 impl<'a> VertexArrayObjectBound<'a> {
     pub fn new(vao: &'a mut VertexArrayObject) -> VertexArrayObjectBound<'a> {
         VertexArrayObjectBound {

@@ -18,7 +18,11 @@ lazy_static! {
     pub static ref DEPTH: Arc<AtomicU8> = Arc::new(AtomicU8::new(0));
 }
 
-use crate::renderable::buffers::vertex_array_object::VertexArrayObject;
+use crate::core::{
+ BufferData,
+ VertexArrayObject
+};
+
 use crate::viewport::ViewPort;
 use cgmath::Vector2;
 use crate::WebGl2Context;
@@ -109,7 +113,6 @@ pub struct SmallFieldOfView {
     vertex_array_object: VertexArrayObject,
 }
 
-use crate::renderable::buffers::buffer_data::BufferData;
 use cgmath::Rad;
 use crate::math;
 use std::mem;
@@ -427,7 +430,7 @@ impl UpdateTextureBufferEvent for MouseWheelDown {
         let depth_plus_two = viewport.field_of_view()
             .current_depth() + 2;
         // Retrieve the cells of depth: depth + 1 that are in the fov
-            //console::log_1(&format!("update vbo2").into());
+        //console::log_1(&format!("update vbo2").into());
 
         let cells_fov = viewport.field_of_view()
             .get_cells_in_fov(depth_plus_two);

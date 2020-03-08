@@ -1,7 +1,7 @@
 use web_sys::WebGl2RenderingContext;
 use web_sys::WebGlBuffer;
 
-use crate::renderable::VertexBufferObject;
+use crate::core::VertexBufferObject;
 
 use crate::WebGl2Context;
 
@@ -24,7 +24,7 @@ impl VertexBufferObject for ElementArrayBuffer {
 
 use web_sys::console;
 use std::convert::TryInto;
-use crate::renderable::buffers::buffer_data::BufferData;
+use crate::core::BufferData;
 
 impl<'a> ElementArrayBuffer {
     pub fn new(gl: &WebGl2Context, usage: u32, data: BufferData<'a, u16>) -> ElementArrayBuffer {

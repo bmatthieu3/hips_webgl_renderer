@@ -33,7 +33,7 @@ pub struct HEALPixTexture {
     texture: Texture2D,
 }
 
-use crate::texture::Texture2D;
+use crate::core::Texture2D;
 impl HEALPixTexture {
     fn new(gl: &WebGl2Context) -> HEALPixTexture {
         let cells = VecDeque::new();

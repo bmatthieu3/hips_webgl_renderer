@@ -18,14 +18,14 @@ enum TextureType {
     // of the texture
     ImageElement(Rc<RefCell<HtmlImageElement>>),
     // Width and Height
-    Bytes(u32, u32)
+    Bytes(u32, u32),
 }
 
 impl TextureType {
     fn get_width(&self) -> u32 {
         match self {
             TextureType::ImageElement(image) => image.borrow().width() as u32,
-            TextureType::Bytes(width, _) => *width
+            TextureType::Bytes(width, _) => *width,
         }
     }
 
@@ -48,7 +48,7 @@ pub struct Texture2D {
     data: TextureType,
 }
 
-static mut NUM_TEXTURE_UNIT: u32 = WebGl2RenderingContext::TEXTURE0;
+pub static mut NUM_TEXTURE_UNIT: u32 = WebGl2RenderingContext::TEXTURE0;
 
 impl Texture2D {
     pub fn create(gl: &WebGl2Context, src: &'static str, tex_params: &'static [(u32, u32)]) -> Texture2D {

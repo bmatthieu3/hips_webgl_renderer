@@ -1,8 +1,6 @@
 use web_sys::WebGl2RenderingContext;
 use web_sys::WebGlBuffer;
 
-use crate::renderable::VertexBufferObject;
-
 use crate::WebGl2Context;
 
 pub struct ArrayBufferInstanced {
@@ -15,6 +13,8 @@ pub struct ArrayBufferInstanced {
     gl: WebGl2Context,
 }
 
+use crate::core::VertexBufferObject;
+
 impl VertexBufferObject for ArrayBufferInstanced {
     fn bind(&self) {
         self.gl.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, Some(self.buffer.as_ref()));
@@ -24,7 +24,7 @@ impl VertexBufferObject for ArrayBufferInstanced {
     }
 }
 
-use crate::renderable::buffers::buffer_data::BufferData;
+use crate::core::BufferData;
 use std::convert::TryInto;
 
 impl<'a> ArrayBufferInstanced {
