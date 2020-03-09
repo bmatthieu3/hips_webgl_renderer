@@ -106,7 +106,7 @@ impl HEALPixTexture {
             );
     }
 
-    fn insert(&mut self, cell: HEALPixCell, image: Rc<RefCell<HtmlImageElement>>, num_tiles_per_frame: &mut usize) -> usize {
+    fn insert(&mut self, cell: HEALPixCell, image: Rc<RefCell<HtmlImageElement>>) -> usize {
         let idx = if !self.idx_texture.contains_key(&cell) {
             let idx = if self.cells.len() == NUM_TILES {
                 let lost_cell = self.cells.pop_front().unwrap();
@@ -118,7 +118,6 @@ impl HEALPixTexture {
             self.cells.push_back(cell.clone());
             self.idx_texture.insert(cell, idx);
 
-            *num_tiles_per_frame += 1;
             self.tex_sub_image_2d(image, idx);
 
             idx
@@ -219,7 +218,7 @@ pub struct BufferTiles {
     requested_tiles: Rc<RefCell<HashSet<HEALPixCell>>>,
 
     // A data-structure storing the cells texture indexes
-    hpx_texture: HEALPixTexture,
+    hpx_texture: Rc<RefCell<HEALPixTexture>>,
 
     // A boolean ensuring at least the base
     // tiles have been loaded
@@ -255,7 +254,7 @@ impl BufferTiles {
         let heap = Rc::new(RefCell::new(BinaryHeapTiles::new(512)));
         let requested_tiles = Rc::new(RefCell::new(HashSet::with_capacity(NUM_TILES)));
 
-        let hpx_texture = HEALPixTexture::new(gl, config);
+        let hpx_texture = Rc::new(RefCell::new(HEALPixTexture::new(gl, config)));
 
         let gl = gl.clone();
         let ready = Rc::new(Cell::new(false));
@@ -305,7 +304,8 @@ impl BufferTiles {
             .clear();
         self.requested_tiles.borrow_mut()
             .clear();
-        self.hpx_texture.clear();
+        self.hpx_texture.borrow_mut()
+            .clear();
 
         self.ready.set(false);
 
@@ -359,14 +359,17 @@ impl BufferTiles {
             .unwrap()
             .texture.clone();
 
-        let idx_texture = self.hpx_texture.insert(
-            // The HEALPix cell that we need for drawing purposes
-            *cell,
-            // Its texture stored in a HTMLElementImage
-            tile_texture,
-            // The number of HEALPix cells needed for this frame
-            &mut self.num_tiles_per_frame
-        );
+        // The number of HEALPix cells needed for this frame
+        self.num_tiles_per_frame += 1;
+
+        let idx_texture = self.hpx_texture.borrow_mut()
+            .insert(
+                // The HEALPix cell that we need for drawing purposes
+                *cell,
+                // Its texture stored in a HTMLElementImage
+                tile_texture,
+
+            );
 
         idx_texture
     }
@@ -427,6 +430,7 @@ impl BufferTiles {
                 let onload = {
                     let requested_tiles = self.requested_tiles.clone();
                     let heap = self.heap.clone();
+                    let hpx_texture = self.hpx_texture.clone();
                     let image = image.clone();
                     let cell = *cell;
                     let ready = self.ready.clone();
@@ -441,7 +445,17 @@ impl BufferTiles {
                         let time_received = utils::get_current_time();
                         //console::log_1(&format!("tile received").into());
                         heap.borrow_mut()
-                            .push(Tile::new(cell, time_request, time_received, image.clone()));
+                            .push(Tile::new(cell.clone(), time_request, time_received, image.clone()));
+
+                        // Preload the tile texture in the tile texture.
+                        let mut tt = 0;
+                        hpx_texture.borrow_mut()
+                            .insert(
+                                // The HEALPix cell that we need for drawing purposes
+                                cell,
+                                // Its texture stored in a HTMLElementImage
+                                image.clone(),
+                            );
 
                         ready.set(heap.borrow().is_ready());
                         // A cell has been received
@@ -647,8 +661,9 @@ impl BufferTiles {
 
 
     pub fn send_texture_to_shader(&self, shader: &Shader) {
-        let texture = self.hpx_texture.get_texture();
-        texture.bind()
+        self.hpx_texture.borrow()
+            .get_texture()
+            .bind()
             .send_to_shader(shader, "tex");
         /*let tiles = self.uniq_ordered_tiles();
 
