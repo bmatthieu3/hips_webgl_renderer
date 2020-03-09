@@ -149,6 +149,8 @@ use cgmath::{Vector2, Vector3, Matrix3};
 use cgmath::Deg;
 use cgmath::InnerSpace;
 
+use crate::buffer_tiles::{HiPSConfig, TileImageFormat};
+
 impl<P> App<P>
 where P: Projection {
     fn new(gl: &WebGl2Context, events: &EventManager) -> Result<App<Orthographic>, JsValue> {
@@ -291,11 +293,19 @@ where P: Projection {
         gl.enable(WebGl2RenderingContext::CULL_FACE);
         gl.cull_face(WebGl2RenderingContext::BACK);
 
+        // HiPS definition
+        let config = HiPSConfig::new(
+            String::from("http://alasky.u-strasbg.fr/DSS/DSSColor"), // Name of the HiPS
+            512, 512, // Width size of a texture tile
+            9, // max depth of the HiPS
+            TileImageFormat::JPG // Format of the tile texture images
+        );
+
         // Viewport definition
-        let viewport = ViewPort::new::<Orthographic>(&gl);
+        let viewport = ViewPort::new::<Orthographic>(&gl, &config);
 
         // HiPS Sphere definition
-        let hips_sphere_mesh = HiPSSphere::new(&gl, &viewport);
+        let hips_sphere_mesh = HiPSSphere::new(&gl, &viewport, config);
         console::log_1(&format!("fffff sfs").into());
         let mut hips_sphere = Renderable::<HiPSSphere>::new(
             &gl,
@@ -629,14 +639,9 @@ where P: Projection {
         }
     }*/
 
-    fn reload_hips_sphere(&mut self, hips_url: String, hips_depth: u8, events: &EventManager) {
-        *HIPS_NAME.lock().unwrap() = hips_url;
-        MAX_DEPTH.store(hips_depth, Ordering::Relaxed);
-
-        // Re-initialize the color buffers
-        self.hips_sphere.mesh_mut().refresh_buffer_tiles();
-        self.hips_sphere.mesh_mut().update::<P>(&self.viewport, events);
-
+    fn set_hips_config(&mut self, config: HiPSConfig, events: &EventManager) {
+        self.hips_sphere.mesh_mut()
+            .set_hips_config::<P>(config, &mut self.viewport, events);
         // Render the next frame
         self.render = true;
     }
@@ -743,9 +748,6 @@ lazy_static! {
     };
 
     static ref ENABLE_INERTIA: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
-
-    static ref HIPS_NAME: Arc<Mutex<String>> = Arc::new(Mutex::new(String::from("http://alasky.u-strasbg.fr/DSS/DSSColor")));
-    static ref MAX_DEPTH: Arc<AtomicU8> = Arc::new(AtomicU8::new(9));
 }
 
 #[derive(Clone)]
@@ -1006,13 +1008,13 @@ impl AppConfig {
         }
     }
 
-    pub fn reload_hips_sphere(&mut self, hips_url: String, max_depth: u8, events: &EventManager) {        
+    pub fn set_hips_config(&mut self, config: HiPSConfig, events: &EventManager) {        
         match self {
-            AppConfig::Aitoff(app, _) => app.reload_hips_sphere(hips_url, max_depth, events),
-            AppConfig::MollWeide(app, _) => app.reload_hips_sphere(hips_url, max_depth, events),
-            AppConfig::Arc(app, _) => app.reload_hips_sphere(hips_url, max_depth, events),
-            AppConfig::Ortho(app, _) => app.reload_hips_sphere(hips_url, max_depth, events),
-            AppConfig::Mercator(app, _) => app.reload_hips_sphere(hips_url, max_depth, events),
+            AppConfig::Aitoff(app, _) => app.set_hips_config(config, events),
+            AppConfig::MollWeide(app, _) =>  app.set_hips_config(config, events),
+            AppConfig::Arc(app, _) => app.set_hips_config(config, events),
+            AppConfig::Ortho(app, _) =>  app.set_hips_config(config, events),
+            AppConfig::Mercator(app, _) =>  app.set_hips_config(config, events),
 
         }
     }
@@ -1251,8 +1253,30 @@ impl WebClient {
     }
     
     /// Change HiPS
-    pub fn change_hips(&mut self, hips_url: String, hips_depth: i32) -> Result<(), JsValue> {
-        self.appconfig.reload_hips_sphere(hips_url, hips_depth as u8, &self.events);
+    pub fn change_hips(&mut self,
+     name: String,
+     width_texture: i32,
+     height_texture: i32,
+     max_depth: i32,
+     format: String
+    ) -> Result<(), JsValue> {
+        let format: Result<TileImageFormat, JsValue> = if format.contains("png") {
+            Ok(TileImageFormat::PNG)
+        } else if format.contains("fits") {
+            Ok(TileImageFormat::FITS)
+        } else if format.contains("jpg") || format.contains("jpeg") {
+            Ok(TileImageFormat::JPG)
+        } else {
+            Err(format!("{:?} tile format unknown!", format).into())
+        };
+        let config = HiPSConfig::new(
+            name,
+            width_texture,
+            height_texture,
+            max_depth as u8,
+            format?
+        );
+        self.appconfig.set_hips_config(config, &self.events);
 
         Ok(())
     }

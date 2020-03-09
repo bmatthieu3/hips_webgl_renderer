@@ -35,11 +35,13 @@ window.addEventListener('load', function () {
     
                     let hips_url = hipsesMap[hips_id].hips_service_url;
                     let max_depth = hipsesMap[hips_id].max_depth;
-                    webClient.change_hips(hips_url, max_depth);
+                    let format = hipsesMap[hips_id].hips_tile_format;
+                    let tile_width = hipsesMap[hips_id].tile_width;
+                    webClient.change_hips(hips_url, tile_width, tile_width, max_depth, format);
                 }
             });
 
-            const url = 'https://alasky.u-strasbg.fr/MocServer/query?hips_service_url*=*alasky*&&dataproduct_type=image&&hips_tile_format=*jpeg*&get=record&fmt=json';
+            const url = 'https://alasky.u-strasbg.fr/MocServer/query?hips_service_url*=*alasky*&&dataproduct_type=image&&hips_tile_format=*png*,*jpeg*&get=record&fmt=json';
             // Create our request constructor with all the parameters we need
             var request = {
                 method: 'GET',
@@ -56,6 +58,8 @@ window.addEventListener('load', function () {
                         hipsesMap[hips_id] = {
                             'hips_service_url': hipses[k].hips_service_url,
                             'max_depth': hipses[k].hips_order,
+                            'tile_width': hipses[k].hips_tile_width,
+                            'hips_tile_format': hipses[k].hips_tile_format
                         };
                         hipsesArray.push(hips_id);
                     }

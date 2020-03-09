@@ -9,13 +9,15 @@ use web_sys::WebGl2RenderingContext;
 
 use std::collections::HashSet;
 
-const HEIGHT_TEXTURE: i32 = 512;
-const WIDTH_TEXTURE: i32 = 512;
+/*const HEIGHT_TEXTURE: i32 = 512;
+const WIDTH_TEXTURE: i32 = 512;*/
 
 use crate::WebGl2Context;
 
 use crate::binary_heap_tiles::BinaryHeapTiles;
 use crate::healpix_cell::HEALPixCell;
+
+use crate::core::Texture2DArray;
 
 use std::collections::VecDeque;
 use std::collections::HashMap;
@@ -30,19 +32,32 @@ pub struct HEALPixTexture {
     idx_texture: HashMap<HEALPixCell, usize>,
     
     // The texture storing the 64 tiles
-    texture: Texture2D,
+    textures: Texture2DArray,
+
+    // The width of a tile texture
+    // Some HiPS are configured to have 32x32, 64x64 tile images
+    // instead of the more traditional 512x512 size
+    width_tile: i32,
+    height_tile: i32,
 }
 
-use crate::core::Texture2D;
+pub static NUM_CELLS_BY_TEXTURE_SIDE: usize = 8;
+pub static NUM_TILES_BY_TEXTURE: usize = NUM_CELLS_BY_TEXTURE_SIDE * NUM_CELLS_BY_TEXTURE_SIDE;
+pub static NUM_TEXTURES: usize = 2;
+pub static NUM_TILES: usize = NUM_TILES_BY_TEXTURE * NUM_TEXTURES;
+
 impl HEALPixTexture {
-    fn new(gl: &WebGl2Context) -> HEALPixTexture {
+    fn new(gl: &WebGl2Context, config: &HiPSConfig) -> HEALPixTexture {
         let cells = VecDeque::new();
         let idx_texture = HashMap::new();
 
-        let texture = Texture2D::create_empty(
+        let width_tile = config.width_tile;
+        let height_tile = config.height_tile;
+        let textures = Texture2DArray::create_empty(
             gl,
-            WIDTH_TEXTURE * 8,
-            HEIGHT_TEXTURE * 8,
+            width_tile * NUM_CELLS_BY_TEXTURE_SIDE as i32,
+            height_tile * NUM_CELLS_BY_TEXTURE_SIDE as i32,
+            NUM_TEXTURES as i32,
             &[
                 // The HiPS tiles sampling is NEAREST
                 (WebGl2RenderingContext::TEXTURE_MIN_FILTER, WebGl2RenderingContext::NEAREST),
@@ -52,7 +67,8 @@ impl HEALPixTexture {
                 (WebGl2RenderingContext::TEXTURE_WRAP_S, WebGl2RenderingContext::CLAMP_TO_EDGE),
                 // Prevents t-coordinate wrapping (repeating)
                 (WebGl2RenderingContext::TEXTURE_WRAP_T, WebGl2RenderingContext::CLAMP_TO_EDGE),
-            ]
+            ],
+            config.format as u32,
         );
 
         let gl = gl.clone();
@@ -62,28 +78,37 @@ impl HEALPixTexture {
             cells,
             idx_texture,
 
-            texture,
+            textures,
+
+            width_tile,
+            height_tile
         }
     }
 
     fn tex_sub_image_2d(&self, image: Rc<RefCell<HtmlImageElement>>, idx: usize) {
-        let idx_row = idx / 8;
-        let idx_col = idx % 8;
+        let idx_texture = idx / NUM_TILES_BY_TEXTURE;
+        let idx = idx % NUM_TILES_BY_TEXTURE;
+
+        let idx_row = idx / NUM_CELLS_BY_TEXTURE_SIDE;
+        let idx_col = idx % NUM_CELLS_BY_TEXTURE_SIDE;
     
-        let dx = (idx_col as i32) * WIDTH_TEXTURE;
-        let dy = (idx_row as i32) * HEIGHT_TEXTURE;
+        let dx = (idx_col as i32) * self.width_tile;
+        let dy = (idx_row as i32) * self.height_tile;
     
-        self.texture.bind()
-            .tex_sub_image_2d_with_u32_and_u32_and_html_image_element(
+        self.textures.bind()
+            .tex_sub_image_3d_with_html_image_element(
                 dx,
                 dy,
+                idx_texture as i32,
+                self.width_tile,
+                self.height_tile,
                 &image.borrow(),
             );
     }
 
     fn insert(&mut self, cell: HEALPixCell, image: Rc<RefCell<HtmlImageElement>>, num_tiles_per_frame: &mut usize) -> usize {
         let idx = if !self.idx_texture.contains_key(&cell) {
-            let idx = if self.cells.len() == 64 {
+            let idx = if self.cells.len() == NUM_TILES {
                 let lost_cell = self.cells.pop_front().unwrap();
                 self.idx_texture.remove(&lost_cell).unwrap()
             } else {
@@ -115,19 +140,70 @@ impl HEALPixTexture {
     }
 
     fn clear(&mut self) {
-        self.texture.bind()
+        self.textures.bind()
             .clear();
 
         self.cells.clear();
         self.idx_texture.clear();
     }
 
-    fn get_texture(&self) -> &Texture2D {
-        &self.texture
+    fn get_texture(&self) -> &Texture2DArray {
+        &self.textures
     }
 }
 
 use std::cell::Cell;
+
+pub struct HiPSConfig {
+    // The size of the tile texture images
+    pub width_tile: i32,
+    pub height_tile: i32,
+
+    // HEALPix depth of the more precise tiles
+    pub max_depth: u8,
+
+    pub name: String,
+
+    // Format of the texture images e.g.:
+    // * WebGl2RenderingContext::RGB for jpg images
+    // * WebGl2RenderingContext::RGBA for png images
+    // * WebGl2RenderingContext::R for one channel images such as FITS images
+    format: i32,
+    format_str: &'static str
+}
+
+pub enum TileImageFormat {
+    JPG, // RGB
+    PNG, // RGBA
+    FITS, // One channel (grayscale)
+}
+
+impl HiPSConfig {
+    pub fn new(name: String, width_tile: i32, height_tile: i32, max_depth: u8, format: TileImageFormat) -> HiPSConfig {
+        let (format, format_str) = match &format {
+            TileImageFormat::JPG => (WebGl2RenderingContext::RGB as i32, "jpg"),
+            TileImageFormat::PNG => (WebGl2RenderingContext::RGBA as i32, "png"),
+            TileImageFormat::FITS => (WebGl2RenderingContext::DEPTH_COMPONENT32F as i32, "fits"),
+        };
+        HiPSConfig {
+            width_tile,
+            height_tile,
+
+            max_depth,
+
+            name,
+
+            format,
+            format_str
+        }
+    }
+
+    pub fn send_to_shader(&self, gl: &WebGl2Context, shader: &Shader) {
+        // Send max depth of the current HiPS
+        let location_max_depth = shader.get_uniform_location("max_depth");
+        gl.uniform1i(location_max_depth, self.max_depth as i32);
+    }
+}
 
 pub struct BufferTiles {
     gl: WebGl2Context,
@@ -163,13 +239,23 @@ use crate::utils;
 use crate::shader::Shader;
 
 use crate::binary_heap_tiles::Tile;
-use web_sys::console;
-impl BufferTiles {
-    pub fn new(gl: &WebGl2Context) -> BufferTiles {
-        let heap = Rc::new(RefCell::new(BinaryHeapTiles::new(512)));
-        let requested_tiles = Rc::new(RefCell::new(HashSet::with_capacity(64)));
 
-        let hpx_texture = HEALPixTexture::new(gl);
+macro_rules! console_error {
+    ( $( $t:tt )* ) => {
+        web_sys::console::error(
+            &js_sys::Array::from(
+                &format!( $( $t )* ).into()
+            )
+        );
+    }
+}
+
+impl BufferTiles {
+    pub fn new(gl: &WebGl2Context, config: &HiPSConfig) -> BufferTiles {
+        let heap = Rc::new(RefCell::new(BinaryHeapTiles::new(512)));
+        let requested_tiles = Rc::new(RefCell::new(HashSet::with_capacity(NUM_TILES)));
+
+        let hpx_texture = HEALPixTexture::new(gl, config);
 
         let gl = gl.clone();
         let ready = Rc::new(Cell::new(false));
@@ -189,7 +275,9 @@ impl BufferTiles {
             num_tiles_per_frame
         };
 
-        buffer.request_tiles(&vec![
+        buffer.request_tiles(
+            // HEALPix cells to load
+            &vec![
                 HEALPixCell(0, 0),
                 HEALPixCell(0, 1),
                 HEALPixCell(0, 2),
@@ -203,11 +291,45 @@ impl BufferTiles {
                 HEALPixCell(0, 10),
                 HEALPixCell(0, 11),
             ],
+            // HiPS config infos
+            config,
             // Depth change
             true,
         );
 
         buffer
+    }
+
+    pub fn reset(&mut self, config: &HiPSConfig) {
+        self.heap.borrow_mut()
+            .clear();
+        self.requested_tiles.borrow_mut()
+            .clear();
+        self.hpx_texture.clear();
+
+        self.ready.set(false);
+
+        self.request_tiles(
+            // HEALPix cells to load
+            &vec![
+                HEALPixCell(0, 0),
+                HEALPixCell(0, 1),
+                HEALPixCell(0, 2),
+                HEALPixCell(0, 3),
+                HEALPixCell(0, 4),
+                HEALPixCell(0, 5),
+                HEALPixCell(0, 6),
+                HEALPixCell(0, 7),
+                HEALPixCell(0, 8),
+                HEALPixCell(0, 9),
+                HEALPixCell(0, 10),
+                HEALPixCell(0, 11),
+            ],
+            // HiPS config infos
+            config,
+            // Depth change
+            true,
+        );
     }
 
     pub fn signals_new_frame(&mut self) {
@@ -217,8 +339,12 @@ impl BufferTiles {
         // Ensure the current frame does not need more than
         // 64 different tiles. Otherwise it will exceed the texture
         // size capacity!
-        console::log_1(&format!("cell5 {:?}", self.num_tiles_per_frame).into());
-        assert!(self.num_tiles_per_frame <= 64);
+        if self.num_tiles_per_frame > NUM_TILES {
+            console_error!(
+                "The number of tiles needed to be plot ({:?}) exceeds the GPU texture buffer size ({:?})",
+                self.num_tiles_per_frame, NUM_TILES
+            );
+        }
 
         // After the vbo has been recomputed
         // we can put this flag to false.
@@ -245,31 +371,31 @@ impl BufferTiles {
         idx_texture
     }
 
-    pub fn request_tiles(&mut self, cells: &Vec<HEALPixCell>, depth_changed: bool) {
+    pub fn request_tiles(&mut self, cells: &Vec<HEALPixCell>, hips: &HiPSConfig, depth_changed: bool) {
         // The viewport has changed (moving, zooming, resizing)
         // We will tell the sphere to recompute its vbo.
         self.update_sphere_vbo.set(true);
 
         for cell in cells.iter() {
-            self.load_tile(cell, depth_changed);
+            self.load_tile(cell, hips, depth_changed);
         }
     }
 
-    fn load_tile(&mut self, cell: &HEALPixCell, depth_changed: bool) {
+    fn load_tile(&mut self, cell: &HEALPixCell, hips: &HiPSConfig, depth_changed: bool) {
         let already_loaded = self.heap.borrow().contains(cell);
         let already_requested = self.requested_tiles.borrow().contains(cell);
 
         if already_loaded {
             // If the heap already contain the cell,
             // we update its priority
-            let time_received = if depth_changed {
-                utils::get_current_time()
-            } else {
-                self.heap.borrow_mut()
-                    .get(cell)
-                    .unwrap()
-                    .time_received
-            };
+            let time_received = //if depth_changed {
+                utils::get_current_time();
+            //} else {
+            //    self.heap.borrow_mut()
+            //        .get(cell)
+            //        .unwrap()
+            //        .time_received
+            //};
 
             let time_request = utils::get_current_time();
             self.heap.borrow_mut().update_priority(cell, time_request, time_received);
@@ -289,10 +415,11 @@ impl BufferTiles {
 
                     let dir_idx = (idx / 10000) * 10000;
 
-                    let mut url = HIPS_NAME.lock().unwrap().clone() + "/";
+                    let mut url = hips.name.to_string() + "/";
                     url = url + "Norder" + &depth.to_string() + "/";
                     url = url + "Dir" + &dir_idx.to_string() + "/";
-                    url = url + "Npix" + &idx.to_string() + ".jpg";
+                    url = url + "Npix" + &idx.to_string();
+                    url = url + "." + hips.format_str;
             
                     url
                 };
@@ -551,15 +678,4 @@ impl BufferTiles {
     //pub fn len(&self) -> usize {
     //    self.buffer.len() + 12
     //}
-
-    pub fn clear(&mut self) {
-        self.heap.borrow_mut()
-            .clear();
-        self.requested_tiles.borrow_mut()
-            .clear();
-        
-        self.hpx_texture.clear();
-    }
 }
-
-use crate::HIPS_NAME;

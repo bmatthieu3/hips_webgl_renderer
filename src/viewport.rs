@@ -26,8 +26,8 @@ pub struct ViewPort {
     pub last_zoom_action: LastZoomAction,
     pub last_action: LastAction,
 
-    // Store the size in pixels of the hips sphere
-    //default_size_scissor: Vector2<f32>,
+    // Max depth of the current loaded HiPS
+    max_depth: u8
 }
 
 use crate::shader::Shader;
@@ -61,7 +61,6 @@ fn wheel_idx<P: Projection>(fov: Rad<f32>) -> f32 {
     ((p0.0 / fov.0).log2() * (NUM_WHEEL_PER_DEPTH as f32))
 }
 
-use web_sys::console;
 use crate::renderable::hips_sphere::HiPSSphere;
 use crate::renderable::Renderable;
 
@@ -70,15 +69,16 @@ use crate::renderable::catalog::Catalog;
 use crate::renderable::grid::ProjetedGrid;
 use crate::projection::Projection;
 
-
+use crate::buffer_tiles::HiPSConfig;
 impl ViewPort {
-    pub fn new<P: Projection>(gl: &WebGl2Context) -> ViewPort {
+    pub fn new<P: Projection>(gl: &WebGl2Context, hips: &HiPSConfig) -> ViewPort {
         let last_zoom_action = LastZoomAction::Unzoom;
         let last_action = LastAction::Moving;
 
         let wheel_idx = 0_f32;
 
-        let fov = FieldOfView::new::<P>(gl, fov::<P>(wheel_idx));
+        let max_depth = hips.max_depth;
+        let fov = FieldOfView::new::<P>(gl, fov::<P>(wheel_idx), max_depth);
 
         let viewport = ViewPort {
             fov,
@@ -87,16 +87,23 @@ impl ViewPort {
 
             last_zoom_action,
             last_action,
+
+            max_depth
         };
 
         viewport
+    }
+
+    // Tell the viewport the HiPS have changed
+    pub fn set_max_depth(&mut self, hips: &HiPSConfig) {
+        self.max_depth = hips.max_depth;
     }
 
     pub fn reset_zoom_level<P: Projection>(&mut self) {
         self.wheel_idx = 0_f32;
         // Update the aperture of the Field Of View
         let aperture = fov::<P>(self.wheel_idx);
-        self.fov.set_aperture::<P>(aperture);
+        self.fov.set_aperture::<P>(aperture, self.max_depth);
     }
 
     pub fn set_aperture<P: Projection>(&mut self, aperture: Rad<f32>) {
@@ -112,7 +119,7 @@ impl ViewPort {
             P::aperture_start().into()
         };
         // Recompute the depth and field of view
-        self.fov.set_aperture::<P>(aperture);
+        self.fov.set_aperture::<P>(aperture, self.max_depth);
     }
 
     // Called when the projection changes
@@ -126,7 +133,7 @@ impl ViewPort {
         grid: &mut Renderable<ProjetedGrid>,
         catalog: &mut Renderable<Catalog>,
     ) {
-        self.fov.resize_window::<P>(width, height);
+        self.fov.resize_window::<P>(width, height, self.max_depth);
 
         // Launch the new tile requests
         hips_sphere.mesh_mut().request_tiles(&self);
@@ -150,7 +157,7 @@ impl ViewPort {
         //self.wheel_idx += 40_f32;
         let aperture = fov::<P>(self.wheel_idx);
 
-        self.fov.set_aperture::<P>(aperture);
+        self.fov.set_aperture::<P>(aperture, self.max_depth);
 
         // Launch the new tile requests
         hips_sphere.mesh_mut().request_tiles(&self);
@@ -180,7 +187,8 @@ impl ViewPort {
             }
             // Update the aperture of the Field Of View
             let aperture = fov::<P>(self.wheel_idx);
-            self.fov.set_aperture::<P>(aperture);
+
+            self.fov.set_aperture::<P>(aperture, self.max_depth);
         }
 
         // Launch the new tile requests
@@ -200,7 +208,7 @@ impl ViewPort {
         self.last_action = LastAction::Moving;
 
         // Translate the Field of View on the HiPS sphere
-        self.fov.set_rotation_mat::<P>(hips_sphere.get_model_mat());
+        self.fov.set_rotation_mat::<P>(hips_sphere.get_model_mat(), self.max_depth);
 
         // Moves the catalog according to the viewport displacement
         let inv_model_mat = hips_sphere.get_inverted_model_mat();

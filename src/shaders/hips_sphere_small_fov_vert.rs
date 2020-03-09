@@ -1,16 +1,16 @@
 pub static CONTENT: &'static str = r#"#version 300 es
     precision highp float;
-    precision lowp sampler2D;
+    precision lowp sampler2DArray;
     precision highp int;
 
     layout (location = 0) in vec2 lonlat;
     layout (location = 1) in vec3 position;
-    layout (location = 2) in vec2 uv_start;
-    layout (location = 3) in vec2 uv_end;
+    layout (location = 2) in vec3 uv_start;
+    layout (location = 3) in vec3 uv_end;
     layout (location = 4) in float time_tile_received;
 
-    out vec2 frag_uv_start;
-    out vec2 frag_uv_end;
+    out vec3 frag_uv_start;
+    out vec3 frag_uv_end;
     out float frag_blending_factor;
 
     uniform mat4 model;

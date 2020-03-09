@@ -7,7 +7,6 @@ use crate::shader::Shader;
 
 pub const NUM_VERTICES_PER_STEP: usize = 50;
 pub const NUM_STEPS: usize = 20;
-use crate::MAX_DEPTH;
 use std::sync::atomic::Ordering;
 
 use crate::buffer_tiles::BufferTiles;
@@ -53,8 +52,8 @@ struct Vertex {
 
     pos: Vector3<f32>,
 
-    uv_0: Vector2<f32>,
-    uv_1: Vector2<f32>,
+    uv_0: Vector3<f32>,
+    uv_1: Vector3<f32>,
 
     time_received: f32,
 }
@@ -62,8 +61,8 @@ struct Vertex {
 impl Vertex {
     fn new(
         lonlat: &(f64, f64),
-        uv_0: Vector2<f32>,
-        uv_1: Vector2<f32>,
+        uv_0: Vector3<f32>,
+        uv_1: Vector3<f32>,
         time_received: f32
     ) -> Vertex {
         let (lon, lat) = (lonlat.0 as f32, lonlat.1 as f32);
@@ -83,7 +82,7 @@ impl Vertex {
     }
 
     fn add_to_vertices(&self, vertices: &mut [f32], off: usize) {
-        assert!(off + 10 <= 50000);
+        assert!(off + 12 <= 60000);
         vertices[off] = self.lon;
         vertices[off+1] = self.lat;
 
@@ -93,10 +92,13 @@ impl Vertex {
 
         vertices[off+5] = self.uv_0.x;
         vertices[off+6] = self.uv_0.y;
-        vertices[off+7] = self.uv_1.x;
-        vertices[off+8] = self.uv_1.y;
+        vertices[off+7] = self.uv_0.z;
 
-        vertices[off+9] = self.time_received;
+        vertices[off+8] = self.uv_1.x;
+        vertices[off+9] = self.uv_1.y;
+        vertices[off+10] = self.uv_1.z;
+
+        vertices[off+11] = self.time_received;
     }
 }
 
@@ -105,7 +107,7 @@ impl Vertex {
 struct TileVertices([Vertex; 6]);
 
 pub struct SmallFieldOfView {
-    vertices: [f32; 50000],
+    vertices: [f32; 60000],
 
     num_vertices: usize,
     //num_tiles: usize,
@@ -117,16 +119,27 @@ use cgmath::Rad;
 use crate::math;
 use std::mem;
 
-use num::{Float, Zero};
-struct TileUV<T: Float + Zero>([Vector2<T>; 4]);
-impl<T> TileUV<T>
+use num::{Float, Zero, One};
+struct UV<T: Float + Zero>([Vector2<T>; 4]);
+impl<T> UV<T>
 where T: Float + Zero {
-    fn empty() -> TileUV<T> {
-        TileUV([Vector2::new(T::zero(), T::zero()); 4])
+    fn empty() -> UV<T> {
+        UV([Vector2::new(T::zero(), T::zero()); 4])
     }
 
-    fn new(u0: T, v0: T, size: T) -> TileUV<T> {
-        TileUV::<T>([
+    // The idx of the tile in the texture
+    fn new(u0: T, v0: T, size: T) -> UV<T> {
+        /*let idx_texture = idx / NUM_TILES_BY_TEXTURE;
+        let idx_in_texture = idx % NUM_TILES_BY_TEXTURE;
+
+        let idx_row = (idx_in_texture / NUM_CELLS_BY_TEXTURE_SIDE) as f32; // in [0; 7]
+        let idx_col = (idx_in_texture % NUM_CELLS_BY_TEXTURE_SIDE) as f32; // in [0; 7]
+
+        let u = idx_col / (NUM_CELLS_BY_TEXTURE_SIDE as f32);
+        let v = idx_row / (NUM_CELLS_BY_TEXTURE_SIDE as f32);
+
+        let ds = 1_f32 / (NUM_CELLS_BY_TEXTURE_SIDE as f32);*/
+        UV::<T>([
             Vector2::new(u0, v0),
             Vector2::new(u0 + size, v0),
             Vector2::new(u0, v0 + size),
@@ -134,6 +147,68 @@ where T: Float + Zero {
         ])
     }
 }
+struct TileUVW([Vector3<f32>; 4]);
+impl TileUVW {
+    fn empty() -> TileUVW {
+        TileUVW([Vector3::new(0_f32, 0_f32, 0_f32); 4])
+    } 
+
+    // Search in the buffer the UV of the cell
+    pub fn look(cell: &HEALPixCell, buffer: &mut BufferTiles) -> TileUVW {
+        let idx = buffer.get_idx_texture(cell);
+        let idx_texture = (idx / NUM_TILES_BY_TEXTURE) as f32;
+        let idx_in_texture = idx % NUM_TILES_BY_TEXTURE;
+
+        let idx_row = (idx_in_texture / NUM_CELLS_BY_TEXTURE_SIDE) as f32;
+        let idx_col = (idx_in_texture % NUM_CELLS_BY_TEXTURE_SIDE) as f32;
+
+        let u = idx_col / (NUM_CELLS_BY_TEXTURE_SIDE as f32);
+        let v = idx_row / (NUM_CELLS_BY_TEXTURE_SIDE as f32);
+
+        let ds = 1_f32 / (NUM_CELLS_BY_TEXTURE_SIDE as f32);
+        TileUVW([
+            Vector3::new(u, v, idx_texture),
+            Vector3::new(u + ds, v, idx_texture),
+            Vector3::new(u, v + ds, idx_texture),
+            Vector3::new(u + ds, v + ds, idx_texture)
+        ])
+    }
+
+    // Search in the buffer the UV of the cell in a parent cell
+    fn look_in_parent(cell: &HEALPixCell, parent_cell: &HEALPixCell, buffer: &mut BufferTiles) -> TileUVW {
+        let (depth, idx) = (cell.0, cell.1);
+        let (parent_depth, parent_idx) = (parent_cell.0, parent_cell.1);
+
+        let idx_off = parent_idx << (2*(depth - parent_depth));
+
+        assert!(idx >= idx_off);
+        assert!(depth >= parent_depth);
+        let nside = 1 << (depth - parent_depth);
+
+        let (x, y) = utils::unmortonize(idx - idx_off);
+        assert!(x < nside);
+        assert!(y < nside);
+
+        let parent_idx_tile = buffer.get_idx_texture(parent_cell);
+        let idx_texture = (parent_idx_tile / NUM_TILES_BY_TEXTURE) as f32;
+        let parent_idx_in_texture = parent_idx_tile % NUM_TILES_BY_TEXTURE;
+
+        let parent_idx_row = (parent_idx_in_texture / NUM_CELLS_BY_TEXTURE_SIDE) as f32; // in [0; 7]
+        let parent_idx_col = (parent_idx_in_texture % NUM_CELLS_BY_TEXTURE_SIDE) as f32; // in [0; 7]
+        let u = (parent_idx_col + ((y as f32)/(nside as f32))) / 8_f32;
+        let v = (parent_idx_row + ((x as f32)/(nside as f32))) / 8_f32;
+
+        let ds = 1_f32 / (8_f32 * (nside as f32));
+
+        TileUVW([
+            Vector3::new(u, v, idx_texture),
+            Vector3::new(u + ds, v, idx_texture),
+            Vector3::new(u, v + ds, idx_texture),
+            Vector3::new(u + ds, v + ds, idx_texture)
+        ])
+    }
+}
+
 enum TileCorner {
     BottomLeft,
     BottomRight,
@@ -141,9 +216,21 @@ enum TileCorner {
     TopRight,
 }
 use std::ops::Index;
-impl<T> Index<TileCorner> for TileUV<T>
+impl<T> Index<TileCorner> for UV<T>
 where T: Float + Zero {
     type Output = Vector2<T>;
+
+    fn index(&self, corner: TileCorner) -> &Self::Output {
+        match corner {
+            TileCorner::BottomLeft => &self.0[0],
+            TileCorner::BottomRight => &self.0[1],
+            TileCorner::TopLeft => &self.0[2],
+            TileCorner::TopRight => &self.0[3],
+        }
+    }
+}
+impl Index<TileCorner> for TileUVW {
+    type Output = Vector3<f32>;
 
     fn index(&self, corner: TileCorner) -> &Self::Output {
         match corner {
@@ -160,8 +247,8 @@ fn add_vertices_grid(
     num_vertices: &mut usize,
     cell: &HEALPixCell,
     n_segments: u16,
-    uv_0: &TileUV<f32>,
-    uv_1: &TileUV<f32>,
+    uv_0: &TileUVW,
+    uv_1: &TileUVW,
     alpha: f32
 ) {
     let lonlat = healpix::nested::grid(cell.0, cell.1, n_segments);
@@ -197,10 +284,26 @@ fn add_vertices_grid(
             let d01s = uv_0[TileCorner::BottomRight].x - uv_0[TileCorner::BottomLeft].x;
             let d02s = uv_0[TileCorner::TopLeft].y - uv_0[TileCorner::BottomLeft].y;
 
-            let uv_s_vertex_0 = Vector2::new(uv_0[TileCorner::BottomLeft].x + hj0 * d01s, uv_0[TileCorner::BottomLeft].y + hi0 * d02s);
-            let uv_s_vertex_1 = Vector2::new(uv_0[TileCorner::BottomLeft].x + hj1 * d01s, uv_0[TileCorner::BottomLeft].y + hi1 * d02s);
-            let uv_s_vertex_2 = Vector2::new(uv_0[TileCorner::BottomLeft].x + hj2 * d01s, uv_0[TileCorner::BottomLeft].y + hi2 * d02s);
-            let uv_s_vertex_3 = Vector2::new(uv_0[TileCorner::BottomLeft].x + hj3 * d01s, uv_0[TileCorner::BottomLeft].y + hi3 * d02s);
+            let uv_s_vertex_0 = Vector3::new(
+                uv_0[TileCorner::BottomLeft].x + hj0 * d01s,
+                uv_0[TileCorner::BottomLeft].y + hi0 * d02s,
+                uv_0[TileCorner::BottomLeft].z
+            );
+            let uv_s_vertex_1 = Vector3::new(
+                uv_0[TileCorner::BottomLeft].x + hj1 * d01s,
+                uv_0[TileCorner::BottomLeft].y + hi1 * d02s,
+                uv_0[TileCorner::BottomLeft].z
+            );
+            let uv_s_vertex_2 = Vector3::new(
+                uv_0[TileCorner::BottomLeft].x + hj2 * d01s,
+                uv_0[TileCorner::BottomLeft].y + hi2 * d02s,
+                uv_0[TileCorner::BottomLeft].z
+            );
+            let uv_s_vertex_3 = Vector3::new(
+                uv_0[TileCorner::BottomLeft].x + hj3 * d01s,
+                uv_0[TileCorner::BottomLeft].y + hi3 * d02s,
+                uv_0[TileCorner::BottomLeft].z
+            );
 
             let uv_0_quad = [
                 uv_s_vertex_0,
@@ -210,10 +313,26 @@ fn add_vertices_grid(
             ];
             let d01e = uv_1[TileCorner::BottomRight].x - uv_1[TileCorner::BottomLeft].x;
             let d02e = uv_1[TileCorner::TopLeft].y - uv_1[TileCorner::BottomLeft].y;
-            let uv_e_vertex_0 = Vector2::new(uv_1[TileCorner::BottomLeft].x + hj0 * d01e, uv_1[TileCorner::BottomLeft].y + hi0 * d02e);
-            let uv_e_vertex_1 = Vector2::new(uv_1[TileCorner::BottomLeft].x + hj1 * d01e, uv_1[TileCorner::BottomLeft].y + hi1 * d02e);
-            let uv_e_vertex_2 = Vector2::new(uv_1[TileCorner::BottomLeft].x + hj2 * d01e, uv_1[TileCorner::BottomLeft].y + hi2 * d02e);
-            let uv_e_vertex_3 = Vector2::new(uv_1[TileCorner::BottomLeft].x + hj3 * d01e, uv_1[TileCorner::BottomLeft].y + hi3 * d02e);
+            let uv_e_vertex_0 = Vector3::new(
+                uv_1[TileCorner::BottomLeft].x + hj0 * d01e,
+                uv_1[TileCorner::BottomLeft].y + hi0 * d02e,
+                uv_1[TileCorner::BottomLeft].z
+            );
+            let uv_e_vertex_1 = Vector3::new(
+                uv_1[TileCorner::BottomLeft].x + hj1 * d01e,
+                uv_1[TileCorner::BottomLeft].y + hi1 * d02e,
+                uv_1[TileCorner::BottomLeft].z
+            );
+            let uv_e_vertex_2 = Vector3::new(
+                uv_1[TileCorner::BottomLeft].x + hj2 * d01e,
+                uv_1[TileCorner::BottomLeft].y + hi2 * d02e,
+                uv_1[TileCorner::BottomLeft].z
+            );
+            let uv_e_vertex_3 = Vector3::new(
+                uv_1[TileCorner::BottomLeft].x + hj3 * d01e,
+                uv_1[TileCorner::BottomLeft].y + hi3 * d02e,
+                uv_1[TileCorner::BottomLeft].z
+            );
 
             let uv_1_quad = [
                 uv_e_vertex_0,
@@ -223,27 +342,27 @@ fn add_vertices_grid(
             ];
             
             Vertex::new(&lonlat_quad[0], uv_0_quad[0], uv_1_quad[0], alpha)
-                .add_to_vertices(vertices, 10 * (*num_vertices));
+                .add_to_vertices(vertices, 12 * (*num_vertices));
             *num_vertices += 1;
 
             Vertex::new(&lonlat_quad[1], uv_0_quad[1], uv_1_quad[1], alpha)
-                .add_to_vertices(vertices, 10 * (*num_vertices));
+                .add_to_vertices(vertices, 12 * (*num_vertices));
             *num_vertices += 1;
 
             Vertex::new(&lonlat_quad[2], uv_0_quad[2], uv_1_quad[2], alpha)
-                .add_to_vertices(vertices, 10 * (*num_vertices));
+                .add_to_vertices(vertices, 12 * (*num_vertices));
             *num_vertices += 1;
 
             Vertex::new(&lonlat_quad[1], uv_0_quad[1], uv_1_quad[1], alpha)
-                .add_to_vertices(vertices, 10 * (*num_vertices));
+                .add_to_vertices(vertices, 12 * (*num_vertices));
             *num_vertices += 1;
 
             Vertex::new(&lonlat_quad[3], uv_0_quad[3], uv_1_quad[3], alpha)
-                .add_to_vertices(vertices, 10 * (*num_vertices));
+                .add_to_vertices(vertices, 12 * (*num_vertices));
             *num_vertices += 1;
 
             Vertex::new(&lonlat_quad[2], uv_0_quad[2], uv_1_quad[2], alpha)
-                .add_to_vertices(vertices, 10 * (*num_vertices));
+                .add_to_vertices(vertices, 12 * (*num_vertices));
             *num_vertices += 1;
         }
     }
@@ -306,12 +425,12 @@ impl UpdateTextureBufferEvent for MouseMove  {
                 // and if so, we can forget about moving the parent tile texture to the
                 // 4096x4096 texture!
                 let uv_0 = if utils::get_current_time() - time_received > 500_f32 {
-                    TileUV::empty()
+                    TileUVW::empty()
                 } else {
-                    get_uv_in_parent(cell, &parent_cell, buffer)
+                    TileUVW::look_in_parent(cell, &parent_cell, buffer)
                 };
                 
-                let uv_1 = get_uv(cell, buffer);
+                let uv_1 = TileUVW::look(cell, buffer);
 
                 (uv_0, uv_1, time_received)
             } else {
@@ -321,11 +440,11 @@ impl UpdateTextureBufferEvent for MouseMove  {
                 let time_received = buffer.get_time_received(&parent_cell).unwrap();
                 
                 let uv_0 = if utils::get_current_time() - time_received > 500_f32 {
-                    TileUV::empty()
+                    TileUVW::empty()
                 } else {
-                    get_uv_in_parent(cell, &grand_parent_cell, buffer)
+                   TileUVW::look_in_parent(cell, &grand_parent_cell, buffer)
                 };
-                let uv_1 = get_uv_in_parent(cell, &parent_cell, buffer);
+                let uv_1 = TileUVW::look_in_parent(cell, &parent_cell, buffer);
 
                 (uv_0, uv_1, time_received)
             };
@@ -376,12 +495,12 @@ impl UpdateTextureBufferEvent for MouseWheelUp {
                 // and if so, we can forget about moving the parent tile texture to the
                 // 4096x4096 texture!
                 let uv_0 = if utils::get_current_time() - time_received > 500_f32 {
-                    TileUV::empty()
+                    TileUVW::empty()
                 } else {
-                    get_uv_in_parent(cell, &parent_cell, buffer)
+                    TileUVW::look_in_parent(cell, &parent_cell, buffer)
                 };
                 
-                let uv_1 = get_uv(cell, buffer);
+                let uv_1 = TileUVW::look(cell, buffer);
 
                 (uv_0, uv_1, time_received)
             } else {
@@ -391,11 +510,11 @@ impl UpdateTextureBufferEvent for MouseWheelUp {
                 let time_received = buffer.get_time_received(&parent_cell).unwrap();
                 
                 let uv_0 = if utils::get_current_time() - time_received > 500_f32 {
-                    TileUV::empty()
+                    TileUVW::empty()
                 } else {
-                    get_uv_in_parent(cell, &grand_parent_cell, buffer)
+                    TileUVW::look_in_parent(cell, &grand_parent_cell, buffer)
                 };
-                let uv_1 = get_uv_in_parent(cell, &parent_cell, buffer);
+                let uv_1 = TileUVW::look_in_parent(cell, &parent_cell, buffer);
 
                 (uv_0, uv_1, time_received)
             };
@@ -447,18 +566,18 @@ impl UpdateTextureBufferEvent for MouseWheelDown {
             let grand_parent_cell = HEALPixCell(parent_cell.0 - 1, parent_cell.1 / 4);
 
             if buffer.contains(&grand_parent_cell) {
-                let uv_1 = get_uv_in_parent(&cell, &grand_parent_cell, buffer);
+                let uv_1 = TileUVW::look_in_parent(&cell, &grand_parent_cell, buffer);
                 let time_received = buffer.get_time_received(&grand_parent_cell).unwrap();
 
                 let uv_0 = if utils::get_current_time() - time_received > 500_f32 {
-                    TileUV::empty()
+                    TileUVW::empty()
                 } else if buffer.contains(&parent_cell) {
-                    get_uv_in_parent(&cell, &parent_cell, buffer)
+                    TileUVW::look_in_parent(&cell, &parent_cell, buffer)
                 } else if buffer.contains(&cell) {
-                    get_uv(&cell, buffer)
+                    TileUVW::look(&cell, buffer)
                 } else {
                     let starting_cell = get_nearest_parent(&grand_parent_cell, buffer);
-                    get_uv_in_parent(&cell, &starting_cell, buffer)
+                    TileUVW::look_in_parent(&cell, &starting_cell, buffer)
                 };
 
                 add_vertices_grid(
@@ -495,16 +614,16 @@ impl UpdateTextureBufferEvent for MouseWheelDown {
                 let time_received = buffer.get_time_received(&ending_cell).unwrap();
 
                 let uv_0 = if utils::get_current_time() - time_received > 500_f32 {
-                    TileUV::empty()
+                    TileUVW::empty()
                 } else if cell != starting_cell {
-                    get_uv_in_parent(&cell, &starting_cell, buffer)
+                    TileUVW::look_in_parent(&cell, &starting_cell, buffer)
                 } else {
-                    get_uv(&cell, buffer)
+                    TileUVW::look(&cell, buffer)
                 };
                 let uv_1 = if cell != ending_cell {
-                    get_uv_in_parent(&cell, &ending_cell, buffer)
+                    TileUVW::look_in_parent(&cell, &ending_cell, buffer)
                 } else {
-                    get_uv(&cell, buffer)
+                    TileUVW::look(&cell, buffer)
                 };
                 add_vertices_grid(
                     vertices,
@@ -536,21 +655,21 @@ impl SmallFieldOfView {
 impl RenderingMode for SmallFieldOfView {
     fn new(gl: &WebGl2Context, viewport: &ViewPort) -> SmallFieldOfView {
         // Initialise the buffer of 
-        let vertices = [0_f32; 50000];
+        let vertices = [0_f32; 60000];
         let mut vertex_array_object = VertexArrayObject::new(gl);
 
         // VAO for the orthographic projection and small fovs on 2D projections
         vertex_array_object.bind()
             // Store the projeted and 3D vertex positions in a VBO
             .add_array_buffer(
-                10 * mem::size_of::<f32>(),
-                &[2, 3, 2, 2, 1],    
+                12 * mem::size_of::<f32>(),
+                &[2, 3, 3, 3, 1],    
                 &[
                     0 * mem::size_of::<f32>(),
                     2 * mem::size_of::<f32>(),
                     5 * mem::size_of::<f32>(),
-                    7 * mem::size_of::<f32>(),
-                    9 * mem::size_of::<f32>(),
+                    8 * mem::size_of::<f32>(),
+                    11 * mem::size_of::<f32>(),
                 ],
                 WebGl2RenderingContext::DYNAMIC_DRAW,
                 BufferData::SliceData(&vertices),
@@ -707,6 +826,13 @@ impl<P> RenderingMode for PerPixel<P> where P: Projection {
 
 use crate::projection::*;
 pub struct HiPSSphere {
+    // Some information about the HiPS
+    pub config: HiPSConfig,
+    
+    // The buffer responsible for: 
+    // * Performing the async request of tiles
+    // * Storing the most recently asked texture tiles
+    // * Sending them to the GPU
     buffer: BufferTiles,
 
     ortho: SmallFieldOfView,
@@ -720,11 +846,10 @@ pub struct HiPSSphere {
     depth: u8,
 }
 
-use cgmath::Deg;
-
+use crate::buffer_tiles::{HiPSConfig, TileImageFormat};
 impl HiPSSphere {
-    pub fn new(gl: &WebGl2Context, viewport: &ViewPort) -> HiPSSphere {
-        let buffer = BufferTiles::new(gl);
+    pub fn new(gl: &WebGl2Context, viewport: &ViewPort, config: HiPSConfig) -> HiPSSphere {
+        let buffer = BufferTiles::new(gl, &config);
 
         let gl = gl.clone();
 
@@ -737,6 +862,7 @@ impl HiPSSphere {
         let depth = 0;
 
         HiPSSphere {
+            config,
             buffer,
 
             ortho,
@@ -749,6 +875,16 @@ impl HiPSSphere {
 
             depth,
         }
+    }
+
+    pub fn set_hips_config<P: Projection>(&mut self, config: HiPSConfig, viewport: &mut ViewPort, events: &EventManager) {
+        // Tell the viewport the config has changed
+        viewport.set_max_depth(&config);
+        // Clear the buffer
+        self.buffer.reset(&config);
+        // Erase the old config with the new one
+        self.config = config;
+        //self.update::<P>(viewport, events);
     }
 
     fn send_global_uniforms<T: Mesh + DisableDrawing>(&self, gl: &WebGl2Context, shader: &Shader, viewport: &ViewPort, renderable: &Renderable<T>) {
@@ -770,19 +906,10 @@ impl HiPSSphere {
         // Send current depth
         let location_current_depth = shader.get_uniform_location("current_depth");
         gl.uniform1i(location_current_depth, self.depth as i32);
-        // Send max depth of the current HiPS
-        let location_max_depth = shader.get_uniform_location("max_depth");
-        gl.uniform1i(location_max_depth, MAX_DEPTH.load(Ordering::Relaxed) as i32);
-    }
-    
-    /// Called when the HiPS has been changed
-    pub fn refresh_buffer_tiles(&mut self) {
-        self.buffer.clear();
-    }
 
-    /*pub fn get_buffer(&self) -> Rc<RefCell<BufferTiles>> {
-        self.buffer.clone()
-    }*/
+        // Send HiPS config
+        self.config.send_to_shader(gl, shader);
+    }
 
     pub fn request_tiles(&mut self, viewport: &ViewPort) {
         let field_of_view = viewport.field_of_view();
@@ -793,7 +920,7 @@ impl HiPSSphere {
 
         let depth_changed = depth != self.depth;
 
-        self.buffer.request_tiles(tiles_fov, depth_changed);
+        self.buffer.request_tiles(tiles_fov, &self.config, depth_changed);
     }
 
     pub fn update<P: Projection>(&mut self, viewport: &ViewPort, events: &EventManager) {
@@ -868,47 +995,8 @@ use crate::utils;
 use crate::healpix_cell::HEALPixCell;
 use crate::viewport::{LastZoomAction, LastAction};
 
-fn get_uv_in_parent(
-    cell: &HEALPixCell,
-    parent_cell: &HEALPixCell,
-    buffer: &mut BufferTiles
-) -> TileUV<f32> {
-    let (depth, idx) = (cell.0, cell.1);
-    let (parent_depth, parent_idx) = (parent_cell.0, parent_cell.1);
 
-    let idx_off = parent_idx << (2*(depth - parent_depth));
-
-    assert!(idx >= idx_off);
-    assert!(depth >= parent_depth);
-    let nside = 1 << (depth - parent_depth);
-
-    let (x, y) = utils::unmortonize(idx - idx_off);
-    assert!(x < nside);
-    assert!(y < nside);
-
-    let parent_idx_tile = buffer.get_idx_texture(parent_cell);
-    let parent_idx_row = (parent_idx_tile / 8) as f32; // in [0; 7]
-    let parent_idx_col = (parent_idx_tile % 8) as f32; // in [0; 7]
-    let u = (parent_idx_col + ((y as f32)/(nside as f32))) / 8_f32;
-    let v = (parent_idx_row + ((x as f32)/(nside as f32))) / 8_f32;
-
-    let ds = 1_f32 / (8_f32 * (nside as f32));
-
-    TileUV::<f32>::new(u, v, ds)
-}
-fn get_uv(cell: &HEALPixCell, buffer: &mut BufferTiles) -> TileUV<f32> {
-    let idx_tile = buffer.get_idx_texture(cell);
-    let idx_row = (idx_tile / 8) as f32; // in [0; 7]
-    let idx_col = (idx_tile % 8) as f32; // in [0; 7]
-
-    let u = idx_col / 8_f32;
-    let v = idx_row / 8_f32;
-
-    let ds = 1_f32 / 8_f32;
-
-    TileUV::<f32>::new(u, v, ds)
-}
-
+use crate::buffer_tiles::{NUM_TILES_BY_TEXTURE, NUM_CELLS_BY_TEXTURE_SIDE};
 // Get the nearest parent tile found in the buffer of `tile`
 fn get_nearest_parent(cell: &HEALPixCell, buffer: &BufferTiles) -> HEALPixCell {
     let depth_start = cell.0 as i8;

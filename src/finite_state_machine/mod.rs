@@ -211,7 +211,7 @@ impl State for Inertia {
         // * m is its mass
         let theta = self.d0 * (Inertia::w0() * t + 1_f32) * ((-Inertia::w0() * t).exp());
 
-        console::log_1(&format!("dtheta {:?}", theta).into());
+        //console::log_1(&format!("dtheta {:?}", theta).into());
         sphere.apply_rotation(-self.axis, theta);
         viewport.displacement::<P>(sphere, catalog, grid);
 
@@ -368,7 +368,7 @@ impl Transition for T<Inertia, Stalling> {
         // User events
         events: &EventManager
     ) -> Option<Self::E> {
-        if s.d < Rad(1e-3) {
+        if s.d < Rad(1e-5) {
             console::log_1(&format!("Welcome state Stalling").into());
             Some(Stalling {})
         } else {

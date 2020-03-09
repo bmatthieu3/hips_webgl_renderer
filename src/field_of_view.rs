@@ -40,9 +40,6 @@ pub struct FieldOfView {
 use itertools_num;
 use std::iter;
 use crate::math;
-use crate::MAX_DEPTH;
-
-use std::sync::atomic;
 
 use crate::healpix_cell::HEALPixCell;
 
@@ -88,7 +85,7 @@ use crate::projection::Projection;
 use crate::WebGl2Context;
 
 impl FieldOfView {
-    pub fn new<P: Projection>(gl: &WebGl2Context, aperture_angle: Rad<f32>) -> FieldOfView {
+    pub fn new<P: Projection>(gl: &WebGl2Context, aperture_angle: Rad<f32>, max_depth_hips: u8) -> FieldOfView {
         let mut x_ndc_space = itertools_num::linspace::<f32>(-1., 1., NUM_VERTICES_WIDTH + 2)
             .collect::<Vec<_>>();
 
@@ -172,11 +169,11 @@ impl FieldOfView {
             gl,
         };
 
-        fov.set_aperture::<P>(aperture_angle);
+        fov.set_aperture::<P>(aperture_angle, max_depth_hips);
         fov
     }
 
-    pub fn resize_window<P: Projection>(&mut self, width: f32, height: f32) {
+    pub fn resize_window<P: Projection>(&mut self, width: f32, height: f32, max_depth_hips: u8) {
         self.width = width;
         self.height = height;
 
@@ -190,7 +187,7 @@ impl FieldOfView {
         // Compute the new clip zoom factor
         self.ndc_to_clip = Self::compute_ndc_to_clip_factor(width, height);
 
-        self.deproj_field_of_view::<P>();
+        self.deproj_field_of_view::<P>(max_depth_hips);
     }
 
     fn compute_clip_zoom_factor<P: Projection>(fov: Rad<f32>) -> f32 {
@@ -208,12 +205,12 @@ impl FieldOfView {
         Vector2::new(1_f32, height / width)
     }
 
-    pub fn set_aperture<P: Projection>(&mut self, angle: Rad<f32>) {
+    pub fn set_aperture<P: Projection>(&mut self, angle: Rad<f32>, max_depth_hips: u8) {
         self.aperture_angle = angle;
         // Compute the new clip zoom factor
         self.clip_zoom_factor = Self::compute_clip_zoom_factor::<P>(self.aperture_angle);
         
-        self.deproj_field_of_view::<P>();
+        self.deproj_field_of_view::<P>(max_depth_hips);
     }
 
     pub fn get_aperture(&self) -> Rad<f32> {
@@ -231,7 +228,7 @@ impl FieldOfView {
         pos_clip_space.x.abs() * pos_clip_space.y.abs() * 4_f32
     }
 
-    fn deproj_field_of_view<P: Projection>(&mut self) {
+    fn deproj_field_of_view<P: Projection>(&mut self, max_depth_hips: u8) {
         // Deproject the FOV from ndc to the world space
         let mut vertices_world_space = [Vector4::new(0_f32, 0_f32, 0_f32, 0_f32); NUM_VERTICES];
         let mut out_of_fov = false;
@@ -258,16 +255,16 @@ impl FieldOfView {
         }
 
         // Rotate the FOV
-        self.rotate::<P>();
+        self.rotate::<P>(max_depth_hips);
     }
 
-    pub fn set_rotation_mat<P: Projection>(&mut self, r: &Matrix4<f32>) {
+    pub fn set_rotation_mat<P: Projection>(&mut self, r: &Matrix4<f32>, max_depth_hips: u8) {
         self.r = *r;
 
-        self.rotate::<P>();
+        self.rotate::<P>(max_depth_hips);
     }
 
-    fn rotate<P: Projection>(&mut self) {
+    fn rotate<P: Projection>(&mut self, max_depth_hips: u8) {
         if let Some(pos_world_space) = self.pos_world_space {
             let mut pos_transformed_space = [Vector4::new(0_f32, 0_f32, 0_f32, 0_f32); NUM_VERTICES];
             for idx_vertex in 0..NUM_VERTICES {
@@ -279,7 +276,7 @@ impl FieldOfView {
             self.pos_transformed_space = None;
         }
 
-        self.compute_healpix_cells::<P>();
+        self.compute_healpix_cells::<P>(max_depth_hips);
     }
 
     pub fn get_cells_in_fov(&self, depth: u8) -> Vec<HEALPixCell> {
@@ -312,14 +309,14 @@ impl FieldOfView {
         }
     }
 
-    fn compute_healpix_cells<P: Projection>(&mut self) {
+    fn compute_healpix_cells<P: Projection>(&mut self, max_depth_hips: u8) {
         // The field of view has changed (zoom or translation, so we recompute the cells)
         if let Some(pos_transformed_space) = self.pos_transformed_space {
             // Compute the depth corresponding to the angular resolution of a pixel
             // along the width of the screen
-            let mut depth = std::cmp::min(
+            let depth = std::cmp::min(
                 math::fov_to_depth(self.aperture_angle, self.width),
-                MAX_DEPTH.load(atomic::Ordering::Relaxed)
+                max_depth_hips
             );
 
             if let Some(allsky) = P::check_for_allsky_fov(depth) {
