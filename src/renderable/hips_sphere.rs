@@ -129,16 +129,6 @@ where T: Float + Zero {
 
     // The idx of the tile in the texture
     fn new(u0: T, v0: T, size: T) -> UV<T> {
-        /*let idx_texture = idx / NUM_TILES_BY_TEXTURE;
-        let idx_in_texture = idx % NUM_TILES_BY_TEXTURE;
-
-        let idx_row = (idx_in_texture / NUM_CELLS_BY_TEXTURE_SIDE) as f32; // in [0; 7]
-        let idx_col = (idx_in_texture % NUM_CELLS_BY_TEXTURE_SIDE) as f32; // in [0; 7]
-
-        let u = idx_col / (NUM_CELLS_BY_TEXTURE_SIDE as f32);
-        let v = idx_row / (NUM_CELLS_BY_TEXTURE_SIDE as f32);
-
-        let ds = 1_f32 / (NUM_CELLS_BY_TEXTURE_SIDE as f32);*/
         UV::<T>([
             Vector2::new(u0, v0),
             Vector2::new(u0 + size, v0),
@@ -419,7 +409,7 @@ impl UpdateTextureBufferEvent for MouseMove  {
             let (uv_0, uv_1, time_received) = if let Some(time_received) = buffer.get_time_received(cell) {
                 let parent_cell = get_nearest_parent(cell, buffer);
 
-                // get_uv_in_parent can lead to a sub_tex_2d call which
+                // look_in_parent can lead to a sub_tex_2d call which
                 // is quite costly!
                 // This checks whether the end of the blending animation is reached
                 // and if so, we can forget about moving the parent tile texture to the
@@ -489,7 +479,7 @@ impl UpdateTextureBufferEvent for MouseWheelUp {
             let (uv_0, uv_1, time_received) = if let Some(time_received) = buffer.get_time_received(cell) {
                 let parent_cell = get_nearest_parent(cell, buffer);
 
-                // get_uv_in_parent can lead to a sub_tex_2d call which
+                // look_in_parent can lead to a sub_tex_2d call which
                 // is quite costly!
                 // This checks whether the end of the blending animation is reached
                 // and if so, we can forget about moving the parent tile texture to the
@@ -531,7 +521,6 @@ impl UpdateTextureBufferEvent for MouseWheelUp {
     }
 }
 
-use std::collections::VecDeque;
 impl UpdateTextureBufferEvent for MouseWheelDown {
     // Returns:
     // * The UV of the starting tile in the global 4096x4096 texture
@@ -846,7 +835,7 @@ pub struct HiPSSphere {
     depth: u8,
 }
 
-use crate::buffer_tiles::{HiPSConfig, TileImageFormat};
+use crate::buffer_tiles::HiPSConfig;
 impl HiPSSphere {
     pub fn new(gl: &WebGl2Context, viewport: &ViewPort, config: HiPSConfig) -> HiPSSphere {
         let buffer = BufferTiles::new(gl, &config);
@@ -877,14 +866,15 @@ impl HiPSSphere {
         }
     }
 
-    pub fn set_hips_config<P: Projection>(&mut self, config: HiPSConfig, viewport: &mut ViewPort, events: &EventManager) {
+    pub fn set_hips_config<P: Projection>(&mut self, config: HiPSConfig, viewport: &mut ViewPort, events: &EventManager) {        
         // Tell the viewport the config has changed
         viewport.set_max_depth(&config);
         // Clear the buffer
         self.buffer.reset(&config);
         // Erase the old config with the new one
         self.config = config;
-        //self.update::<P>(viewport, events);
+    
+        self.request_tiles(viewport);
     }
 
     fn send_global_uniforms<T: Mesh + DisableDrawing>(&self, gl: &WebGl2Context, shader: &Shader, viewport: &ViewPort, renderable: &Renderable<T>) {

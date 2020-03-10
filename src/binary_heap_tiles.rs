@@ -61,6 +61,13 @@ impl From<&mut Tile> for TileNode {
     }
 }
 
+use web_sys::HtmlImageElement;
+#[derive(Debug)]
+pub enum TileTexture {
+    HtmlImageElement(HtmlImageElement),
+    Black,
+}
+
 #[derive(Clone)]
 #[derive(Debug)]
 pub struct Tile {
@@ -70,19 +77,18 @@ pub struct Tile {
     pub time_request: f32,
     pub time_received: f32,
 
-    pub texture: Rc<RefCell<HtmlImageElement>>,
+    pub texture: Rc<RefCell<TileTexture>>,
 }
 
 pub const BLENDING_DURATION_MS: f32 = 500_f32;
-use web_sys::HtmlImageElement;
+
 use std::cell::RefCell;
 use std::rc::Rc;
-use crate::utils;
 impl Tile {
     pub fn new(cell: HEALPixCell,
         time_request: f32,
         time_received: f32,
-        texture: Rc<RefCell<HtmlImageElement>>,
+        texture: Rc<RefCell<TileTexture>>,
     ) -> Tile {
         let (depth, idx) = (cell.0, cell.1);
         let uniq = ((16 << (depth << 1)) | idx) as u32;

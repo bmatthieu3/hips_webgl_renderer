@@ -237,4 +237,28 @@ impl<'a> Texture2DArrayBound<'a> {
         )
         .expect("Sub texture 2d");
     }
+    
+    pub fn tex_sub_image_3d_with_opt_u8_array(&self,
+        xoffset: i32, yoffset: i32,
+        idx_texture: i32, // Idx of the texture to replace
+        width: i32, // Width of the image
+        height: i32, // Height of the image
+        src_data: Option<&[u8]> // image data
+    ) {
+        self.texture_2d_array.gl.tex_sub_image_3d_with_opt_u8_array(
+            WebGl2RenderingContext::TEXTURE_2D_ARRAY, // target: u32,
+            0, // level: i32,
+            xoffset, // xoffset: i32,
+            yoffset, // yoffset: i32,
+            idx_texture, // zoffset: i32,
+            width, // width: i32,
+            height, // height: i32,
+            1, // depth: i32,
+            self.texture_2d_array.format, // format: u32,
+            WebGl2RenderingContext::UNSIGNED_BYTE, // type: u32
+            src_data,
+        )
+        .expect("Sub texture 2d");
+    }
+
 }

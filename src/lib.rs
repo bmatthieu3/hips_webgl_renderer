@@ -149,7 +149,7 @@ use cgmath::{Vector2, Vector3, Matrix3};
 use cgmath::Deg;
 use cgmath::InnerSpace;
 
-use crate::buffer_tiles::{HiPSConfig, TileImageFormat};
+use crate::buffer_tiles::{HiPSConfig, ImageFormat};
 
 impl<P> App<P>
 where P: Projection {
@@ -296,11 +296,10 @@ where P: Projection {
         // HiPS definition
         let config = HiPSConfig::new(
             String::from("http://alasky.u-strasbg.fr/DSS/DSSColor"), // Name of the HiPS
-            512, 512, // Width size of a texture tile
             9, // max depth of the HiPS
-            TileImageFormat::JPG // Format of the tile texture images
+            512, // Size of a texture tile
+            ImageFormat::JPG // Format of the tile texture images
         );
-
         // Viewport definition
         let viewport = ViewPort::new::<Orthographic>(&gl, &config);
 
@@ -1255,27 +1254,26 @@ impl WebClient {
     /// Change HiPS
     pub fn change_hips(&mut self,
      name: String,
-     width_texture: i32,
-     height_texture: i32,
+     tile_size: i32,
      max_depth: i32,
-     format: String
+     fmt: String
     ) -> Result<(), JsValue> {
-        let format: Result<TileImageFormat, JsValue> = if format.contains("png") {
-            Ok(TileImageFormat::PNG)
-        } else if format.contains("fits") {
-            Ok(TileImageFormat::FITS)
-        } else if format.contains("jpg") || format.contains("jpeg") {
-            Ok(TileImageFormat::JPG)
+        let tile_img_fmt: Result<ImageFormat, JsValue> = if fmt.contains("png") {
+            Ok(ImageFormat::PNG)
+        } else if fmt.contains("fits") {
+            Ok(ImageFormat::FITS)
+        } else if fmt.contains("jpg") || fmt.contains("jpeg") {
+            Ok(ImageFormat::JPG)
         } else {
-            Err(format!("{:?} tile format unknown!", format).into())
+            Err(format!("{:?} tile format unknown!", fmt).into())
         };
         let config = HiPSConfig::new(
             name,
-            width_texture,
-            height_texture,
             max_depth as u8,
-            format?
+            tile_size as usize,
+            tile_img_fmt?
         );
+
         self.appconfig.set_hips_config(config, &self.events);
 
         Ok(())
