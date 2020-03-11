@@ -903,14 +903,14 @@ impl HiPSSphere {
 
     pub fn request_tiles(&mut self, viewport: &ViewPort) {
         let field_of_view = viewport.field_of_view();
-        let tiles_fov = field_of_view.healpix_cells();
+        let cells = field_of_view.new_healpix_cells();
         
         let depth = field_of_view.current_depth();
         self.depth = depth;
 
         let depth_changed = depth != self.depth;
 
-        self.buffer.request_tiles(tiles_fov, &self.config, depth_changed);
+        self.buffer.request_tiles(cells, &self.config);
     }
 
     pub fn update<P: Projection>(&mut self, viewport: &ViewPort, events: &EventManager) {

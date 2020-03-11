@@ -8,6 +8,7 @@ const NUM_VERTICES_WIDTH: usize = 3;
 const NUM_VERTICES_HEIGHT: usize = 3;
 const NUM_VERTICES: usize = 4 + 2*NUM_VERTICES_WIDTH + 2*NUM_VERTICES_HEIGHT;
 
+use std::collections::HashSet;
 pub struct FieldOfView {
     pos_ndc_space: [Vector2<f32>; NUM_VERTICES],
     pos_world_space: Option<[Vector4<f32>; NUM_VERTICES]>,
@@ -19,7 +20,14 @@ pub struct FieldOfView {
     ndc_to_clip: Vector2<f32>,
     clip_zoom_factor: f32,
 
-    cells: Vec<HEALPixCell>,
+    // The set of cells being in the current field of view
+    cells: HashSet<HEALPixCell>,
+    // A map describing the cells in the current field of view
+    // A boolean is associated with the cells telling if the
+    // cell is new (meaning it was not in the previous field of view).
+    // ``cells`` is always equal to its keys!
+    new_cells: HashMap<HEALPixCell, bool>,
+    // The current depth of the cells in the field of view
     current_depth: u8,
 
     // The width over height ratio
@@ -60,18 +68,18 @@ impl From<TileRequest> for HEALPixCell {
 use std::sync::Arc;
 use std::sync::Mutex;
 lazy_static! {
-    pub static ref ALLSKY_ZERO_DEPTH: Arc<Mutex<Vec<HEALPixCell>>> = {
-        let mut allsky = Vec::with_capacity(12);
+    pub static ref ALLSKY_ZERO_DEPTH: Arc<Mutex<HashSet<HEALPixCell>>> = {
+        let mut allsky = HashSet::with_capacity(12);
         for idx in 0..12 {
-            allsky.push(HEALPixCell(0, idx));
+            allsky.insert(HEALPixCell(0, idx));
         }
 
         Arc::new(Mutex::new(allsky))
     };
-    pub static ref ALLSKY_ONE_DEPTH: Arc<Mutex<Vec<HEALPixCell>>> = {
-        let mut allsky = Vec::with_capacity(48);
+    pub static ref ALLSKY_ONE_DEPTH: Arc<Mutex<HashSet<HEALPixCell>>> = {
+        let mut allsky = HashSet::with_capacity(48);
         for idx in 0..48 {
-            allsky.push(HEALPixCell(1, idx));
+            allsky.insert(HEALPixCell(1, idx));
         }
 
         Arc::new(Mutex::new(allsky))
@@ -84,6 +92,7 @@ use wasm_bindgen::JsCast;
 use crate::projection::Projection;
 use crate::WebGl2Context;
 
+use std::collections::HashMap;
 impl FieldOfView {
     pub fn new<P: Projection>(gl: &WebGl2Context, aperture_angle: Rad<f32>, max_depth_hips: u8) -> FieldOfView {
         let mut x_ndc_space = itertools_num::linspace::<f32>(-1., 1., NUM_VERTICES_WIDTH + 2)
@@ -115,6 +124,10 @@ impl FieldOfView {
         let cells = ALLSKY_ZERO_DEPTH.lock()
             .unwrap()
             .clone();
+        let new_cells = cells.iter()
+            .cloned()
+            .map(|cell| (cell, true))
+            .collect();
 
         let width = web_sys::window()
             .unwrap()
@@ -158,6 +171,7 @@ impl FieldOfView {
             clip_zoom_factor,
 
             cells,
+            new_cells,
             current_depth,
 
             aspect,
@@ -311,7 +325,7 @@ impl FieldOfView {
 
     fn compute_healpix_cells<P: Projection>(&mut self, max_depth_hips: u8) {
         // The field of view has changed (zoom or translation, so we recompute the cells)
-        if let Some(pos_transformed_space) = self.pos_transformed_space {
+        let (cells, depth) = if let Some(pos_transformed_space) = self.pos_transformed_space {
             // Compute the depth corresponding to the angular resolution of a pixel
             // along the width of the screen
             let depth = std::cmp::min(
@@ -319,65 +333,55 @@ impl FieldOfView {
                 max_depth_hips
             );
 
-            if let Some(allsky) = P::check_for_allsky_fov(depth) {
-                self.cells = allsky;
-                self.current_depth = depth;
-                console::log_1(&format!("current depth {:?}", self.current_depth).into());
-                return;
-            }
+            let cells = if let Some(allsky) = P::check_for_allsky_fov(depth) {
+                allsky
+            } else {
+                // It is not an allsky fov at this point
+                // We can get the HEALPix cells being in the fov
+                let lon_lat_world_space = pos_transformed_space.iter()
+                    .map(|pos_transformed_space| {
+                        let (ra, dec) = math::xyzw_to_radec(*pos_transformed_space);
+                        (ra as f64, dec as f64)
+                    })
+                    .collect::<Vec<_>>();
 
-            // It is not an allsky fov at this point
-            // We can get the HEALPix cells being in the fov
-            let lon_lat_world_space = pos_transformed_space.iter()
-                .map(|pos_transformed_space| {
-                    let (ra, dec) = math::xyzw_to_radec(*pos_transformed_space);
-                    (ra as f64, dec as f64)
-                })
-                .collect::<Vec<_>>();
-
-            let moc = healpix::nested::polygon_coverage(depth, &lon_lat_world_space, true);
-            let mut cells = moc.flat_iter()
-                .map(|idx| {
-                    HEALPixCell(depth, idx)
-                })
-                .collect::<Vec<_>>();
-            /*let mut cells = vec![];
-            while depth > 0 {
                 let moc = healpix::nested::polygon_coverage(depth, &lon_lat_world_space, true);
-                let num_tiles = moc.entries.len();
+                moc.flat_iter()
+                    .map(|idx| {
+                        HEALPixCell(depth, idx)
+                    })
+                    .collect::<HashSet<_>>()
+            };
 
-                // Stop when the number of tiles for this depth
-                // can be contained in the tile buffer
-                if num_tiles <= 32 {
-                    cells = moc.flat_iter()
-                        .map(|idx| {
-                            HEALPixCell(depth, idx)
-                        })
-                        .collect::<Vec<_>>();
-                    break;
-                }
+            console::log_1(&format!("current depth {:?}", depth).into());
 
-                depth -= 1;
-            }*/
+            (cells, depth)
+        } else {
+            // We are out of the FOV
+            (ALLSKY_ZERO_DEPTH.lock().unwrap().clone(), 0)
+        };
 
-            if depth == 0 {
-                cells = ALLSKY_ZERO_DEPTH.lock().unwrap().clone();
-            }
-
-            self.current_depth = depth;
-            self.cells = cells;
-
-            return;
-        }
-
-        // We are out of the FOV
-        self.current_depth = 0;
-        self.cells = ALLSKY_ZERO_DEPTH.lock().unwrap().clone();
+        // Look for the newly added cells in the field of view
+        // by doing the difference of the new cells set with the previous one
+        let new_cells = cells.difference(&self.cells).collect::<HashSet<_>>();
+        self.new_cells = cells.iter().cloned()
+            .map(|cell| {
+                (cell, new_cells.contains(&cell))
+            })
+            .collect::<HashMap<_, _>>();
+        self.cells = cells;
+        self.current_depth = depth;
     }
 
-    // Returns the HEALPix cells in the field of view
-    pub fn healpix_cells(&self) -> &Vec<HEALPixCell> {
+    // Returns the current set of HEALPix cells contained in the field of view
+    pub fn healpix_cells(&self) -> &HashSet<HEALPixCell> {
         &self.cells
+    }
+
+    // Returns the current set of HEALPix cells contained in the field of view,
+    // each associated with a flag telling whether the cell is new or not.
+    pub fn new_healpix_cells(&self) -> &HashMap<HEALPixCell, bool> {
+        &self.new_cells
     }
 
     pub fn current_depth(&self) -> u8 {

@@ -348,26 +348,27 @@ impl BufferTiles {
             tiles_needed_per_frame
         };
 
+        
         buffer.request_tiles(
             // HEALPix cells to load
-            &vec![
-                HEALPixCell(0, 0),
-                HEALPixCell(0, 1),
-                HEALPixCell(0, 2),
-                HEALPixCell(0, 3),
-                HEALPixCell(0, 4),
-                HEALPixCell(0, 5),
-                HEALPixCell(0, 6),
-                HEALPixCell(0, 7),
-                HEALPixCell(0, 8),
-                HEALPixCell(0, 9),
-                HEALPixCell(0, 10),
-                HEALPixCell(0, 11),
-            ],
+            &([
+                (HEALPixCell(0, 0), true),
+                (HEALPixCell(0, 1), true),
+                (HEALPixCell(0, 2), true),
+                (HEALPixCell(0, 3), true),
+                (HEALPixCell(0, 4), true),
+                (HEALPixCell(0, 5), true),
+                (HEALPixCell(0, 6), true),
+                (HEALPixCell(0, 7), true),
+                (HEALPixCell(0, 8), true),
+                (HEALPixCell(0, 9), true),
+                (HEALPixCell(0, 10), true),
+                (HEALPixCell(0, 11), true),
+            ]).iter()
+            .cloned()
+            .collect(),
             // HiPS config infos
             config,
-            // Depth change
-            true,
         );
 
         buffer
@@ -385,24 +386,24 @@ impl BufferTiles {
 
         self.request_tiles(
             // HEALPix cells to load
-            &vec![
-                HEALPixCell(0, 0),
-                HEALPixCell(0, 1),
-                HEALPixCell(0, 2),
-                HEALPixCell(0, 3),
-                HEALPixCell(0, 4),
-                HEALPixCell(0, 5),
-                HEALPixCell(0, 6),
-                HEALPixCell(0, 7),
-                HEALPixCell(0, 8),
-                HEALPixCell(0, 9),
-                HEALPixCell(0, 10),
-                HEALPixCell(0, 11),
-            ],
+            &([
+                (HEALPixCell(0, 0), true),
+                (HEALPixCell(0, 1), true),
+                (HEALPixCell(0, 2), true),
+                (HEALPixCell(0, 3), true),
+                (HEALPixCell(0, 4), true),
+                (HEALPixCell(0, 5), true),
+                (HEALPixCell(0, 6), true),
+                (HEALPixCell(0, 7), true),
+                (HEALPixCell(0, 8), true),
+                (HEALPixCell(0, 9), true),
+                (HEALPixCell(0, 10), true),
+                (HEALPixCell(0, 11), true),
+            ]).iter()
+            .cloned()
+            .collect(),
             // HiPS config infos
             config,
-            // Depth change
-            true,
         );
     }
 
@@ -451,31 +452,38 @@ impl BufferTiles {
         idx_texture
     }
 
-    pub fn request_tiles(&mut self, cells: &Vec<HEALPixCell>, config: &HiPSConfig, depth_changed: bool) {
+    pub fn request_tiles(&mut self, cells: &HashMap<HEALPixCell, bool>, config: &HiPSConfig) {
         // The viewport has changed (moving, zooming, resizing)
         // We will tell the sphere to recompute its vbo.
         self.update_sphere_vbo.set(true);
 
-        for cell in cells.iter() {
-            self.load_tile(cell, config, depth_changed);
+        for (cell, new) in cells.iter() {
+            self.load_tile(cell, config, *new);
         }
     }
 
-    fn load_tile(&mut self, cell: &HEALPixCell, config: &HiPSConfig, depth_changed: bool) {
+    fn load_tile(&mut self,
+        // The HEALPix cell to load. First check whether it is already in the buffer
+        cell: &HEALPixCell,
+        // The HiPS config, referring the name of the HiPS to load, tile size etc, image format...
+        config: &HiPSConfig,
+        // A flag telling whether the HEALPix cell to load is new (i.e. not contained in the previous
+        // field of view).
+        new: bool) {
         let already_loaded = self.heap.borrow().contains(cell);
         let already_requested = self.requested_tiles.borrow().contains(cell);
 
         if already_loaded {
             // If the heap already contain the cell,
             // we update its priority
-            let time_received = //if depth_changed {
-                utils::get_current_time();
-            //} else {
-            //    self.heap.borrow_mut()
-            //        .get(cell)
-            //        .unwrap()
-            //        .time_received
-            //};
+            let time_received = if new {
+                utils::get_current_time()
+            } else {
+                self.heap.borrow_mut()
+                    .get(cell)
+                    .unwrap()
+                    .time_received
+            };
 
             let time_request = utils::get_current_time();
             self.heap.borrow_mut().update_priority(cell, time_request, time_received);
