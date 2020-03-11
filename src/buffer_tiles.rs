@@ -113,6 +113,8 @@ impl HEALPixTexture {
             self.cells.push_back(cell.clone());
             self.idx_texture.insert(cell, idx);
 
+            // TODO: This is too costly. It is possible to do async here???
+            // In particular to prevent blocking
             self.tex_sub_image_2d(texture, idx);
 
             idx
@@ -325,7 +327,7 @@ macro_rules! console_error {
 
 impl BufferTiles {
     pub fn new(gl: &WebGl2Context, config: &HiPSConfig) -> BufferTiles {
-        let heap = Rc::new(RefCell::new(BinaryHeapTiles::new(512)));
+        let heap = Rc::new(RefCell::new(BinaryHeapTiles::new(256)));
         let requested_tiles = Rc::new(RefCell::new(HashSet::with_capacity(NUM_TILES)));
 
         let hpx_texture = Rc::new(RefCell::new(HEALPixTexture::new(gl, config.tile_config.clone())));
@@ -469,7 +471,8 @@ impl BufferTiles {
         config: &HiPSConfig,
         // A flag telling whether the HEALPix cell to load is new (i.e. not contained in the previous
         // field of view).
-        new: bool) {
+        new: bool
+    ) {
         let already_loaded = self.heap.borrow().contains(cell);
         let already_requested = self.requested_tiles.borrow().contains(cell);
 

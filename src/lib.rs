@@ -76,7 +76,7 @@ use crate::renderable::hips_sphere::RenderingMode;
 
 use cgmath::Quaternion;
 
-use crate::finite_state_machine::{UserMoveSphere, FiniteStateMachine};
+use crate::finite_state_machine:: {UserMoveSphere, UserZoom, FiniteStateMachine};
 
 struct App<P>
 where P: Projection {
@@ -96,6 +96,7 @@ where P: Projection {
 
     // Finite State Machine declarations
     user_move_fsm: UserMoveSphere,
+    user_zoom_fsm: UserZoom,
 
     // Animation rotation
     pub animation_request: bool,
@@ -349,7 +350,10 @@ where P: Projection {
 
         let d = Rad(0_f32);
 
+        // Finite State Machines definitions
         let user_move_fsm = UserMoveSphere::init();
+        let user_zoom_fsm = UserZoom::init();
+
         let gl = gl.clone();
         let render = true;
         let app = App {
@@ -369,6 +373,7 @@ where P: Projection {
 
             // Finite state machines,
             user_move_fsm,
+            user_zoom_fsm,
 
             animation_request,
             final_pos,
@@ -395,7 +400,8 @@ where P: Projection {
     ) -> Vector2<Rad<f32>> {
         // Animation request
         let mut hips_sphere_updated = false;
-        if self.animation_request {
+        // Put that in a FSM
+        /*if self.animation_request {
             let mut a = (utils::get_current_time() - self.start_time) / self.animation_duration;
             if a >= 1.0_f32 {
                 a = 1_f32;
@@ -427,10 +433,11 @@ where P: Projection {
 
             // Render the next frame
             self.render = true;
-        }
+        }*/
 
         // Run the Finite State Machines
         self.user_move_fsm.run::<P>(dt, &mut self.hips_sphere, &mut self.catalog, &mut self.grid, &mut self.viewport, &events);
+        self.user_zoom_fsm.run::<P>(dt, &mut self.hips_sphere, &mut self.catalog, &mut self.grid, &mut self.viewport, &events);
 
         // Update the HiPS sphere VAO
         self.hips_sphere.mesh_mut().update::<P>(&self.viewport, &events);
@@ -593,6 +600,7 @@ where P: Projection {
 
             // Finite State Machines
             user_move_fsm: self.user_move_fsm,
+            user_zoom_fsm: self.user_zoom_fsm,
 
             animation_request: self.animation_request,
             final_pos: self.final_pos,
@@ -646,7 +654,7 @@ where P: Projection {
     }
 
     // Returns true if hips_sphere rendering mode has to be changed to the PerPixel mode
-    fn unzoom(&mut self, delta_y: f32, enable_grid: bool) -> bool {
+    /*fn unzoom(&mut self, delta_y: f32, enable_grid: bool) -> bool {
         let a0: Deg<f32> = self.viewport
             .field_of_view()
             .get_aperture()
@@ -663,11 +671,11 @@ where P: Projection {
         self.render = true;
 
         a0 < Deg(80_f32) && a1 >= Deg(80_f32)
-    }
+    }*/
 
     // ZOOM EVENT
     // Returns true if hips_sphere rendering mode has to be changed to the SmallFOV mode
-    fn zoom(&mut self, delta_y: f32, enable_grid: bool) -> bool {
+    /*fn zoom(&mut self, delta_y: f32, enable_grid: bool) -> bool {
         console::log_1(&format!("IAAA").into());
 
         let a0: Deg<f32> = self.viewport
@@ -686,7 +694,7 @@ where P: Projection {
         self.render = true;
 
         a0 >= Deg(80_f32) && a1 < Deg(80_f32)
-    }
+    }*/
 
     fn add_catalog(&mut self, sources: Vec<Source>) {
         let mut catalog_mesh = Catalog::new(&self.gl, sources);
@@ -916,12 +924,10 @@ impl AppConfig {
     }
 
     /// Wheel event
-    pub fn zoom(&mut self, delta_y: f32, enable_grid: bool) {
-        console::log_1(&format!("sdfsdf").into());
+    /*pub fn zoom(&mut self, delta_y: f32, enable_grid: bool) {
         match self {
             AppConfig::Aitoff(ref mut app, _) => {
                 app.zoom(delta_y, enable_grid);
-
             },
             AppConfig::MollWeide(ref mut app, _) => {
                 app.zoom(delta_y, enable_grid);
@@ -942,28 +948,28 @@ impl AppConfig {
             },
             _ => unimplemented!(),
         }
-    }
+    }*/
     /// Wheel event
-    pub fn unzoom(&mut self, delta_y: f32, enable_grid: bool) {
+    /*pub fn unzoom(&mut self, delta_y: f32, enable_grid: bool) {
         match self {
             AppConfig::Aitoff(ref mut app, _) => {
                 app.unzoom(delta_y, enable_grid);
-                //*self = AppConfig::Aitoff(*app, s)
+                // *self = AppConfig::Aitoff(*app, s)
             },
             AppConfig::MollWeide(ref mut app, _) => {
                 app.unzoom(delta_y, enable_grid);
-                //*self = AppConfig::MollWeide(*app, s)
+                // *self = AppConfig::MollWeide(*app, s)
             },
             AppConfig::Arc(ref mut app, _) => {
                 app.unzoom(delta_y, enable_grid);
-                //*self = AppConfig::Arc(*app, s)
+                // *self = AppConfig::Arc(*app, s)
             },
             AppConfig::Mercator(ref mut app, _) => {
                 app.unzoom(delta_y, enable_grid);
-                //*self = AppConfig::Mercator(*app, s)
+                // *self = AppConfig::Mercator(*app, s)
             },
             AppConfig::Ortho(ref mut app, s) => {
-                /**self = if app.unzoom(delta_y, enable_grid) {
+                *self = if app.unzoom(delta_y, enable_grid) {
                     match *s {
                         "aitoff" => AppConfig::Aitoff(app.set_projection::<Aitoff>(events), s),
                         "mollweide" => AppConfig::MollWeide(app.set_projection::<MollWeide>(events), s),
@@ -974,11 +980,11 @@ impl AppConfig {
                     }
                 } else {
                     AppConfig::Ortho(*app, s)
-                }*/
+                }
                 app.unzoom(delta_y, enable_grid);
             }
         }
-    }
+    }*/
 
     pub fn add_catalog(&mut self, data: JsValue) {
         let array: js_sys::Array = data
@@ -1316,18 +1322,17 @@ impl WebClient {
     }
 
     /// Wheel event
-    pub fn wheel_mouse(&mut self, delta_y: f32) -> Result<(), JsValue> {
-        let up = delta_y < 0_f32;
-        let y = delta_y.abs();
+    pub fn wheel_mouse(&mut self, delta_y: i32) -> Result<(), JsValue> {
+        let up = delta_y < 0;
 
         // Wheel mouse up
         if up {
-            self.events.enable::<MouseWheelUp>(y);
-            self.appconfig.zoom(y, self.enable_grid);
+            self.events.enable::<MouseWheelUp>(());
+            //self.appconfig.zoom(y, self.enable_grid);
         // Wheel mouse down
         } else {
-            self.events.enable::<MouseWheelDown>(y);
-            self.appconfig.unzoom(y, self.enable_grid);
+            self.events.enable::<MouseWheelDown>(());
+            //self.appconfig.unzoom(y, self.enable_grid);
         }
 
         Ok(())

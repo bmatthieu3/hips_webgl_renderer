@@ -41,7 +41,7 @@ window.addEventListener('load', function () {
                 }
             });
 
-            const url = 'https://alasky.u-strasbg.fr/MocServer/query?hips_service_url*=*alasky*&&dataproduct_type=image&&hips_tile_format=*png*,*jpg*&get=record&fmt=json';
+            const url = 'https://alasky.u-strasbg.fr/MocServer/query?hips_service_url*=*alasky*&&dataproduct_type=image&&hips_tile_format=*png*,*jpeg*&get=record&fmt=json';
             // Create our request constructor with all the parameters we need
             var request = {
                 method: 'GET',
@@ -389,9 +389,10 @@ window.addEventListener('load', function () {
             // Wheel events
             (() => {
                 let canvas = document.getElementById("canvas");
+                canvas.addEventListener("wheel", (e) => {
+                    let x = e.deltaY > 0 ? 1 : -1;
+                    webClient.wheel_mouse(x);
 
-                canvas.addEventListener("wheel", (evt) => {
-                    webClient.wheel_mouse(evt.deltaY);
                 }, false);
             })();
 

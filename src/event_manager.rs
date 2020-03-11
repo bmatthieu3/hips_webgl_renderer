@@ -10,10 +10,13 @@ pub trait Event {
 pub struct MouseLeftButtonPressed;
 pub struct MouseLeftButtonReleased;
 pub struct MouseMove;
+
+pub const NUM_WHEEL_PER_DEPTH: usize = 3;
 pub struct MouseWheelUp;
 pub struct MouseWheelDown;
 // Keyboard events
 pub struct KeyboardPressed;
+
 
 use cgmath::Vector2;
 impl Event for MouseLeftButtonPressed {
@@ -74,7 +77,7 @@ impl Event for KeyboardPressed {
 }
 
 impl Event for MouseWheelUp {
-    type Data = f32;
+    type Data = ();
     const KEY_NAME: &'static str = "MouseWheelUp";
     
     fn to(data: Self::Data) -> EventType {
@@ -88,11 +91,11 @@ impl Event for MouseWheelUp {
     }
 }
 impl Event for MouseWheelDown {
-    type Data = f32;
+    type Data = ();
     const KEY_NAME: &'static str = "MouseWheelDown";
     
     fn to(data: Self::Data) -> EventType {
-        EventType::MouseWheelDown(data)
+        EventType::MouseWheelDown(())
     }
     fn get(event: &EventType) -> &Self::Data {
         match event {
@@ -107,8 +110,8 @@ enum EventType {
     MouseLeftButtonPressed(Vector2<f32>),
     MouseLeftButtonReleased(Vector2<f32>),
     MouseMove(Vector2<f32>),
-    MouseWheelUp(f32),
-    MouseWheelDown(f32),
+    MouseWheelUp(()),
+    MouseWheelDown(()),
     KeyboardPressed(&'static str),
 }
 

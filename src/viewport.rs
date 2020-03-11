@@ -21,7 +21,7 @@ use cgmath::Vector2;
 pub struct ViewPort {
     fov: FieldOfView,
 
-    wheel_idx: f32,
+    wheel_idx: i32,
     
     pub last_zoom_action: LastZoomAction,
     pub last_action: LastAction,
@@ -47,18 +47,12 @@ use crate::WebGl2Context;
     gl.scissor(xo as i32, yo as i32, size.x as i32, size.y as i32);
 }*/
 
-const NUM_WHEEL_PER_DEPTH: usize = 200;
+
 use cgmath::Deg;
-
-fn fov<P: Projection>(wheel_idx: f32) -> Rad<f32> {
-    let exp = wheel_idx / (NUM_WHEEL_PER_DEPTH as f32);
-    let fov = P::aperture_start() / 2_f32.powf(exp);
-
-    fov.into()
-}
-fn wheel_idx<P: Projection>(fov: Rad<f32>) -> f32 {
+use crate::event_manager::NUM_WHEEL_PER_DEPTH;
+fn wheel_idx<P: Projection>(fov: Rad<f32>) -> i32 {
     let p0: Rad<f32> = P::aperture_start().into();
-    ((p0.0 / fov.0).log2() * (NUM_WHEEL_PER_DEPTH as f32))
+    ((p0.0 / fov.0).log2() * (NUM_WHEEL_PER_DEPTH as f32)) as i32
 }
 
 use crate::renderable::hips_sphere::HiPSSphere;
@@ -75,10 +69,10 @@ impl ViewPort {
         let last_zoom_action = LastZoomAction::Unzoom;
         let last_action = LastAction::Moving;
 
-        let wheel_idx = 0_f32;
+        let wheel_idx = 0;
 
         let max_depth = hips.max_depth;
-        let fov = FieldOfView::new::<P>(gl, fov::<P>(wheel_idx), max_depth);
+        let fov = FieldOfView::new::<P>(gl, P::aperture_start().into(), max_depth);
 
         let viewport = ViewPort {
             fov,
@@ -100,13 +94,13 @@ impl ViewPort {
     }
 
     pub fn reset_zoom_level<P: Projection>(&mut self) {
-        self.wheel_idx = 0_f32;
+        self.wheel_idx = 0;
         // Update the aperture of the Field Of View
-        let aperture = fov::<P>(self.wheel_idx);
+        let aperture: Rad<f32> = P::aperture_start().into();
         self.fov.set_aperture::<P>(aperture, self.max_depth);
     }
 
-    pub fn set_aperture<P: Projection>(&mut self, aperture: Rad<f32>) {
+    fn set_aperture<P: Projection>(&mut self, aperture: Rad<f32>) {
         let aperture = if aperture <= P::aperture_start().into() {
             // Retrieve the wheel idx correponding to the current aperture for the
             // projection
@@ -115,7 +109,7 @@ impl ViewPort {
         } else {
             // The start aperture of the new projection is < to the current aperture
             // We reset the wheel idx too
-            self.wheel_idx = 0_f32;
+            self.wheel_idx = 0;
             P::aperture_start().into()
         };
         // Recompute the depth and field of view
@@ -145,17 +139,13 @@ impl ViewPort {
 
     pub fn zoom<P: Projection>(
         &mut self,
-        delta: f32,
+        aperture: Rad<f32>,
         hips_sphere: &mut Renderable<HiPSSphere>,
         catalog: &mut Renderable<Catalog>,
         grid: &mut Renderable<ProjetedGrid>,
     ) {
         self.last_zoom_action = LastZoomAction::Zoom;
         self.last_action = LastAction::Zooming;
-
-        self.wheel_idx += delta;
-        //self.wheel_idx += 40_f32;
-        let aperture = fov::<P>(self.wheel_idx);
 
         self.fov.set_aperture::<P>(aperture, self.max_depth);
 
@@ -170,7 +160,7 @@ impl ViewPort {
 
     pub fn unzoom<P: Projection>(
         &mut self,
-        delta: f32,
+        aperture: Rad<f32>,
         hips_sphere: &mut Renderable<HiPSSphere>,
         catalog: &mut Renderable<Catalog>,
         grid: &mut Renderable<ProjetedGrid>,
@@ -178,19 +168,8 @@ impl ViewPort {
         self.last_zoom_action = LastZoomAction::Unzoom;
         self.last_action = LastAction::Unzooming;
 
-        if self.wheel_idx > 0_f32 {
-            self.wheel_idx -= delta;
-            //self.wheel_idx -= 40_f32;
-
-            if self.wheel_idx < 0_f32 {
-                self.wheel_idx = 0_f32;
-            }
-            // Update the aperture of the Field Of View
-            let aperture = fov::<P>(self.wheel_idx);
-
-            self.fov.set_aperture::<P>(aperture, self.max_depth);
-        }
-
+        self.fov.set_aperture::<P>(aperture, self.max_depth);
+        
         // Launch the new tile requests
         hips_sphere.mesh_mut().request_tiles(&self);
         // Retrieve the sources in the fov
@@ -221,6 +200,22 @@ impl ViewPort {
         catalog.mesh_mut().retrieve_sources_in_fov::<P>(&self);
         // Reproject the grid
         //grid.mesh_mut().reproject::<P>(hips_sphere, &self);
+    }
+
+    // Called by the FSM when a MouseWheelUp has been detected
+    pub fn up_wheel_idx(&mut self) {
+        self.wheel_idx += 1;
+    }
+
+    // Called by the FSM when a MouseWheelDown has been detected
+    pub fn down_wheel_idx(&mut self) {
+        if self.wheel_idx > 0 {
+            self.wheel_idx -= 1;
+        }
+    }
+
+    pub fn get_wheel_idx(&mut self) -> i32 {
+        self.wheel_idx
     }
 
     pub fn field_of_view(&self) -> &FieldOfView {
