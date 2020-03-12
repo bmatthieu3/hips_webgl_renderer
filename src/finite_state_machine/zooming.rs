@@ -92,7 +92,7 @@ use cgmath::InnerSpace;
 impl Zooming {
     #[inline]
     pub fn w0() -> f32 {
-        15_f32
+        20_f32
     }
 }
 

@@ -295,12 +295,6 @@ fn add_vertices_grid(
                 uv_0[TileCorner::BottomLeft].z
             );
 
-            let uv_0_quad = [
-                uv_s_vertex_0,
-                uv_s_vertex_1,
-                uv_s_vertex_2,
-                uv_s_vertex_3,
-            ];
             let d01e = uv_1[TileCorner::BottomRight].x - uv_1[TileCorner::BottomLeft].x;
             let d02e = uv_1[TileCorner::TopLeft].y - uv_1[TileCorner::BottomLeft].y;
             let uv_e_vertex_0 = Vector3::new(
@@ -323,35 +317,28 @@ fn add_vertices_grid(
                 uv_1[TileCorner::BottomLeft].y + hi3 * d02e,
                 uv_1[TileCorner::BottomLeft].z
             );
-
-            let uv_1_quad = [
-                uv_e_vertex_0,
-                uv_e_vertex_1,
-                uv_e_vertex_2,
-                uv_e_vertex_3,
-            ];
             
-            Vertex::new(&lonlat_quad[0], uv_0_quad[0], uv_1_quad[0], alpha)
+            Vertex::new(&lonlat[id_vertex_0], uv_s_vertex_0, uv_e_vertex_0, alpha)
                 .add_to_vertices(vertices, 12 * (*num_vertices));
             *num_vertices += 1;
 
-            Vertex::new(&lonlat_quad[1], uv_0_quad[1], uv_1_quad[1], alpha)
+            Vertex::new(&lonlat[id_vertex_1], uv_s_vertex_1, uv_e_vertex_1, alpha)
                 .add_to_vertices(vertices, 12 * (*num_vertices));
             *num_vertices += 1;
 
-            Vertex::new(&lonlat_quad[2], uv_0_quad[2], uv_1_quad[2], alpha)
+            Vertex::new(&lonlat[id_vertex_2], uv_s_vertex_2, uv_e_vertex_2, alpha)
                 .add_to_vertices(vertices, 12 * (*num_vertices));
             *num_vertices += 1;
 
-            Vertex::new(&lonlat_quad[1], uv_0_quad[1], uv_1_quad[1], alpha)
+            Vertex::new(&lonlat[id_vertex_1], uv_s_vertex_1, uv_e_vertex_1, alpha)
                 .add_to_vertices(vertices, 12 * (*num_vertices));
             *num_vertices += 1;
 
-            Vertex::new(&lonlat_quad[3], uv_0_quad[3], uv_1_quad[3], alpha)
+            Vertex::new(&lonlat[id_vertex_3], uv_s_vertex_3, uv_e_vertex_3, alpha)
                 .add_to_vertices(vertices, 12 * (*num_vertices));
             *num_vertices += 1;
 
-            Vertex::new(&lonlat_quad[2], uv_0_quad[2], uv_1_quad[2], alpha)
+            Vertex::new(&lonlat[id_vertex_2], uv_s_vertex_2, uv_e_vertex_2, alpha)
                 .add_to_vertices(vertices, 12 * (*num_vertices));
             *num_vertices += 1;
         }
@@ -700,7 +687,6 @@ impl RenderingMode for SmallFieldOfView {
         if !buffer.is_ready() {
             return;
         }
-
         // A tile has been received
         if buffer.is_sphere_vbo_rebuild_necessary() {
             console::log_1(&format!("update vbo").into());
@@ -727,6 +713,7 @@ impl RenderingMode for SmallFieldOfView {
     }
 
     fn send_to_shader(buffer: &BufferTiles, shader: &Shader) {
+        buffer.send_texture_to_gpu();
         buffer.send_texture_to_shader(shader);
     }
 }
