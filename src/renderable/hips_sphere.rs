@@ -144,6 +144,11 @@ impl TileUVW {
     } 
 
     // Search in the buffer the UV of the cell
+    // At this point, cell is in the CPU buffer, but we do not know if the tile is 
+    // in the GPU texture
+    //
+    // We should be able to return the nearest parent cell loaded in the GPU buffer
+    // whilst the needed tile texture is moved into the big GPU textures
     pub fn look(cell: &HEALPixCell, buffer: &mut BufferTiles) -> TileUVW {
         let idx = buffer.get_idx_texture(cell);
         let idx_texture = (idx / NUM_TILES_BY_TEXTURE) as f32;

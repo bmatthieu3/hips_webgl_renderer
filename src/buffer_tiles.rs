@@ -113,48 +113,69 @@ impl HEALPixTexture {
     }
 
     fn insert(&mut self, cell: HEALPixCell, texture: Rc<RefCell<TileTexture>>) -> usize {
-        let idx = if !self.idx_texture.contains_key(&cell) {
-            let idx = if self.cells.len() == NUM_TILES {
-                let lost_cell = self.cells.pop_front().unwrap();
-                self.idx_texture.remove(&lost_cell).unwrap()
-            } else {
-                self.cells.len()
-            };
+        let is_base_cell = cell.0 == 0;
 
-            self.cells.push_back(cell.clone());
-            self.idx_texture.insert(cell, idx);
-
-            // TODO: This is too costly. It is possible to do async here???
-            // In particular to prevent blocking
-            let spawner = self.pool.spawner();
-            spawner.spawn_local(
-                HEALPixTexture::tex_sub_image_2d(
-                    self.config.clone(),
-                    self.textures.clone(),
-                    texture,
-                    idx
-                )
-            ).unwrap();
-
-            //wasm_bindgen_futures::spawn_local(HEALPixTexture::tex_sub_image_2d(self.config.clone(), self.textures.clone(), texture, idx));
-            //console::log_1(&format!("Move to GPU cell {:?}: task: {:?}", cell, task_completed).into());
+        if is_base_cell {
+            let idx = cell.1 as usize;
+            // The base cell is not in the textures (this happens when loading a new HiPS)
+            // or at the beginning of the program execution
+            if !self.idx_texture.contains_key(&cell) {
+                self.idx_texture.insert(cell, idx);
+                
+                // TODO: This is too costly. It is possible to do async here???
+                // In particular to prevent blocking
+                let spawner = self.pool.spawner();
+                spawner.spawn_local(
+                    HEALPixTexture::tex_sub_image_2d(
+                        self.config.clone(),
+                        self.textures.clone(),
+                        texture,
+                        idx
+                    )
+                ).unwrap();
+            }
 
             idx
+        // If the cell is not a base cell
         } else {
-            // Seek the position of the cell in the vecqueue
-            let idx_cell = self.cells.iter().position(|c| *c == cell).unwrap();
-            // Remove it
-            self.cells.remove(idx_cell);
-            // Push it back again
-            self.cells.push_back(cell);
-            // We do not touch the idx_texture hash map
+            let idx = if !self.idx_texture.contains_key(&cell) {
+                let idx = if self.cells.len() == NUM_TILES - 12 {
+                    let lost_cell = self.cells.pop_front().unwrap();
+                    self.idx_texture.remove(&lost_cell).unwrap()
+                } else {
+                    self.cells.len() + 12
+                };
+                self.cells.push_back(cell.clone());
+                self.idx_texture.insert(cell, idx);
 
-            self.idx_texture.get(&cell)
-                .cloned()
-                .unwrap()
-        };
+                // TODO: This is too costly. It is possible to do async here???
+                // In particular to prevent blocking
+                let spawner = self.pool.spawner();
+                spawner.spawn_local(
+                    HEALPixTexture::tex_sub_image_2d(
+                        self.config.clone(),
+                        self.textures.clone(),
+                        texture,
+                        idx
+                    )
+                ).unwrap();
 
-        idx
+                idx
+            } else {
+                // Seek the position of the cell in the vecqueue
+                let idx_cell = self.cells.iter().position(|c| *c == cell).unwrap();
+                // Remove it
+                self.cells.remove(idx_cell);
+                // Push it back again
+                self.cells.push_back(cell);
+                // We do not touch the idx_texture hash map
+
+                self.idx_texture.get(&cell)
+                    .cloned()
+                    .unwrap()
+            };
+            idx
+        }
     }
 
     fn reset(&mut self, gl: &WebGl2Context, config: TileConfig) {

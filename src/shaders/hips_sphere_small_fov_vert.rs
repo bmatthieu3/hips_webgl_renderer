@@ -12,6 +12,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
     out vec3 frag_uv_start;
     out vec3 frag_uv_end;
     out float frag_blending_factor;
+    out vec2 screen_pos;
 
     uniform mat4 model;
     uniform vec2 ndc_to_clip;
@@ -25,9 +26,11 @@ pub static CONTENT: &'static str = r#"#version 300 es
     }
 
     void main() {
+
         vec3 world_pos = vec3(inverse(model) * vec4(position, 1.f));
         gl_Position = vec4(world2screen_orthographic(world_pos) / (ndc_to_clip * clip_zoom_factor), 0.0, 1.0);
 
+        screen_pos = gl_Position.xy;
         frag_uv_start = uv_start;
         frag_uv_end = uv_end;
         frag_blending_factor = min((current_time - time_tile_received) / 500.f, 1.f);

@@ -6,6 +6,7 @@ pub static CONTENT: &'static str = r#"#version 300 es
     in vec3 frag_uv_start;
     in vec3 frag_uv_end;
     in float frag_blending_factor;
+    in vec2 screen_pos;
 
     out vec4 out_frag_color;
 
