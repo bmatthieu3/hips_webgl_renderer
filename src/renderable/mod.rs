@@ -6,6 +6,7 @@ pub mod hips_sphere;
 pub mod projection;
 pub mod grid;
 pub mod catalog;
+pub mod uv;
 
 pub use hips_sphere::HiPSSphere;
 pub use catalog::Catalog;

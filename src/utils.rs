@@ -33,3 +33,14 @@ pub fn nested(cell: &HEALPixCell) -> u64 {
 
     idx << (2*(29 - (depth as i8)))
 }
+
+#[macro_export]
+macro_rules! console_log {
+    ( $( $t:tt )* ) => {
+        web_sys::console::log_1(
+            &js_sys::Array::from(
+                &format!( $( $t )* ).into()
+            )
+        );
+    }
+}

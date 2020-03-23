@@ -15,6 +15,9 @@ macro_rules! print_to_console {
     };
 }
 
+#[macro_use]
+mod utils;
+
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::WebGl2RenderingContext;
@@ -28,7 +31,7 @@ mod finite_state_machine;
 mod viewport;
 mod core;
 mod math;
-mod utils;
+
 mod projeted_grid;
 mod render_next_frame;
 mod field_of_view;

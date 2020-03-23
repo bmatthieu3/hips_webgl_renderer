@@ -68,7 +68,7 @@ pub enum TileTexture {
     Black,
 }
 
-#[derive(Clone)]
+use std::sync::{Arc, Mutex};
 #[derive(Debug)]
 pub struct Tile {
     pub cell: HEALPixCell,
@@ -77,18 +77,16 @@ pub struct Tile {
     pub time_request: f32,
     pub time_received: f32,
 
-    pub texture: Rc<RefCell<TileTexture>>,
+    pub texture: Arc<Mutex<TileTexture>>,
 }
 
 pub const BLENDING_DURATION_MS: f32 = 500_f32;
 
-use std::cell::RefCell;
-use std::rc::Rc;
 impl Tile {
     pub fn new(cell: HEALPixCell,
         time_request: f32,
         time_received: f32,
-        texture: Rc<RefCell<TileTexture>>,
+        texture: Arc<Mutex<TileTexture>>,
     ) -> Tile {
         let (depth, idx) = (cell.0, cell.1);
         let uniq = ((16 << (depth << 1)) | idx) as u32;
@@ -103,6 +101,14 @@ impl Tile {
             texture
         }
     }
+
+    pub fn depth(&self) -> u8 {
+        self.cell.depth()
+    }
+
+    pub fn idx(&self) -> u64 {
+        self.cell.idx()
+    }
 }
 
 impl PartialEq for Tile {
@@ -113,7 +119,6 @@ impl PartialEq for Tile {
 impl Eq for Tile {}
 
 
-use web_sys::console;
 use std::collections::BinaryHeap;
 use std::collections::HashMap;
 // Fixed sized binary heap
@@ -193,16 +198,19 @@ impl BinaryHeapTiles {
         self.tiles.get(cell)
     }
 
+    pub fn get_mut(&mut self, cell: &HEALPixCell) -> Option<&mut Tile> {
+        self.tiles.get_mut(cell)
+    }
+
     // Panic if cell is not in the binary heap
     pub fn update_priority(&mut self, cell: &HEALPixCell, time_request: f32, time_received: f32) {
-        let depth = cell.0;
-        if depth == 0 {
-            return;
-        }
-
         let tile = self.tiles.get_mut(cell).unwrap();
         tile.time_request = time_request;
         tile.time_received = time_received;
+        
+        if cell.depth() == 0 {
+            return;
+        }
 
         self.heap = self.heap.iter()
             // Remove the cell

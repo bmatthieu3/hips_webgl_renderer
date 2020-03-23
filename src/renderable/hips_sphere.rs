@@ -7,7 +7,6 @@ use crate::shader::Shader;
 
 pub const NUM_VERTICES_PER_STEP: usize = 50;
 pub const NUM_STEPS: usize = 20;
-use std::sync::atomic::Ordering;
 
 use crate::buffer_tiles::BufferTiles;
 
@@ -119,124 +118,7 @@ use cgmath::Rad;
 use crate::math;
 use std::mem;
 
-use num::{Float, Zero, One};
-struct UV<T: Float + Zero>([Vector2<T>; 4]);
-impl<T> UV<T>
-where T: Float + Zero {
-    fn empty() -> UV<T> {
-        UV([Vector2::new(T::zero(), T::zero()); 4])
-    }
-
-    // The idx of the tile in the texture
-    fn new(u0: T, v0: T, size: T) -> UV<T> {
-        UV::<T>([
-            Vector2::new(u0, v0),
-            Vector2::new(u0 + size, v0),
-            Vector2::new(u0, v0 + size),
-            Vector2::new(u0 + size, v0 + size)
-        ])
-    }
-}
-struct TileUVW([Vector3<f32>; 4]);
-impl TileUVW {
-    fn empty() -> TileUVW {
-        TileUVW([Vector3::new(0_f32, 0_f32, 0_f32); 4])
-    } 
-
-    // Search in the buffer the UV of the cell
-    // At this point, cell is in the CPU buffer, but we do not know if the tile is 
-    // in the GPU texture
-    //
-    // We should be able to return the nearest parent cell loaded in the GPU buffer
-    // whilst the needed tile texture is moved into the big GPU textures
-    pub fn look(cell: &HEALPixCell, buffer: &mut BufferTiles) -> TileUVW {
-        let idx = buffer.get_idx_texture(cell);
-        let idx_texture = (idx / NUM_TILES_BY_TEXTURE) as f32;
-        let idx_in_texture = idx % NUM_TILES_BY_TEXTURE;
-
-        let idx_row = (idx_in_texture / NUM_CELLS_BY_TEXTURE_SIDE) as f32;
-        let idx_col = (idx_in_texture % NUM_CELLS_BY_TEXTURE_SIDE) as f32;
-
-        let u = idx_col / (NUM_CELLS_BY_TEXTURE_SIDE as f32);
-        let v = idx_row / (NUM_CELLS_BY_TEXTURE_SIDE as f32);
-
-        let ds = 1_f32 / (NUM_CELLS_BY_TEXTURE_SIDE as f32);
-        TileUVW([
-            Vector3::new(u, v, idx_texture),
-            Vector3::new(u + ds, v, idx_texture),
-            Vector3::new(u, v + ds, idx_texture),
-            Vector3::new(u + ds, v + ds, idx_texture)
-        ])
-    }
-
-    // Search in the buffer the UV of the cell in a parent cell
-    fn look_in_parent(cell: &HEALPixCell, parent_cell: &HEALPixCell, buffer: &mut BufferTiles) -> TileUVW {
-        let (depth, idx) = (cell.0, cell.1);
-        let (parent_depth, parent_idx) = (parent_cell.0, parent_cell.1);
-
-        let idx_off = parent_idx << (2*(depth - parent_depth));
-
-        assert!(idx >= idx_off);
-        assert!(depth >= parent_depth);
-        let nside = 1 << (depth - parent_depth);
-
-        let (x, y) = utils::unmortonize(idx - idx_off);
-        assert!(x < nside);
-        assert!(y < nside);
-
-        let parent_idx_tile = buffer.get_idx_texture(parent_cell);
-        let idx_texture = (parent_idx_tile / NUM_TILES_BY_TEXTURE) as f32;
-        let parent_idx_in_texture = parent_idx_tile % NUM_TILES_BY_TEXTURE;
-
-        let parent_idx_row = (parent_idx_in_texture / NUM_CELLS_BY_TEXTURE_SIDE) as f32; // in [0; 7]
-        let parent_idx_col = (parent_idx_in_texture % NUM_CELLS_BY_TEXTURE_SIDE) as f32; // in [0; 7]
-        let u = (parent_idx_col + ((y as f32)/(nside as f32))) / 8_f32;
-        let v = (parent_idx_row + ((x as f32)/(nside as f32))) / 8_f32;
-
-        let ds = 1_f32 / (8_f32 * (nside as f32));
-
-        TileUVW([
-            Vector3::new(u, v, idx_texture),
-            Vector3::new(u + ds, v, idx_texture),
-            Vector3::new(u, v + ds, idx_texture),
-            Vector3::new(u + ds, v + ds, idx_texture)
-        ])
-    }
-}
-
-enum TileCorner {
-    BottomLeft,
-    BottomRight,
-    TopLeft,
-    TopRight,
-}
-use std::ops::Index;
-impl<T> Index<TileCorner> for UV<T>
-where T: Float + Zero {
-    type Output = Vector2<T>;
-
-    fn index(&self, corner: TileCorner) -> &Self::Output {
-        match corner {
-            TileCorner::BottomLeft => &self.0[0],
-            TileCorner::BottomRight => &self.0[1],
-            TileCorner::TopLeft => &self.0[2],
-            TileCorner::TopRight => &self.0[3],
-        }
-    }
-}
-impl Index<TileCorner> for TileUVW {
-    type Output = Vector3<f32>;
-
-    fn index(&self, corner: TileCorner) -> &Self::Output {
-        match corner {
-            TileCorner::BottomLeft => &self.0[0],
-            TileCorner::BottomRight => &self.0[1],
-            TileCorner::TopLeft => &self.0[2],
-            TileCorner::TopRight => &self.0[3],
-        }
-    }
-}
-
+use crate::renderable::uv::{TileUVW, TileCorner};
 fn add_vertices_grid(
     vertices: &mut [f32],
     num_vertices: &mut usize,
@@ -398,36 +280,44 @@ impl UpdateTextureBufferEvent for MouseMove  {
             1
         };
         for cell in cells_fov {
-            let (uv_0, uv_1, time_received) = if let Some(time_received) = buffer.get_time_received(cell) {
-                let parent_cell = get_nearest_parent(cell, buffer);
+            let (uv_0, uv_1, time_received) = if buffer.contains(cell) {
+                let parent_cell = buffer.get_nearest_parent(cell);
+
+                let cell_in_tex = buffer.get_cell_in_texture(cell);
+                let parent_cell_in_tex = buffer.get_cell_in_texture(&parent_cell);
 
                 // look_in_parent can lead to a sub_tex_2d call which
                 // is quite costly!
                 // This checks whether the end of the blending animation is reached
                 // and if so, we can forget about moving the parent tile texture to the
                 // 4096x4096 texture!
-                let uv_0 = if utils::get_current_time() - time_received > 500_f32 {
+                /*let uv_0 = if utils::get_current_time() - cell_in_tex.tile.time_received > 500_f32 {
                     TileUVW::empty()
                 } else {
-                    TileUVW::look_in_parent(cell, &parent_cell, buffer)
-                };
-                
-                let uv_1 = TileUVW::look(cell, buffer);
+                    buffer.get_uvw_in_parent(cell, &parent_cell)
+                };*/
 
+                let uv_0 = TileUVW::new(&cell, &parent_cell_in_tex);
+                let uv_1 = TileUVW::new(cell, &cell_in_tex);
+
+                let time_received = cell_in_tex.time_received;
                 (uv_0, uv_1, time_received)
             } else {
-                let parent_cell = get_nearest_parent(cell, buffer);
-                let grand_parent_cell = get_nearest_parent(&parent_cell, buffer);
+                let parent_cell = buffer.get_nearest_parent(cell);
+                let grand_parent_cell = buffer.get_nearest_parent(&parent_cell);
 
-                let time_received = buffer.get_time_received(&parent_cell).unwrap();
-                
-                let uv_0 = if utils::get_current_time() - time_received > 500_f32 {
+                let parent_cell_in_tex = buffer.get_cell_in_texture(&parent_cell);
+                let grand_parent_cell_in_tex = buffer.get_cell_in_texture(&grand_parent_cell);
+
+                /*let uv_0 = if utils::get_current_time() - time_received > 500_f32 {
                     TileUVW::empty()
                 } else {
-                   TileUVW::look_in_parent(cell, &grand_parent_cell, buffer)
-                };
-                let uv_1 = TileUVW::look_in_parent(cell, &parent_cell, buffer);
+                    buffer.get_uvw_in_parent(cell, &grand_parent_cell)
+                };*/
+                let uv_0 = TileUVW::new(&cell, &grand_parent_cell_in_tex);
+                let uv_1 = TileUVW::new(&cell, &parent_cell_in_tex);
 
+                let time_received = parent_cell_in_tex.time_received;
                 (uv_0, uv_1, time_received)
             };
 
@@ -468,36 +358,44 @@ impl UpdateTextureBufferEvent for MouseWheelUp {
             1
         };
         for cell in cells_fov {
-            let (uv_0, uv_1, time_received) = if let Some(time_received) = buffer.get_time_received(cell) {
-                let parent_cell = get_nearest_parent(cell, buffer);
+            let (uv_0, uv_1, time_received) = if buffer.contains(cell) {
+                let parent_cell = buffer.get_nearest_parent(cell);
+
+                let cell_in_tex = buffer.get_cell_in_texture(cell);
+                let parent_cell_in_tex = buffer.get_cell_in_texture(&parent_cell);
 
                 // look_in_parent can lead to a sub_tex_2d call which
                 // is quite costly!
                 // This checks whether the end of the blending animation is reached
                 // and if so, we can forget about moving the parent tile texture to the
                 // 4096x4096 texture!
-                let uv_0 = if utils::get_current_time() - time_received > 500_f32 {
+                /*let uv_0 = if utils::get_current_time() - cell_in_tex.tile.time_received > 500_f32 {
                     TileUVW::empty()
                 } else {
-                    TileUVW::look_in_parent(cell, &parent_cell, buffer)
-                };
-                
-                let uv_1 = TileUVW::look(cell, buffer);
+                    buffer.get_uvw_in_parent(cell, &parent_cell)
+                };*/
 
+                let uv_0 = TileUVW::new(&cell, &parent_cell_in_tex);
+                let uv_1 = TileUVW::new(cell, &cell_in_tex);
+
+                let time_received = cell_in_tex.time_received;
                 (uv_0, uv_1, time_received)
             } else {
-                let parent_cell = get_nearest_parent(cell, buffer);
-                let grand_parent_cell = get_nearest_parent(&parent_cell, buffer);
+                let parent_cell = buffer.get_nearest_parent(cell);
+                let grand_parent_cell = buffer.get_nearest_parent(&parent_cell);
 
-                let time_received = buffer.get_time_received(&parent_cell).unwrap();
-                
-                let uv_0 = if utils::get_current_time() - time_received > 500_f32 {
+                let parent_cell_in_tex = buffer.get_cell_in_texture(&parent_cell);
+                let grand_parent_cell_in_tex = buffer.get_cell_in_texture(&grand_parent_cell);
+
+                /*let uv_0 = if utils::get_current_time() - time_received > 500_f32 {
                     TileUVW::empty()
                 } else {
-                    TileUVW::look_in_parent(cell, &grand_parent_cell, buffer)
-                };
-                let uv_1 = TileUVW::look_in_parent(cell, &parent_cell, buffer);
+                    buffer.get_uvw_in_parent(cell, &grand_parent_cell)
+                };*/
+                let uv_0 = TileUVW::new(&cell, &grand_parent_cell_in_tex);
+                let uv_1 = TileUVW::new(&cell, &parent_cell_in_tex);
 
+                let time_received = parent_cell_in_tex.time_received;
                 (uv_0, uv_1, time_received)
             };
 
@@ -529,12 +427,9 @@ impl UpdateTextureBufferEvent for MouseWheelDown {
     ) {
         let depth_plus_two = viewport.field_of_view()
             .current_depth() + 2;
-        // Retrieve the cells of depth: depth + 1 that are in the fov
-        //console::log_1(&format!("update vbo2").into());
 
         let cells_fov = viewport.field_of_view()
             .get_cells_in_fov(depth_plus_two);
-            //console::log_1(&format!("update vbo3").into());
 
         let num_subdivision = if depth_plus_two <= 2 {
             1 << (3 - depth_plus_two)
@@ -543,23 +438,38 @@ impl UpdateTextureBufferEvent for MouseWheelDown {
         };
 
         for cell in cells_fov {
-            let parent_cell = HEALPixCell(cell.0 - 1, cell.1 / 4);
-            let grand_parent_cell = HEALPixCell(parent_cell.0 - 1, parent_cell.1 / 4);
+            let parent_cell = cell.parent();
+            let grand_parent_cell = parent_cell.parent();
 
             if buffer.contains(&grand_parent_cell) {
-                let uv_1 = TileUVW::look_in_parent(&cell, &grand_parent_cell, buffer);
-                let time_received = buffer.get_time_received(&grand_parent_cell).unwrap();
+                //let uv_1 = buffer.get_uvw_in_parent(&cell, &grand_parent_cell);
+                //let time_received = buffer.get_time_received(&grand_parent_cell).unwrap();
 
-                let uv_0 = if utils::get_current_time() - time_received > 500_f32 {
-                    TileUVW::empty()
-                } else if buffer.contains(&parent_cell) {
-                    TileUVW::look_in_parent(&cell, &parent_cell, buffer)
-                } else if buffer.contains(&cell) {
-                    TileUVW::look(&cell, buffer)
+                let starting_cell = if buffer.contains(&cell) {
+                    cell
                 } else {
-                    let starting_cell = get_nearest_parent(&grand_parent_cell, buffer);
-                    TileUVW::look_in_parent(&cell, &starting_cell, buffer)
+                    buffer.get_nearest_parent(&cell)
                 };
+                let starting_cell_in_tex = buffer.get_cell_in_texture(&starting_cell);
+                let uv_0 = TileUVW::new(&cell, &starting_cell_in_tex);
+
+                /*let uv_0 = if buffer.contains(&parent_cell) {
+                    let parent_cell_in_tex = buffer.get_cell_in_texture(&parent_cell);
+                    TileUVW::new(&cell, &parent_cell_in_tex)
+                } else if buffer.contains(&cell) {
+                    let cell_in_tex = buffer.get_cell_in_texture(&cell);
+                    TileUVW::new(&cell, &cell_in_tex)
+                } else {
+                    let starting_cell = buffer.get_nearest_parent(&grand_parent_cell);
+
+                    let starting_cell_in_tex = buffer.get_cell_in_texture(&starting_cell);
+                    TileUVW::new(&cell, &starting_cell_in_tex)
+                };*/
+
+                let grand_parent_cell_in_tex = buffer.get_cell_in_texture(&grand_parent_cell);
+                let uv_1 = TileUVW::new(&cell, &grand_parent_cell_in_tex);
+
+                let time_received = grand_parent_cell_in_tex.time_received;
 
                 add_vertices_grid(
                     vertices,
@@ -570,42 +480,42 @@ impl UpdateTextureBufferEvent for MouseWheelDown {
                     time_received
                 );
             } else {
-                let nearest_parent = get_nearest_parent(&grand_parent_cell, buffer);
+                /*let nearest_parent = buffer.get_nearest_parent(&grand_parent_cell);
                 let ending_cell = if buffer.contains(&parent_cell) {
                     parent_cell
                 } else if buffer.contains(&cell) {
                     let d1 = cell.0 - grand_parent_cell.0;
                     let d2 = grand_parent_cell.0 - nearest_parent.0;
 
-                    if d1 < d2 {
+                    //if d1 < d2 {
                         cell
-                    } else {
-                        nearest_parent
-                    }
+                    //} else {
+                    //    nearest_parent
+                    //}
                 } else {
                     nearest_parent
-                };
-
-                let starting_cell = if ending_cell.0 == depth_plus_two - 1 && buffer.contains(&cell) {
+                };*/
+                let ending_cell = if buffer.contains(&cell) {
                     cell
                 } else {
-                    get_nearest_parent(&ending_cell, buffer)
+                    buffer.get_nearest_parent(&cell)
                 };
 
-                let time_received = buffer.get_time_received(&ending_cell).unwrap();
+                /*let starting_cell = if ending_cell.0 == depth_plus_two - 1 && buffer.contains(&cell) {
+                    cell
+                } else {
+                    buffer.get_nearest_parent(&ending_cell)
+                };*/
+                let starting_cell = buffer.get_nearest_parent(&ending_cell);
 
-                let uv_0 = if utils::get_current_time() - time_received > 500_f32 {
-                    TileUVW::empty()
-                } else if cell != starting_cell {
-                    TileUVW::look_in_parent(&cell, &starting_cell, buffer)
-                } else {
-                    TileUVW::look(&cell, buffer)
-                };
-                let uv_1 = if cell != ending_cell {
-                    TileUVW::look_in_parent(&cell, &ending_cell, buffer)
-                } else {
-                    TileUVW::look(&cell, buffer)
-                };
+                let starting_cell_in_tex = buffer.get_cell_in_texture(&starting_cell);
+                let ending_cell_in_tex = buffer.get_cell_in_texture(&ending_cell);
+
+                let time_received = ending_cell_in_tex.time_received;
+
+                let uv_0 = TileUVW::new(&cell, &starting_cell_in_tex);
+                let uv_1 = TileUVW::new(&cell, &ending_cell_in_tex);
+
                 add_vertices_grid(
                     vertices,
                     num_vertices,
@@ -705,20 +615,15 @@ impl RenderingMode for SmallFieldOfView {
             };
             buffer.signals_end_frame();
 
-            /*
-            let data = unsafe {
-                std::mem::transmute::<&[TileVertices; 1000], &[f32; 60000]>(&self.tiles)
-            };
-            */
-
             // Update the buffers
             self.vertex_array_object.bind()
                 .update_array(0, BufferData::SliceData(&self.vertices));
         }
+        //console::log_1(&format!("poll").into());
+        buffer.poll_textures();
     }
 
     fn send_to_shader(buffer: &BufferTiles, shader: &Shader) {
-        buffer.send_texture_to_gpu();
         buffer.send_texture_to_shader(shader);
     }
 }
@@ -979,30 +884,6 @@ use crate::viewport::{LastZoomAction, LastAction};
 
 
 use crate::buffer_tiles::{NUM_TILES_BY_TEXTURE, NUM_CELLS_BY_TEXTURE_SIDE};
-// Get the nearest parent tile found in the buffer of `tile`
-fn get_nearest_parent(cell: &HEALPixCell, buffer: &BufferTiles) -> HEALPixCell {
-    let depth_start = cell.0 as i8;
-    let idx_start = cell.1;
-    if depth_start == 0 {
-        // Base cells are in the buffer by construction
-        return *cell;
-    }
-
-    let (mut depth, mut idx) = (depth_start - 1, idx_start >> 2);
-
-    while depth > 0 {
-        let parent_cell = HEALPixCell(depth as u8, idx);
-        if buffer.contains(&parent_cell) {
-            return parent_cell;
-        }
-
-        depth -= 1;
-        idx = idx >> 2;
-    }
-
-    // Base cells are in the buffer by construction
-    HEALPixCell(depth as u8, idx)
-}
 
 impl Mesh for HiPSSphere {
     fn get_shader<'a>(&self, shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader {
