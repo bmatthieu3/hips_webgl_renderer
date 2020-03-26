@@ -368,18 +368,25 @@ impl ProjetedGrid {
     pub fn reproject<P: Projection>(&mut self, hips_sphere: &Renderable<HiPSSphere>, viewport: &ViewPort) {
         if P::name() != "Orthographic" {
             self.update_grid_positions::<P>(
-                hips_sphere.get_inverted_model_mat(),
+                viewport.get_inverted_model_mat(),
                 viewport,
             );
             self.update_label_positions::<P>(
-                hips_sphere.get_inverted_model_mat(),
+                viewport.get_inverted_model_mat(),
                 viewport
             );
 
             // Update the VAO
             self.vertex_array_object.bind()
-                .update_array(0, BufferData::VecData(&self.pos_clip_space))
-                .update_element_array(BufferData::VecData(&self.idx_vertices));
+                .update_array(
+                    0, 
+                    WebGl2RenderingContext::DYNAMIC_DRAW,
+                    BufferData::VecData(&self.pos_clip_space)
+                )
+                .update_element_array(
+                    WebGl2RenderingContext::DYNAMIC_DRAW,
+                    BufferData::VecData(&self.idx_vertices)
+                );
         }
     }
 
@@ -401,7 +408,7 @@ impl ProjetedGrid {
 
         // Send model matrix
         let model_mat_location = shader.get_uniform_location("model");
-        let model_mat_f32_slice: &[f32; 16] = renderable.model_mat.as_ref();
+        let model_mat_f32_slice: &[f32; 16] = viewport.get_inverted_model_mat().as_ref();
         gl.uniform_matrix4fv_with_f32_array(model_mat_location, false, model_mat_f32_slice);
 
         // Send current time

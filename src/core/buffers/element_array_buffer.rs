@@ -60,7 +60,11 @@ impl<'a> ElementArrayBuffer {
         self.buffer_size
     }
 
-    pub fn update(&mut self, data: BufferData<'a, u16>) {
+    pub fn update(&mut self, usage: u32, data: BufferData<'a, u16>) {
+        self.buffer_size = match &data {
+            BufferData::VecData(data) => data.len(),
+            BufferData::SliceData(data) => data.len()
+        };
         let data: js_sys::Uint16Array = data.try_into().unwrap();
 
         self.gl.buffer_sub_data_with_i32_and_array_buffer_view(

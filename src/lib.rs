@@ -473,7 +473,7 @@ where P: Projection {
         //self.hips_sphere.mesh_mut().update::<P>(&self.viewport);
         // Return the position of the center of the projection
         // to the javascript main code
-        let center_world_pos = self.hips_sphere.compute_center_world_pos::<P>();
+        let center_world_pos = self.viewport.compute_center_world_pos::<P>();
         let (ra, dec) = math::xyzw_to_radec(center_world_pos);
 
         Vector2::new(Rad(ra), Rad(dec))
@@ -546,12 +546,12 @@ where P: Projection {
 
         self.animation_request = true;
         self.final_pos = mat3.into();
-        self.start_pos = self.hips_sphere.get_quat();
+        self.start_pos = self.viewport.get_quat();
 
         self.start_time = utils::get_current_time();
         self.start_aperture = self.viewport.field_of_view().get_aperture().into();
 
-        let start_pos_world = self.hips_sphere.compute_center_world_pos::<P>();
+        let start_pos_world = self.viewport.compute_center_world_pos::<P>();
         let start_pos_world = Vector3::new(start_pos_world.x, start_pos_world.y, start_pos_world.z);
         let end_pos_world = math::radec_to_xyz(ra, dec);
 
@@ -1143,11 +1143,18 @@ pub struct WebClient {
     enable_grid: bool,
 }
 
+use js_sys::WebAssembly;
 #[wasm_bindgen]
 impl WebClient {
     /// Create a new web client
     #[wasm_bindgen(constructor)]
     pub fn new() -> WebClient {
+        let pages = wasm_bindgen::memory()
+            .dyn_into::<WebAssembly::Memory>()
+            .map_err(|_| "Unable to get the WASM memory buffer for storing the vertices data!").unwrap()
+            .grow(20);
+        console::log_1(&format!("num_pages {:?}", pages).into());
+
         let gl = WebGl2Context::new();
         let events = EventManager::new();
 

@@ -526,7 +526,7 @@ impl Catalog{
 
             // Send model matrix
             let model_mat_location = shader.get_uniform_location("model");
-            let model_mat_f32_slice: &[f32; 16] = renderable.model_mat.as_ref();
+            let model_mat_f32_slice: &[f32; 16] = viewport.get_inverted_model_mat().as_ref();
             gl.uniform_matrix4fv_with_f32_array(model_mat_location, false, model_mat_f32_slice);
 
             // Send current time

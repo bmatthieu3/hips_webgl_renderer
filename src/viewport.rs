@@ -27,7 +27,10 @@ pub struct ViewPort {
     pub last_action: LastAction,
 
     // Max depth of the current loaded HiPS
-    max_depth: u8
+    max_depth: u8,
+
+    model_mat: cgmath::Matrix4::<f32>,
+    inverted_model_mat: cgmath::Matrix4<f32>,
 }
 
 use crate::shader::Shader;
@@ -64,6 +67,8 @@ use crate::renderable::grid::ProjetedGrid;
 use crate::projection::Projection;
 
 use crate::buffer_tiles::HiPSConfig;
+use cgmath::{Matrix3, Matrix4, Vector4};
+use cgmath::SquareMatrix;
 impl ViewPort {
     pub fn new<P: Projection>(gl: &WebGl2Context, hips: &HiPSConfig) -> ViewPort {
         let last_zoom_action = LastZoomAction::Unzoom;
@@ -74,6 +79,9 @@ impl ViewPort {
         let max_depth = hips.max_depth;
         let fov = FieldOfView::new::<P>(gl, P::aperture_start().into(), max_depth);
 
+        let model_mat = Matrix4::identity();
+        let inverted_model_mat = model_mat;
+
         let viewport = ViewPort {
             fov,
 
@@ -82,7 +90,11 @@ impl ViewPort {
             last_zoom_action,
             last_action,
 
-            max_depth
+            max_depth,
+
+            // The model matrix of the Renderable
+            model_mat,
+            inverted_model_mat,
         };
 
         viewport
@@ -187,12 +199,11 @@ impl ViewPort {
         self.last_action = LastAction::Moving;
 
         // Translate the Field of View on the HiPS sphere
-        self.fov.set_rotation_mat::<P>(hips_sphere.get_model_mat(), self.max_depth);
+        self.fov.set_rotation_mat::<P>(&self.model_mat, self.max_depth);
 
         // Moves the catalog according to the viewport displacement
-        let inv_model_mat = hips_sphere.get_inverted_model_mat();
         //grid.set_model_mat(inv_model_mat);
-        catalog.set_model_mat(inv_model_mat);
+        //catalog.set_model_mat(&self.inverted_model_mat);
 
         // Launch the new tile requests
         hips_sphere.mesh_mut().request_tiles(&self);
@@ -255,8 +266,49 @@ impl ViewPort {
         gl.uniform1i(last_zoom_action_location, self.last_zoom_action as i32);
     }
 
+    // Viewport model matrices
     pub fn get_window_size(&self) -> Vector2<f32> {
         let (width, height) = self.fov.get_size_screen();
         Vector2::new(width, height)
+    }
+
+    pub fn compute_center_world_pos<P: Projection>(&self) -> Vector4<f32> {
+        let ref model_mat = self.get_model_mat();
+
+        (*model_mat) * P::clip_to_world_space(Vector2::new(0_f32, 0_f32)).unwrap()
+    }
+    pub fn apply_rotation(&mut self, axis: cgmath::Vector3<f32>, angle: cgmath::Rad<f32>) {
+        self.model_mat = cgmath::Matrix4::<f32>::from_axis_angle(axis, angle) * self.model_mat;
+        self.inverted_model_mat = self.model_mat.invert().unwrap();
+    }
+    pub fn apply_quarternion_rotation(&mut self, q: &cgmath::Quaternion<f32>) {
+        let drot: Matrix4<f32> = (*q).into();
+        
+        self.model_mat = drot * self.model_mat;
+        self.inverted_model_mat = self.model_mat.invert().unwrap();
+    }
+    pub fn set_model_mat(&mut self, model_mat: &cgmath::Matrix4<f32>) {
+        self.model_mat = *model_mat;
+        self.inverted_model_mat = self.model_mat.invert().unwrap();
+    }
+
+    pub fn get_model_mat(&self) -> &cgmath::Matrix4<f32> {
+        return &self.model_mat; 
+    }
+    pub fn get_quat(&self) -> cgmath::Quaternion<f32> {
+        // Extract a 3x3 matrix from the model 4x4 matrix
+        let v: [[f32; 4]; 4] = self.model_mat.into();
+
+        let mat3 = Matrix3::new(
+            v[0][0], v[0][1], v[0][2],
+            v[1][0], v[1][1], v[1][2],
+            v[2][0], v[2][1], v[2][2]
+        );
+
+        mat3.into()
+    }
+
+    pub fn get_inverted_model_mat(&self) -> &cgmath::Matrix4<f32> {
+        return &self.inverted_model_mat;
     }
 }

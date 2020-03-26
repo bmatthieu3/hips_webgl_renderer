@@ -18,7 +18,7 @@ pub trait VertexAttribPointerType: std::marker::Sized {
     /// Pass the vertices data to the buffer
     fn buffer_data_with_array_buffer_view<'a>(gl: &WebGl2Context, data: BufferData<'a, Self>, usage: u32);
     
-    fn update<'a>(gl: &WebGl2Context, data: BufferData<'a, Self>);
+    fn update<'a>(gl: &WebGl2Context, usage: u32, data: BufferData<'a, Self>);
 
     // Initialize the VBO
     fn initialize_buffer<'a>(
@@ -49,7 +49,7 @@ pub trait VertexAttribPointerType: std::marker::Sized {
 }
 
 impl VertexAttribPointerType for u8 {
-    fn update<'a>(gl: &WebGl2Context, data: BufferData<'a, Self>) {
+    fn update<'a>(gl: &WebGl2Context, usage: u32, data: BufferData<'a, Self>) {
         let data: js_sys::Uint8Array = data.try_into().unwrap();
         
         gl.buffer_sub_data_with_i32_and_array_buffer_view(
@@ -57,6 +57,12 @@ impl VertexAttribPointerType for u8 {
             0,
             &data,
         );
+        /*let data: js_sys::Uint8Array = data.try_into().unwrap();
+        gl.buffer_data_with_array_buffer_view(
+            WebGl2RenderingContext::ARRAY_BUFFER,
+            &data,
+            usage,
+        );*/
     }
 
     fn buffer_data_with_array_buffer_view<'a>(gl: &WebGl2Context, data: BufferData<'a, Self>, usage: u32) {
@@ -75,7 +81,7 @@ impl VertexAttribPointerType for u8 {
 }
 
 impl VertexAttribPointerType for u16 {
-    fn update<'a>(gl: &WebGl2Context, data: BufferData<'a, Self>) {
+    fn update<'a>(gl: &WebGl2Context, usage: u32, data: BufferData<'a, Self>) {
         let data: js_sys::Uint16Array = data.try_into().unwrap();
         
         gl.buffer_sub_data_with_i32_and_array_buffer_view(
@@ -83,6 +89,12 @@ impl VertexAttribPointerType for u16 {
             0,
             &data,
         );
+        /*let data: js_sys::Uint16Array = data.try_into().unwrap();
+        gl.buffer_data_with_array_buffer_view(
+            WebGl2RenderingContext::ARRAY_BUFFER,
+            &data,
+            usage,
+        );*/
     }
 
     fn buffer_data_with_array_buffer_view<'a>(gl: &WebGl2Context, data: BufferData<'a, Self>, usage: u32) {
@@ -101,7 +113,7 @@ impl VertexAttribPointerType for u16 {
 }
 
 impl VertexAttribPointerType for u32 {
-    fn update<'a>(gl: &WebGl2Context, data: BufferData<'a, Self>) {
+    fn update<'a>(gl: &WebGl2Context, usage: u32, data: BufferData<'a, Self>) {
         let data: js_sys::Uint32Array = data.try_into().unwrap();
         
         gl.buffer_sub_data_with_i32_and_array_buffer_view(
@@ -109,6 +121,12 @@ impl VertexAttribPointerType for u32 {
             0,
             &data,
         );
+        /*let data: js_sys::Uint32Array = data.try_into().unwrap();
+        gl.buffer_data_with_array_buffer_view(
+            WebGl2RenderingContext::ARRAY_BUFFER,
+            &data,
+            usage,
+        );*/
     }
 
     fn buffer_data_with_array_buffer_view<'a>(gl: &WebGl2Context, data: BufferData<'a, Self>, usage: u32) {
@@ -127,7 +145,7 @@ impl VertexAttribPointerType for u32 {
 }
 
 impl VertexAttribPointerType for i32 {
-    fn update<'a>(gl: &WebGl2Context, data: BufferData<'a, Self>) {
+    fn update<'a>(gl: &WebGl2Context, usage: u32, data: BufferData<'a, Self>) {
         let data: js_sys::Int32Array = data.try_into().unwrap();
         
         gl.buffer_sub_data_with_i32_and_array_buffer_view(
@@ -135,6 +153,12 @@ impl VertexAttribPointerType for i32 {
             0,
             &data,
         );
+        /*let data: js_sys::Int32Array = data.try_into().unwrap();
+        gl.buffer_data_with_array_buffer_view(
+            WebGl2RenderingContext::ARRAY_BUFFER,
+            &data,
+            usage,
+        );*/
     }
 
     fn buffer_data_with_array_buffer_view<'a>(gl: &WebGl2Context, data: BufferData<'a, Self>, usage: u32) {
@@ -153,7 +177,7 @@ impl VertexAttribPointerType for i32 {
 }
 
 impl VertexAttribPointerType for f32 {
-    fn update<'a>(gl: &WebGl2Context, data: BufferData<'a, Self>) {
+    fn update<'a>(gl: &WebGl2Context, usage: u32, data: BufferData<'a, Self>) {
         let data: js_sys::Float32Array = data.try_into().unwrap();
         
         gl.buffer_sub_data_with_i32_and_array_buffer_view(
@@ -161,6 +185,12 @@ impl VertexAttribPointerType for f32 {
             0,
             &data,
         );
+        /*let data: js_sys::Float32Array = data.try_into().unwrap();
+        gl.buffer_data_with_array_buffer_view(
+            WebGl2RenderingContext::ARRAY_BUFFER,
+            &data,
+            usage,
+        );*/
     }
 
     fn buffer_data_with_array_buffer_view<'a>(gl: &WebGl2Context, data: BufferData<'a, Self>, usage: u32) {
@@ -212,9 +242,9 @@ impl ArrayBuffer {
         }
     }
 
-    pub fn update<T: VertexAttribPointerType>(&self, data: BufferData<T>) {
+    pub fn update<T: VertexAttribPointerType>(&self, usage: u32, data: BufferData<T>) {
         self.bind();
-        T::update(&self.gl, data);
+        T::update(&self.gl, usage, data);
     }
 }
 

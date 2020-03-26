@@ -138,13 +138,13 @@ impl<'a> VertexArrayObjectBound<'a> {
         self
     }
 
-    pub fn update_array<T: VertexAttribPointerType>(&mut self, idx: usize, array_data: BufferData<'a, T>) -> &mut Self {
-        self.vao.array_buffer[idx].update(array_data);
+    pub fn update_array<T: VertexAttribPointerType>(&mut self, idx: usize, usage: u32, array_data: BufferData<'a, T>) -> &mut Self {
+        self.vao.array_buffer[idx].update(usage, array_data);
         self
     }
-    pub fn update_element_array(&mut self, element_data: BufferData<'a, u16>) -> &mut Self {
+    pub fn update_element_array(&mut self, usage: u32, element_data: BufferData<'a, u16>) -> &mut Self {
         if let Some(ref mut element_array_buffer) = self.vao.element_array_buffer {
-            element_array_buffer.update(element_data);
+            element_array_buffer.update(usage, element_data);
         }
         self
     }

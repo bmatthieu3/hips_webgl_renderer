@@ -69,7 +69,7 @@ fn move_renderables<P: Projection>(
  // Viewport
  viewport: &mut ViewPort,
 ) -> (Vector3<f32>, Rad<f32>) {
-    let model_mat = sphere.get_model_mat();
+    let model_mat = viewport.get_model_mat();
 
     let x = (model_mat * x).truncate();
     let y = (model_mat * y).truncate();
@@ -78,7 +78,7 @@ fn move_renderables<P: Projection>(
         .normalize();
     let d = math::angular_distance_xyz(x, y);
 
-    sphere.apply_rotation(-axis, d);
+    viewport.apply_rotation(-axis, d);
 
     // Update all the renderables
     viewport.displacement::<P>(sphere, catalog, grid);
