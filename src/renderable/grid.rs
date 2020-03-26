@@ -5,7 +5,7 @@ use crate::core::{
 
 const NUM_POINTS: usize = 40;
 
-use crate::renderable::Mesh;
+use crate::renderable::Renderable;
 use web_sys::WebGl2RenderingContext;
 
 use crate::color::Color;
@@ -109,7 +109,9 @@ impl ProjetedGrid {
         step_lon: cgmath::Rad<f32>,
         lat_bound: Option<Vector2<Rad<f32>>>,
         lon_bound: Option<Vector2<Rad<f32>>>,
-        viewport: &ViewPort) -> ProjetedGrid {
+        viewport: &ViewPort,
+        shaders: &HashMap<&'static str, Shader>
+    ) -> ProjetedGrid {
         let (lat_min, lat_max) = if let Some(lat_bound) = lat_bound {
             (lat_bound.x.0, lat_bound.y.0)
         } else {
@@ -244,6 +246,7 @@ impl ProjetedGrid {
         grid.update_grid_positions::<P>(&cgmath::Matrix4::identity(), viewport);
         grid.update_label_positions::<P>(&cgmath::Matrix4::identity(), viewport);
 
+        grid.create_buffers(gl, shaders);
         grid
     }
 
@@ -365,7 +368,7 @@ impl ProjetedGrid {
         gl.uniform4f(location_color, self.color.red, self.color.green, self.color.blue, self.color.alpha);
     }
 
-    pub fn reproject<P: Projection>(&mut self, hips_sphere: &Renderable<HiPSSphere>, viewport: &ViewPort) {
+    pub fn reproject<P: Projection>(&mut self, viewport: &ViewPort) {
         if P::name() != "Orthographic" {
             self.update_grid_positions::<P>(
                 viewport.get_inverted_model_mat(),
@@ -390,10 +393,9 @@ impl ProjetedGrid {
         }
     }
 
-    pub fn draw<T: Mesh + DisableDrawing>(
+    pub fn draw(
         &self,
         gl: &WebGl2Context,
-        renderable: &Renderable<T>,
         shaders: &HashMap<&'static str, Shader>,
         viewport: &ViewPort
     ) {
@@ -427,13 +429,15 @@ impl ProjetedGrid {
 use crate::WebGl2Context;
 use cgmath::Matrix4;
 
-use crate::renderable::Renderable;
 use crate::utils;
 use std::collections::HashMap;
-impl Mesh for ProjetedGrid {
-    fn create_buffers(&mut self, gl: &WebGl2Context) {
+impl Renderable for ProjetedGrid {
+    fn create_buffers(&mut self, gl: &WebGl2Context, shaders: &HashMap<&'static str, Shader>) {
         let ref vertices_data = self.pos_clip_space;
         let ref idx_data = self.idx_vertices;
+
+        let shader = &shaders["grid"];
+        shader.bind(gl);
 
         self.vertex_array_object.bind()
             // Store the vertex positions
@@ -453,9 +457,9 @@ impl Mesh for ProjetedGrid {
             .unbind();
     }
 
-    fn get_shader<'a>(&self, shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader {
+    /*fn get_shader<'a>(&self, shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader {
         &shaders["grid"]
-    }
+    }*/
 }
 
 use crate::renderable::DisableDrawing;

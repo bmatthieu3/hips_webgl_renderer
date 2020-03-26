@@ -2,7 +2,7 @@ use web_sys::console;
 
 use web_sys::WebGl2RenderingContext;
 
-use crate::renderable::Mesh;
+use crate::renderable::Renderable;
 use crate::shader::Shader;
 
 pub const NUM_VERTICES_PER_STEP: usize = 50;
@@ -28,7 +28,7 @@ use crate::WebGl2Context;
 use crate::projection::Projection;
 use crate::event_manager::EventManager;
 pub trait RenderingMode {
-    fn new(gl: &WebGl2Context, viewport: &ViewPort) -> Self;
+    fn new<P: Projection>(gl: &WebGl2Context, viewport: &ViewPort, shaders: &HashMap<&'static str, Shader>) -> Self;
 
     fn update<P: Projection>(
         &mut self,
@@ -111,18 +111,6 @@ impl Vertex {
 struct TileVertices([Vertex; 6]);
 
 
-use crate::healpix_cell::SphereSubdivided;
-pub struct SmallFieldOfView {
-    vertices: [f32; 60000],
-    idx_vertices: [u16; 20000],
-    //num_vertices: usize,
-    num_idx: u16,
-
-    sphere_sub: SphereSubdivided,
-
-    vertex_array_object: VertexArrayObject,
-}
-
 use cgmath::Rad;
 use crate::math;
 use std::mem;
@@ -178,21 +166,9 @@ fn add_vertices_grid(
     for i in 0..n_vertices_per_segment {
         for j in 0..n_vertices_per_segment {
             let id_vertex_0 = (j + i * n_vertices_per_segment) as usize;
-            /*let id_vertex_1 = (j + 1 + i * n_segments) as usize;
-            let id_vertex_2 = (j + (i + 1) * n_segments) as usize;
-            let id_vertex_3 = (j + 1 + (i + 1) * n_segments) as usize;*/
 
             let hj0 = (j as f32) / (n_segments as f32);
             let hi0 = (i as f32) / (n_segments as f32);
-
-            /*let hj1 = ((j + 1) as f32) / (n_segments as f32);
-            let hi1 = (i as f32) / (n_segments as f32);
-
-            let hj2 = (j as f32) / (n_segments as f32);
-            let hi2 = ((i + 1) as f32) / (n_segments as f32);
-
-            let hj3 = ((j + 1) as f32) / (n_segments as f32);
-            let hi3 = ((i + 1) as f32) / (n_segments as f32);*/
 
             let d01s = uv_0[TileCorner::BottomRight].x - uv_0[TileCorner::BottomLeft].x;
             let d02s = uv_0[TileCorner::TopLeft].y - uv_0[TileCorner::BottomLeft].y;
@@ -202,21 +178,6 @@ fn add_vertices_grid(
                 uv_0[TileCorner::BottomLeft].y + hi0 * d02s,
                 uv_0[TileCorner::BottomLeft].z
             );
-            /*let uv_s_vertex_1 = Vector3::new(
-                uv_0[TileCorner::BottomLeft].x + hj1 * d01s,
-                uv_0[TileCorner::BottomLeft].y + hi1 * d02s,
-                uv_0[TileCorner::BottomLeft].z
-            );
-            let uv_s_vertex_2 = Vector3::new(
-                uv_0[TileCorner::BottomLeft].x + hj2 * d01s,
-                uv_0[TileCorner::BottomLeft].y + hi2 * d02s,
-                uv_0[TileCorner::BottomLeft].z
-            );
-            let uv_s_vertex_3 = Vector3::new(
-                uv_0[TileCorner::BottomLeft].x + hj3 * d01s,
-                uv_0[TileCorner::BottomLeft].y + hi3 * d02s,
-                uv_0[TileCorner::BottomLeft].z
-            );*/
 
             let d01e = uv_1[TileCorner::BottomRight].x - uv_1[TileCorner::BottomLeft].x;
             let d02e = uv_1[TileCorner::TopLeft].y - uv_1[TileCorner::BottomLeft].y;
@@ -225,49 +186,12 @@ fn add_vertices_grid(
                 uv_1[TileCorner::BottomLeft].y + hi0 * d02e,
                 uv_1[TileCorner::BottomLeft].z
             );
-            /*let uv_e_vertex_1 = Vector3::new(
-                uv_1[TileCorner::BottomLeft].x + hj1 * d01e,
-                uv_1[TileCorner::BottomLeft].y + hi1 * d02e,
-                uv_1[TileCorner::BottomLeft].z
-            );
-            let uv_e_vertex_2 = Vector3::new(
-                uv_1[TileCorner::BottomLeft].x + hj2 * d01e,
-                uv_1[TileCorner::BottomLeft].y + hi2 * d02e,
-                uv_1[TileCorner::BottomLeft].z
-            );
-            let uv_e_vertex_3 = Vector3::new(
-                uv_1[TileCorner::BottomLeft].x + hj3 * d01e,
-                uv_1[TileCorner::BottomLeft].y + hi3 * d02e,
-                uv_1[TileCorner::BottomLeft].z
-            );*/
-            
-            //console::log_1(&format!("num vertices {:?}", *num_vertices).into());
+
             Vertex::new(&lonlat[id_vertex_0], uv_s_vertex_0, uv_e_vertex_0, alpha)
                 .add_to_vertices(vertices, 12 * (*num_vertices));
             *num_vertices += 1;
-
-            /*Vertex::new(&lonlat[id_vertex_1], uv_s_vertex_1, uv_e_vertex_1, alpha)
-                .add_to_vertices(vertices, 12 * (*num_vertices));
-            *num_vertices += 1;
-
-            Vertex::new(&lonlat[id_vertex_2], uv_s_vertex_2, uv_e_vertex_2, alpha)
-                .add_to_vertices(vertices, 12 * (*num_vertices));
-            *num_vertices += 1;
-
-            Vertex::new(&lonlat[id_vertex_1], uv_s_vertex_1, uv_e_vertex_1, alpha)
-                .add_to_vertices(vertices, 12 * (*num_vertices));
-            *num_vertices += 1;
-
-            Vertex::new(&lonlat[id_vertex_3], uv_s_vertex_3, uv_e_vertex_3, alpha)
-                .add_to_vertices(vertices, 12 * (*num_vertices));
-            *num_vertices += 1;
-
-            Vertex::new(&lonlat[id_vertex_2], uv_s_vertex_2, uv_e_vertex_2, alpha)
-                .add_to_vertices(vertices, 12 * (*num_vertices));
-            *num_vertices += 1;*/
         }
     }
-
 
     let mut k = *num_idx as usize;
     for i in 0..n_segments {
@@ -288,9 +212,6 @@ fn add_vertices_grid(
         }
     }
     *num_idx = k as u16;
-    /*console::log_1(&format!("{:?}", vertices).into());
-    console::log_1(&format!("{:?}", idx_vertices).into());
-    unreachable!();*/
 }
 
 use crate::event_manager::Event;
@@ -369,8 +290,6 @@ impl UpdateTextureBufferEvent for MouseMove  {
                 (uv_0, uv_1, time_received)
             };
 
-            //console_log!("num vertices {:?}", num_vertices);
-            //console_log!("num idx {:?}", num_idx);
             add_cell_vertices::<P, Self>(
                 sphere_sub,
                 vertices,
@@ -455,6 +374,7 @@ impl UpdateTextureBufferEvent for MouseWheelUp {
             );
         }
     }
+
     fn num_subdivision<P: Projection>(cell: &HEALPixCell, sphere_sub: &SphereSubdivided, viewport: &ViewPort) -> u8 {
         sphere_sub.get_num_subdivide::<P>(cell, viewport, cell.depth())
     }
@@ -534,6 +454,7 @@ impl UpdateTextureBufferEvent for MouseWheelDown {
             );
         }
     }
+
     fn num_subdivision<P: Projection>(cell: &HEALPixCell, sphere_sub: &SphereSubdivided, viewport: &ViewPort) -> u8 {
         let num_subdivision = sphere_sub.get_num_subdivide::<P>(cell, viewport, cell.depth());
         if num_subdivision <= 2 {
@@ -544,7 +465,18 @@ impl UpdateTextureBufferEvent for MouseWheelDown {
     }
 }
 
-impl SmallFieldOfView {
+use crate::healpix_cell::SphereSubdivided;
+pub struct Rasterization {
+    vertices: [f32; 60000],
+    idx_vertices: [u16; 20000],
+    //num_vertices: usize,
+    num_idx: u16,
+
+    sphere_sub: SphereSubdivided,
+
+    vertex_array_object: VertexArrayObject,
+}
+impl Rasterization {
     fn define_needed_hpx_cells<T: UpdateTextureBufferEvent, P: Projection>(
         &mut self,
         // The buffer that will be modified due to the need of specific tile textures by the GPU
@@ -556,17 +488,18 @@ impl SmallFieldOfView {
         let mut num_vertices = 0;
         self.num_idx = 0;
         T::update_texture_buffer::<P>(&self.sphere_sub, &mut self.vertices, &mut self.idx_vertices, &mut num_vertices, &mut self.num_idx, buffer, viewport);
-        //console_log!("num vertices {:?}", num_vertices);
-        //console_log!("num idx {:?}", self.num_idx);
     }
 }
 
-impl RenderingMode for SmallFieldOfView {
-    fn new(gl: &WebGl2Context, viewport: &ViewPort) -> SmallFieldOfView {
+impl RenderingMode for Rasterization {
+    fn new<P: Projection>(gl: &WebGl2Context, viewport: &ViewPort, shaders: &HashMap<&'static str, Shader>) -> Rasterization {
         // Initialise the buffer of 
         let vertices = [0_f32; 60000];
         let idx_vertices = [0_u16; 20000]; // Limited to 5000 distincts vertices
         let mut vertex_array_object = VertexArrayObject::new(gl);
+
+        let shader = Self::get_shader(shaders);
+        shader.bind(gl);
 
         // VAO for the orthographic projection and small fovs on 2D projections
         vertex_array_object.bind()
@@ -592,16 +525,12 @@ impl RenderingMode for SmallFieldOfView {
             // Unbind the buffer
             .unbind();
 
-        let num_idx = 20000;
-
-
         let sphere_sub = SphereSubdivided::new();
-        SmallFieldOfView {
+        Rasterization {
             vertices,
             idx_vertices,
 
-            //num_vertices,
-            num_idx,
+            num_idx: idx_vertices.len() as u16,
             sphere_sub,
 
             vertex_array_object,
@@ -614,11 +543,6 @@ impl RenderingMode for SmallFieldOfView {
 
     fn draw(&self, gl: &WebGl2Context, shader: &Shader) {
         self.vertex_array_object.bind_ref();
-        /*gl.draw_arrays(
-            WebGl2RenderingContext::TRIANGLES,
-            0,
-            self.num_vertices as i32,
-        );*/
         gl.draw_elements_with_i32(
             //WebGl2RenderingContext::LINES,
             WebGl2RenderingContext::TRIANGLES,
@@ -648,9 +572,6 @@ impl RenderingMode for SmallFieldOfView {
             };
             buffer.signals_end_frame();
 
-            /*// Update the buffers
-            self.vertex_array_object.bind()
-                .update_array(0, BufferData::SliceData(&self.vertices));*/
             // Update the VAO
             self.vertex_array_object.bind()
                 .update_array(
@@ -672,14 +593,12 @@ impl RenderingMode for SmallFieldOfView {
     }
 }
 
-pub struct PerPixel<P> where P: Projection {
+pub struct RayTracing {
     vertex_array_object: VertexArrayObject,
-
-    projection: std::marker::PhantomData<P>
 }
 
-impl<P> PerPixel<P> where P: Projection {
-    fn create_vertices_array(gl: &WebGl2Context, viewport: &ViewPort) -> (Vec<f32>, Vec<u16>) {
+impl RayTracing {
+    fn create_vertices_array<P: Projection>(gl: &WebGl2Context, viewport: &ViewPort) -> (Vec<f32>, Vec<u16>) {
         let (vertex_screen_space_positions, indices) = <P>::build_screen_map(viewport);
 
         let vertices_data = vertex_screen_space_positions
@@ -698,10 +617,12 @@ impl<P> PerPixel<P> where P: Projection {
     }
 }
 
-impl<P> RenderingMode for PerPixel<P> where P: Projection {
-    fn new(gl: &WebGl2Context, viewport: &ViewPort) -> PerPixel<P> {
-        let (vertices, idx) = Self::create_vertices_array(gl, viewport);
-        //let idx = Self::create_index_array().unwrap();
+impl RenderingMode for RayTracing {
+    fn new<P: Projection>(gl: &WebGl2Context, viewport: &ViewPort, shaders: &HashMap<&'static str, Shader>) -> RayTracing {
+        let (vertices, idx) = Self::create_vertices_array::<P>(gl, viewport);
+
+        let shader = Self::get_shader(shaders);
+        shader.bind(gl);
 
         let mut vertex_array_object = VertexArrayObject::new(gl);
         // VAO for per-pixel computation mode (only in case of large fovs and 2D projections)
@@ -722,10 +643,8 @@ impl<P> RenderingMode for PerPixel<P> where P: Projection {
             // Unbind the buffer
             .unbind();
 
-        PerPixel::<P> {
+        RayTracing {
             vertex_array_object,
-
-            projection: std::marker::PhantomData
         }
     }
 
@@ -765,11 +684,12 @@ pub struct HiPSSphere {
     // * Sending them to the GPU
     buffer: BufferTiles,
 
-    ortho: SmallFieldOfView,
-    aitoff_perpixel: PerPixel<Aitoff>,
-    moll_perpixel: PerPixel<MollWeide>,
-    arc_perpixel: PerPixel<AzimutalEquidistant>,
-    mercator_perpixel: PerPixel<Mercator>,
+    raster: Rasterization,
+    
+    aitoff_perpixel: RayTracing,
+    moll_perpixel: RayTracing,
+    arc_perpixel: RayTracing,
+    mercator_perpixel: RayTracing,
 
     gl: WebGl2Context,
 
@@ -778,16 +698,16 @@ pub struct HiPSSphere {
 
 use crate::buffer_tiles::HiPSConfig;
 impl HiPSSphere {
-    pub fn new(gl: &WebGl2Context, viewport: &ViewPort, config: HiPSConfig) -> HiPSSphere {
+    pub fn new(gl: &WebGl2Context, viewport: &ViewPort, config: HiPSConfig, shaders: &HashMap<&'static str, Shader>) -> Self {
         let buffer = BufferTiles::new(gl, &config);
-
         let gl = gl.clone();
 
-        let ortho = SmallFieldOfView::new(&gl, &viewport);
-        let aitoff_perpixel = PerPixel::<Aitoff>::new(&gl, &viewport);
-        let moll_perpixel = PerPixel::<MollWeide>::new(&gl, &viewport);
-        let arc_perpixel = PerPixel::<AzimutalEquidistant>::new(&gl, &viewport);
-        let mercator_perpixel = PerPixel::<Mercator>::new(&gl, &viewport);
+        let raster = Rasterization::new::<Orthographic>(&gl, viewport, shaders);
+
+        let aitoff_perpixel = RayTracing::new::<Aitoff>(&gl, viewport, shaders);
+        let moll_perpixel = RayTracing::new::<MollWeide>(&gl, viewport, shaders);
+        let arc_perpixel = RayTracing::new::<AzimutalEquidistant>(&gl, viewport, shaders);
+        let mercator_perpixel = RayTracing::new::<Mercator>(&gl, viewport, shaders);
 
         let depth = 0;
 
@@ -795,7 +715,8 @@ impl HiPSSphere {
             config,
             buffer,
 
-            ortho,
+            raster,
+
             aitoff_perpixel,
             moll_perpixel,
             arc_perpixel,
@@ -818,9 +739,9 @@ impl HiPSSphere {
         self.request_tiles(viewport);
     }
 
-    fn send_global_uniforms<T: Mesh + DisableDrawing>(&self, gl: &WebGl2Context, shader: &Shader, viewport: &ViewPort, renderable: &Renderable<T>) {
+    fn send_global_uniforms(&self, gl: &WebGl2Context, shader: &Shader, viewport: &ViewPort) {
         // TEXTURES TILES BUFFER
-        SmallFieldOfView::send_to_shader(&self.buffer, shader);
+        Rasterization::send_to_shader(&self.buffer, shader);
         
         // Send viewport uniforms
         viewport.send_to_vertex_shader(gl, shader);
@@ -858,7 +779,7 @@ impl HiPSSphere {
         match P::name() {
             "Orthographic" => {
                 // Ortho mode
-                self.ortho.update::<P>(
+                self.raster.update::<P>(
                     &mut self.buffer,
                     viewport,
                     events
@@ -868,50 +789,49 @@ impl HiPSSphere {
         }
     }
 
-    pub fn draw<T: Mesh + DisableDrawing, P: Projection>(
+    pub fn draw<P: Projection>(
         &self,
         gl: &WebGl2Context,
-        renderable: &Renderable<T>,
         shaders: &HashMap<&'static str, Shader>,
         viewport: &ViewPort,
     ) {
         // Big field of view, check the projections
         match P::name() {
             "Aitoff" => {
-                let shader = PerPixel::<P>::get_shader(shaders); // TODO: The same shader for all projection
+                let shader = RayTracing::get_shader(shaders); // TODO: The same shader for all projection
                 shader.bind(gl);
 
-                self.send_global_uniforms(gl, shader, viewport, renderable);
+                self.send_global_uniforms(gl, shader, viewport);
                 self.aitoff_perpixel.draw(gl, shader)
             },
             "MollWeide" => {
-                let shader = PerPixel::<P>::get_shader(shaders); // TODO: The same shader for all projection
+                let shader = RayTracing::get_shader(shaders); // TODO: The same shader for all projection
                 shader.bind(gl);
 
-                self.send_global_uniforms(gl, shader, viewport, renderable);
+                self.send_global_uniforms(gl, shader, viewport);
                 self.moll_perpixel.draw(gl, shader)
             },
             "Arc" => {
-                let shader = PerPixel::<P>::get_shader(shaders); // TODO: The same shader for all projection
+                let shader = RayTracing::get_shader(shaders); // TODO: The same shader for all projection
                 shader.bind(gl);
 
-                self.send_global_uniforms(gl, shader, viewport, renderable);
+                self.send_global_uniforms(gl, shader, viewport);
                 self.arc_perpixel.draw(gl, shader)
             },
             "Mercator" => {
-                let shader = PerPixel::<P>::get_shader(shaders); // TODO: The same shader for all projection
+                let shader = RayTracing::get_shader(shaders); // TODO: The same shader for all projection
                 shader.bind(gl);
 
-                self.send_global_uniforms(gl, shader, viewport, renderable);
+                self.send_global_uniforms(gl, shader, viewport);
                 self.mercator_perpixel.draw(gl, shader)
             },
             // By construction, we are in orthographic projection when we have zoomed or the ortho projection selected
             "Orthographic" => {
-                let shader = SmallFieldOfView::get_shader(shaders); // TODO: The same shader for all projection
+                let shader = Rasterization::get_shader(shaders); // TODO: The same shader for all projection
                 shader.bind(gl);
 
-                self.send_global_uniforms(gl, shader, viewport, renderable);
-                self.ortho.draw(gl, shader)
+                self.send_global_uniforms(gl, shader, viewport);
+                self.raster.draw(gl, shader)
             },
             _ => panic!("Not all projection are handled!"),
         }
@@ -919,22 +839,21 @@ impl HiPSSphere {
 }
 
 use std::collections::HashMap;
-use crate::renderable::Renderable;
 
 use crate::utils;
 
 use crate::healpix_cell::HEALPixCell;
-use crate::viewport::{LastZoomAction, LastAction};
+use crate::viewport::LastAction;
 
-
-use crate::buffer_tiles::{NUM_TILES_BY_TEXTURE, NUM_CELLS_BY_TEXTURE_SIDE};
-
-impl Mesh for HiPSSphere {
-    fn get_shader<'a>(&self, shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader {
+use crate::buffer_tiles::ImageFormat;
+impl Renderable for HiPSSphere {
+    /*fn get_shader<'a>(&self, shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader {
         &shaders["hips_sphere"]
-    }
+    }*/
 
-    fn create_buffers(&mut self, gl: &WebGl2Context) {}
+    fn create_buffers(&mut self, gl: &WebGl2Context, shaders: &HashMap<&'static str, Shader>) {
+        
+    }
 }
 
 use crate::renderable::DisableDrawing;

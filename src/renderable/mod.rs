@@ -15,15 +15,22 @@ pub use grid::ProjetedGrid;
 use crate::WebGl2Context;
 
 use std::collections::HashMap;
-pub trait Mesh {
-    fn create_buffers(&mut self, gl: &WebGl2Context);
-    fn get_shader<'a>(&self, shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader;
+pub trait Renderable {
+    /*fn bind_buffers(&mut self, gl: &WebGl2Context, shaders: &HashMap<&'static str, Shader>) {
+        let shader = self.get_shader(shaders);
+
+        shader.bind(gl);
+        self.create_buffers(gl);
+    }*/
+
+    fn create_buffers(&mut self, gl: &WebGl2Context, shaders: &HashMap<&'static str, Shader>);
+    //fn get_shader<'a>(&self, shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader;
 }
 
 pub trait DisableDrawing {
     fn disable(&mut self, viewport: &ViewPort);
 }
-
+/*
 pub struct Renderable<T>
 where T: Mesh + DisableDrawing {
     //scale_mat: cgmath::Matrix4::<f32>,
@@ -58,32 +65,5 @@ where T: Mesh + DisableDrawing {
             gl,
         }
     }
-
-    pub fn set_mesh<U: Mesh + DisableDrawing>(self, mesh: U) -> Renderable<U> {
-        Renderable::<U> {
-            // And its submatrices
-            /*scale_mat: self.scale_mat,
-            rotation_mat: self.rotation_mat,
-            translation_mat: self.translation_mat,*/
-
-            mesh,
-            gl: self.gl,
-        }
-    }
-
-    pub fn update_mesh(&mut self, shaders: &HashMap<&'static str, Shader>, mut mesh: T) {
-        let shader = mesh.get_shader(shaders);
-        shader.bind(&self.gl);
-        mesh.create_buffers(&self.gl);
-
-        self.mesh = mesh;
-    }
-
-    pub fn mesh(&self) -> &T {
-        &self.mesh
-    }
-
-    pub fn mesh_mut(&mut self) -> &mut T {
-        &mut self.mesh
-    }
 }
+*/

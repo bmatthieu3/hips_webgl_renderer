@@ -132,7 +132,7 @@ use crate::shader::Shaderize;
 
 
 impl Catalog{
-    pub fn new(gl: &WebGl2Context, sources: Vec<Source>) -> Catalog {
+    pub fn new(gl: &WebGl2Context, sources: Vec<Source>, shaders: &HashMap<&'static str, Shader>) -> Catalog {
         // Build the quadtree from the list of sources
         //console::log_1(&format!("BEGIN quadtree build").into());
         //let quadtree = QuadTree::new(sources);
@@ -218,30 +218,37 @@ impl Catalog{
         gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
 
         // Create the VAO for the screen
-        let mut vao_screen = VertexArrayObject::new(gl);
-        vao_screen.bind()
-            // Store the screen and uv of the billboard in a VBO
-            .add_array_buffer(
-                4 * std::mem::size_of::<f32>(),
-                &[2, 2],
-                &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
-                WebGl2RenderingContext::STATIC_DRAW,
-                BufferData::VecData(
-                    &vec![
-                        -1.0, -1.0, 0.0, 0.0,
-                        1.0, -1.0, 1.0, 0.0,
-                        1.0, 1.0, 1.0, 1.0,
-                        -1.0, 1.0, 0.0, 1.0,
-                    ]
-                ),
-            )
-            // Set the element buffer
-            .add_element_buffer(
-                WebGl2RenderingContext::STATIC_DRAW,
-                BufferData::VecData(indices.as_ref()),
-            )
-            // Unbind the buffer
-            .unbind();
+        let colormap_shader_key = BluePastelRed::name();
+
+        let vao_screen = {
+            let shader = &shaders[colormap_shader_key];
+            shader.bind(gl);
+            let mut vao_screen = VertexArrayObject::new(gl);
+            vao_screen.bind()
+                // Store the screen and uv of the billboard in a VBO
+                .add_array_buffer(
+                    4 * std::mem::size_of::<f32>(),
+                    &[2, 2],
+                    &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
+                    WebGl2RenderingContext::STATIC_DRAW,
+                    BufferData::VecData(
+                        &vec![
+                            -1.0, -1.0, 0.0, 0.0,
+                            1.0, -1.0, 1.0, 0.0,
+                            1.0, 1.0, 1.0, 1.0,
+                            -1.0, 1.0, 0.0, 1.0,
+                        ]
+                    ),
+                )
+                // Set the element buffer
+                .add_element_buffer(
+                    WebGl2RenderingContext::STATIC_DRAW,
+                    BufferData::VecData(indices.as_ref()),
+                )
+                // Unbind the buffer
+                .unbind();
+            vao_screen
+        };
 
         let alpha = 0_f32;
         let strength = 1_f32;
@@ -252,14 +259,13 @@ impl Catalog{
         let sources = BinaryHeap::with_capacity(MAX_SOURCES);
         let vertex_array_object = VertexArrayObject::new(gl);
 
-        let colormap_shader_key = BluePastelRed::name();
         let catalog_shader_key = Catalog_Aitoff::name();
         let strength_coeff = 20_f32;
 
         let min_size_source = 0.02_f32;
         let max_size_source = 0.02_f32;
 
-        Catalog {
+        let mut catalog = Catalog {
             num_instances, 
 
             vertices,
@@ -298,7 +304,10 @@ impl Catalog{
 
             min_size_source,
             max_size_source,
-        }
+        };
+
+        catalog.create_buffers(gl, shaders);
+        catalog
     }
 
     pub fn set_max_size_source(&mut self, max_size_source: f32) {
@@ -480,10 +489,9 @@ impl Catalog{
         //console::log_1(&format!("num sources: {:?}", self.num_instances).into());
     }
 
-    pub fn draw<T: Mesh + DisableDrawing>(
+    pub fn draw(
         &self,
         gl: &WebGl2Context,
-        renderable: &Renderable<T>,
         shaders: &HashMap<&'static str, Shader>,
         viewport: &ViewPort
     ) {
@@ -552,7 +560,6 @@ impl Catalog{
             gl.viewport(0, 0, window_size.x as i32, window_size.y as i32);
 
             let shader = &shaders[self.colormap_shader_key];
-
             shader.bind(gl);
 
             self.vao_screen.bind_ref();
@@ -576,7 +583,7 @@ impl Catalog{
     }
 }
 
-use crate::renderable::Mesh;
+use crate::renderable::Renderable;
 use crate::shader::Shader;
 
 use web_sys::WebGl2RenderingContext;
@@ -584,19 +591,21 @@ use crate::WebGl2Context;
 
 use crate::viewport::ViewPort;
 
-use crate::renderable::Renderable;
 use crate::utils;
 use std::collections::BinaryHeap;
 
 use crate::math;
 use crate::projection::Projection;
 
-impl Mesh for Catalog {
-    fn get_shader<'a>(&self, shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader {
+impl Renderable for Catalog {
+    /*fn get_shader<'a>(&self, shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader {
         &shaders[self.catalog_shader_key]
-    }
+    }*/
 
-    fn create_buffers(&mut self, gl: &WebGl2Context) {
+    fn create_buffers(&mut self, gl: &WebGl2Context, shaders: &HashMap<&'static str, Shader>) {
+        let shader = &shaders[self.catalog_shader_key];
+        shader.bind(gl);
+
         self.vertex_array_object.bind()
             // Store the UV and the offsets of the billboard in a VBO
             .add_array_buffer(

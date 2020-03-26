@@ -43,9 +43,9 @@ impl State for Stalling {
         // Time of the previous frame
         dt: f32,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
@@ -61,9 +61,9 @@ fn move_renderables<P: Projection>(
  // Current world position
  y: &Vector4<f32>,
  // Renderables
- sphere: &mut Renderable<HiPSSphere>,
- catalog: &mut Renderable<Catalog>,
- grid: &mut Renderable<ProjetedGrid>,
+ sphere: &mut HiPSSphere,
+ catalog: &mut Catalog,
+ grid: &mut ProjetedGrid,
  // Viewport
  viewport: &mut ViewPort,
 ) -> (Vector3<f32>, Rad<f32>) {
@@ -91,9 +91,9 @@ impl State for Moving {
         // Time of the previous frame
         dt: f32,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
@@ -135,9 +135,9 @@ impl State for Inertia {
         // Time of the previous frame
         dt: f32,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
@@ -170,9 +170,9 @@ impl Transition for T<Stalling, Moving> {
    
     fn condition<P: Projection>(s: &Self::S,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
@@ -210,9 +210,9 @@ impl Transition for T<Moving, Stalling> {
 
     fn condition<P: Projection>(s: &Self::S,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
@@ -251,9 +251,9 @@ impl Transition for T<Moving, Inertia> {
 
     fn condition<P: Projection>(s: &Self::S,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
@@ -303,9 +303,9 @@ impl Transition for T<Inertia, Stalling> {
 
     fn condition<P: Projection>(s: &Self::S,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
@@ -327,9 +327,9 @@ impl Transition for T<Inertia, Moving> {
 
     fn condition<P: Projection>(s: &Self::S,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
@@ -376,9 +376,9 @@ impl UserMoveSphere {
         // Time of the previous frame
         dt: f32,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
@@ -396,9 +396,9 @@ impl UserMoveSphere {
         // Time of the previous frame
         dt: f32,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events

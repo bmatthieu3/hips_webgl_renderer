@@ -50,8 +50,6 @@ use crate::WebGl2Context;
     gl.scissor(xo as i32, yo as i32, size.x as i32, size.y as i32);
 }*/
 
-
-use cgmath::Deg;
 use crate::event_manager::NUM_WHEEL_PER_DEPTH;
 fn wheel_idx<P: Projection>(fov: Rad<f32>) -> i32 {
     let p0: Rad<f32> = P::aperture_start().into();
@@ -135,26 +133,26 @@ impl ViewPort {
     }
 
     pub fn resize_window<P: Projection>(&mut self, width: f32, height: f32,
-        hips_sphere: &mut Renderable<HiPSSphere>,
-        grid: &mut Renderable<ProjetedGrid>,
-        catalog: &mut Renderable<Catalog>,
+        hips_sphere: &mut HiPSSphere,
+        grid: &mut ProjetedGrid,
+        catalog: &mut Catalog,
     ) {
         self.fov.resize_window::<P>(width, height, self.max_depth);
 
         // Launch the new tile requests
-        hips_sphere.mesh_mut().request_tiles(&self);
+        hips_sphere.request_tiles(&self);
         // Retrieve the sources in the fov
-        catalog.mesh_mut().retrieve_sources_in_fov::<P>(&self);
+        catalog.retrieve_sources_in_fov::<P>(&self);
         // Reproject the grid
-        grid.mesh_mut().reproject::<P>(hips_sphere, &self);
+        grid.reproject::<P>(&self);
     }
 
     pub fn zoom<P: Projection>(
         &mut self,
         aperture: Rad<f32>,
-        hips_sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        hips_sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
     ) {
         self.last_zoom_action = LastZoomAction::Zoom;
         self.last_action = LastAction::Zooming;
@@ -162,9 +160,9 @@ impl ViewPort {
         self.fov.set_aperture::<P>(aperture, self.max_depth);
 
         // Launch the new tile requests
-        hips_sphere.mesh_mut().request_tiles(&self);
+        hips_sphere.request_tiles(&self);
         // Retrieve the sources in the fov
-        catalog.mesh_mut().retrieve_sources_in_fov::<P>(&self);
+        catalog.retrieve_sources_in_fov::<P>(&self);
 
         // Reproject the grid
         //grid.mesh_mut().reproject::<P>(hips_sphere, &self);
@@ -173,9 +171,9 @@ impl ViewPort {
     pub fn unzoom<P: Projection>(
         &mut self,
         aperture: Rad<f32>,
-        hips_sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        hips_sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
     ) {
         self.last_zoom_action = LastZoomAction::Unzoom;
         self.last_action = LastAction::Unzooming;
@@ -183,18 +181,18 @@ impl ViewPort {
         self.fov.set_aperture::<P>(aperture, self.max_depth);
         
         // Launch the new tile requests
-        hips_sphere.mesh_mut().request_tiles(&self);
+        hips_sphere.request_tiles(&self);
         // Retrieve the sources in the fov
-        catalog.mesh_mut().retrieve_sources_in_fov::<P>(&self);
+        catalog.retrieve_sources_in_fov::<P>(&self);
         // Reproject the grid
         //grid.mesh_mut().reproject::<P>(hips_sphere, &self);
     }
 
     pub fn displacement<P: Projection>(
         &mut self,
-        hips_sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        hips_sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
     ) {
         self.last_action = LastAction::Moving;
 
@@ -206,9 +204,9 @@ impl ViewPort {
         //catalog.set_model_mat(&self.inverted_model_mat);
 
         // Launch the new tile requests
-        hips_sphere.mesh_mut().request_tiles(&self);
+        hips_sphere.request_tiles(&self);
         // Retrieve the sources in the fov
-        catalog.mesh_mut().retrieve_sources_in_fov::<P>(&self);
+        catalog.retrieve_sources_in_fov::<P>(&self);
         // Reproject the grid
         //grid.mesh_mut().reproject::<P>(hips_sphere, &self);
     }

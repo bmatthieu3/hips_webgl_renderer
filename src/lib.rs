@@ -91,11 +91,11 @@ where P: Projection {
     projection: std::marker::PhantomData<P>,
 
     // The sphere renderable
-    hips_sphere: Renderable<HiPSSphere>,
+    sphere: HiPSSphere,
     // The grid renderable
-    grid: Renderable<ProjetedGrid>,
+    grid: ProjetedGrid,
     // The catalogs
-    catalog: Renderable<Catalog>,
+    catalog: Catalog,
 
     // Finite State Machine declarations
     user_move_fsm: UserMoveSphere,
@@ -147,7 +147,7 @@ fn add_tile_buffer_uniforms(name: &'static str, size: usize, uniforms: &mut Vec<
 use cgmath::Matrix4;
 use crate::shader::Shaderize;
 
-use crate::renderable::hips_sphere::PerPixel;
+use crate::renderable::hips_sphere::RayTracing;
 
 use cgmath::{Vector2, Vector3, Matrix3};
 use cgmath::Deg;
@@ -297,6 +297,7 @@ where P: Projection {
         gl.enable(WebGl2RenderingContext::CULL_FACE);
         gl.cull_face(WebGl2RenderingContext::BACK);
 
+        // Viewport definition
         // HiPS definition
         let config = HiPSConfig::new(
             String::from("http://alasky.u-strasbg.fr/DSS/DSSColor"), // Name of the HiPS
@@ -304,43 +305,19 @@ where P: Projection {
             512, // Size of a texture tile
             ImageFormat::JPG // Format of the tile texture images
         );
-        // Viewport definition
         let viewport = ViewPort::new::<Orthographic>(&gl, &config);
 
         // HiPS Sphere definition
-        let hips_sphere_mesh = HiPSSphere::new(&gl, &viewport, config);
-        console::log_1(&format!("fffff sfs").into());
-        let mut hips_sphere = Renderable::<HiPSSphere>::new(
-            &gl,
-            &shaders,
-            hips_sphere_mesh,
-        );
-        hips_sphere.mesh_mut().update::<Orthographic>(&viewport, events);
-        console::log_1(&format!("fffff sfs").into());
-        // Catalog definition
-        let catalog_mesh = Catalog::new(&gl, vec![]);
-        let catalog = Renderable::<Catalog>::new(
-            &gl,
-            &shaders,
-            catalog_mesh
-        );
-        console::log_1(&format!("fffff sfs3").into());
+        let mut sphere = HiPSSphere::new(&gl, &viewport, config, &shaders);
+        sphere.update::<Orthographic>(&viewport, events);
 
-        console::log_1(&format!("fffff sfs4").into());
-        // Update the HiPS sphere 
-        //(&mut hips_sphere).update(&projection, &viewport);
-        // Update the catalog loaded
-        //(&mut catalog).update(&projection, &viewport);
+        // Catalog definition
+        let catalog = Catalog::new(&gl, vec![], &shaders);
 
         // Grid definition
         let lon_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-30_f32).into(), cgmath::Deg(30_f32).into());
         let lat_bound = cgmath::Vector2::<cgmath::Rad<f32>>::new(cgmath::Deg(-90_f32).into(), cgmath::Deg(90_f32).into());
-        let projeted_grid_mesh = ProjetedGrid::new::<P>(&gl, cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, &viewport);
-        let grid = Renderable::<ProjetedGrid>::new(
-            &gl,
-            &shaders,
-            projeted_grid_mesh,
-        );
+        let grid = ProjetedGrid::new::<P>(&gl, cgmath::Deg(30_f32).into(), cgmath::Deg(30_f32).into(), Some(lat_bound), None, &viewport, &shaders);
 
         let animation_request = false;
         let final_pos = Quaternion::new(1_f32, 0_f32, 0_f32, 0_f32);
@@ -368,7 +345,7 @@ where P: Projection {
             projection: std::marker::PhantomData,
 
             // The sphere renderable
-            hips_sphere,
+            sphere,
             // The grid renderable
             grid,
             // The catalog renderable
@@ -439,11 +416,11 @@ where P: Projection {
         }*/
 
         // Run the Finite State Machines
-        self.user_move_fsm.run::<P>(dt, &mut self.hips_sphere, &mut self.catalog, &mut self.grid, &mut self.viewport, &events);
-        self.user_zoom_fsm.run::<P>(dt, &mut self.hips_sphere, &mut self.catalog, &mut self.grid, &mut self.viewport, &events);
+        self.user_move_fsm.run::<P>(dt, &mut self.sphere, &mut self.catalog, &mut self.grid, &mut self.viewport, &events);
+        self.user_zoom_fsm.run::<P>(dt, &mut self.sphere, &mut self.catalog, &mut self.grid, &mut self.viewport, &events);
 
         // Update the HiPS sphere VAO
-        self.hips_sphere.mesh_mut().update::<P>(&self.viewport, &events);
+        self.sphere.update::<P>(&self.viewport, &events);
 
         /*// Mouse inertia
         if let Some(inertia) = self.inertia.clone() {
@@ -485,25 +462,23 @@ where P: Projection {
             self.gl.clear_color(0.08, 0.08, 0.08, 1.0);
             self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
             // Clear the grid canvas containing the labels
-            self.grid.mesh().clear_canvas(&self.viewport);
+            self.grid.clear_canvas(&self.viewport);
 
             // Draw renderables here
             let ref viewport = self.viewport;
             let ref shaders = self.shaders;
 
             // Draw the HiPS sphere
-            self.hips_sphere.mesh().draw::<HiPSSphere, P>(
+            self.sphere.draw::<P>(
                 &self.gl,
-                &self.hips_sphere,
                 shaders,
                 viewport,
             );
 
-            if self.catalog.mesh().get_alpha() > 0_f32 {
+            if self.catalog.get_alpha() > 0_f32 {
                 // Draw the catalogs
-                self.catalog.mesh().draw(
+                self.catalog.draw(
                     &self.gl,
-                    &self.catalog,
                     shaders,
                     viewport
                 );
@@ -512,14 +487,13 @@ where P: Projection {
             // Draw the grid
             // The grid lines
             if P::name() != "Orthographic" && enable_grid {
-                self.grid.mesh().draw(
+                self.grid.draw(
                     &self.gl,
-                    &self.grid,
                     shaders,
                     viewport
                 );
                 // The labels
-                self.grid.mesh().draw_labels(&self.viewport);
+                self.grid.draw_labels(&self.viewport);
             }
         /*} else {
             console::log_1(&format!("not render").into());
@@ -580,12 +554,12 @@ where P: Projection {
         //let hips_sphere_mesh = HiPSSphere::<R>::new(&self.gl, &self.viewport);
         //let mut hips_sphere = Renderable::new(&self.gl, &self.shaders, hips_sphere_mesh);
         //self.hips_sphere.update_mesh(&self.shaders, hips_sphere_mesh);
-        self.hips_sphere.mesh_mut().update::<Q>(&self.viewport, events);
+        self.sphere.update::<Q>(&self.viewport, events);
 
-        self.catalog.mesh_mut().set_projection::<Q>();
-        self.catalog.mesh_mut().retrieve_sources_in_fov::<Q>(&self.viewport);
+        self.catalog.set_projection::<Q>();
+        self.catalog.retrieve_sources_in_fov::<Q>(&self.viewport);
         // Reproject the grid
-        self.grid.mesh_mut().reproject::<Q>(&self.hips_sphere, &self.viewport);
+        self.grid.reproject::<Q>(&self.viewport);
 
         App::<Q> {
             gl: self.gl,
@@ -595,7 +569,7 @@ where P: Projection {
             projection: std::marker::PhantomData,
 
             // The sphere renderable
-            hips_sphere: self.hips_sphere,
+            sphere: self.sphere,
             // The grid renderable
             grid: self.grid,
             // The catalog renderable
@@ -650,8 +624,7 @@ where P: Projection {
     }*/
 
     fn set_hips_config(&mut self, config: HiPSConfig, events: &EventManager) {
-        self.hips_sphere.mesh_mut()
-            .set_hips_config::<P>(config, &mut self.viewport, events);
+        self.sphere.set_hips_config::<P>(config, &mut self.viewport, events);
         // Render the next frame
         self.render = true;
     }
@@ -700,52 +673,50 @@ where P: Projection {
     }*/
 
     fn add_catalog(&mut self, sources: Vec<Source>) {
-        let mut catalog_mesh = Catalog::new(&self.gl, sources);
-        catalog_mesh.set_projection::<P>();
-
-        self.catalog.update_mesh(&self.shaders, catalog_mesh);
+        self.catalog = Catalog::new(&self.gl, sources, &self.shaders);
+        self.catalog.set_projection::<P>();
     }
 
     fn set_colormap(&mut self, colormap: String) {
         match colormap.as_str() {
-            "BluePastelRed" => self.catalog.mesh_mut().set_colormap::<BluePastelRed>(),
-            "IDL_CB_BrBG" => self.catalog.mesh_mut().set_colormap::<IDL_CB_BrBG>(),
-            "IDL_CB_YIGnBu" => self.catalog.mesh_mut().set_colormap::<IDL_CB_YIGnBu>(),
-            "IDL_CB_GnBu" => self.catalog.mesh_mut().set_colormap::<IDL_CB_GnBu>(),
-            "Red_Temperature" => self.catalog.mesh_mut().set_colormap::<Red_Temperature>(),
-            "Black_White_Linear" => self.catalog.mesh_mut().set_colormap::<Black_White_Linear>(),
+            "BluePastelRed" => self.catalog.set_colormap::<BluePastelRed>(),
+            "IDL_CB_BrBG" => self.catalog.set_colormap::<IDL_CB_BrBG>(),
+            "IDL_CB_YIGnBu" => self.catalog.set_colormap::<IDL_CB_YIGnBu>(),
+            "IDL_CB_GnBu" => self.catalog.set_colormap::<IDL_CB_GnBu>(),
+            "Red_Temperature" => self.catalog.set_colormap::<Red_Temperature>(),
+            "Black_White_Linear" => self.catalog.set_colormap::<Black_White_Linear>(),
             _ => panic!("{:?} colormap not recognized!", colormap)
         }
     }
 
     fn set_heatmap_opacity(&mut self, opacity: f32) {
-        self.catalog.mesh_mut().set_alpha(opacity);
+        self.catalog.set_alpha(opacity);
     }
 
     fn set_kernel_strength(&mut self, strength: f32) {
-        self.catalog.mesh_mut().set_kernel_strength::<P>(strength, &self.viewport);
+        self.catalog.set_kernel_strength::<P>(strength, &self.viewport);
     }
 
     fn set_range_source_size(&mut self, source_size: std::ops::Range<f32>) {
-        self.catalog.mesh_mut().set_min_size_source(source_size.start);
-        self.catalog.mesh_mut().set_max_size_source(source_size.end);
+        self.catalog.set_min_size_source(source_size.start);
+        self.catalog.set_max_size_source(source_size.end);
     }
 
     fn resize_window(&mut self, width: f32, height: f32, enable_grid: bool) {
-        self.viewport.resize_window::<P>(width, height, &mut self.hips_sphere, &mut self.grid, &mut self.catalog);
+        self.viewport.resize_window::<P>(width, height, &mut self.sphere, &mut self.grid, &mut self.catalog);
         // Render the next frame
         self.render = true;
     }
     pub fn set_color_rgb(&mut self, red: f32, green: f32, blue: f32) {
-        self.grid.mesh_mut().set_color_rgb(red, green, blue);
+        self.grid.set_color_rgb(red, green, blue);
     }
 
     pub fn change_grid_opacity(&mut self, alpha: f32) {
-        self.grid.mesh_mut().set_alpha(alpha);
+        self.grid.set_alpha(alpha);
     }
 
     pub fn enable_grid(&mut self) {
-        self.grid.mesh_mut().reproject::<P>(&self.hips_sphere, &self.viewport);
+        self.grid.reproject::<P>(&self.viewport);
     }
 }
 

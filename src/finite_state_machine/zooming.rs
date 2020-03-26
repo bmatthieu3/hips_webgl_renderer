@@ -45,9 +45,9 @@ impl State for Stalling {
         // Time of the previous frame
         dt: f32,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
@@ -63,9 +63,9 @@ fn move_renderables<P: Projection>(
  // Current world position
  y: &Vector4<f32>,
  // Renderables
- sphere: &mut Renderable<HiPSSphere>,
- catalog: &mut Renderable<Catalog>,
- grid: &mut Renderable<ProjetedGrid>,
+ sphere: &mut HiPSSphere,
+ catalog: &mut Catalog,
+ grid: &mut ProjetedGrid,
  // Viewport
  viewport: &mut ViewPort,
 ) -> (Vector3<f32>, Rad<f32>) {
@@ -102,9 +102,9 @@ impl State for Zooming {
         // Time of the previous frame
         dt: f32,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
@@ -141,9 +141,9 @@ impl State for Unzooming {
         // Time of the previous frame
         dt: f32,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
@@ -186,9 +186,9 @@ impl Transition for T<Stalling, Zooming> {
    
     fn condition<P: Projection>(s: &Self::S,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
@@ -223,9 +223,9 @@ impl Transition for T<Zooming, Zooming> {
    
     fn condition<P: Projection>(s: &Self::S,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
@@ -261,9 +261,9 @@ impl Transition for T<Zooming, Stalling> {
 
     fn condition<P: Projection>(s: &Self::S,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
@@ -286,9 +286,9 @@ impl Transition for T<Stalling, Unzooming> {
    
     fn condition<P: Projection>(s: &Self::S,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
@@ -327,9 +327,9 @@ impl Transition for T<Unzooming, Unzooming> {
    
     fn condition<P: Projection>(s: &Self::S,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
@@ -369,9 +369,9 @@ impl Transition for T<Unzooming, Stalling> {
 
     fn condition<P: Projection>(s: &Self::S,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
@@ -393,9 +393,9 @@ impl Transition for T<Zooming, Unzooming> {
 
     fn condition<P: Projection>(s: &Self::S,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
@@ -436,9 +436,9 @@ impl Transition for T<Unzooming, Zooming> {
    
     fn condition<P: Projection>(s: &Self::S,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
@@ -486,9 +486,9 @@ impl UserZoom {
         // Time of the previous frame
         dt: f32,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
@@ -506,9 +506,9 @@ impl UserZoom {
         // Time of the previous frame
         dt: f32,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events

@@ -29,9 +29,9 @@ trait Transition {
     fn condition<P: Projection>(
         s: &Self::S,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
@@ -44,9 +44,9 @@ trait State: std::marker::Sized {
         // Time of the previous frame
         dt: f32,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
@@ -58,9 +58,9 @@ trait State: std::marker::Sized {
     // This method is only defined if the transition between Self and E exists
     fn check<E: State, P: Projection>(&mut self,
         // Renderables
-        sphere: &mut Renderable<HiPSSphere>,
-        catalog: &mut Renderable<Catalog>,
-        grid: &mut Renderable<ProjetedGrid>,
+        sphere: &mut HiPSSphere,
+        catalog: &mut Catalog,
+        grid: &mut ProjetedGrid,
         // Viewport
         viewport: &mut ViewPort,
         // User events
