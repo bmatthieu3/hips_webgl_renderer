@@ -8,8 +8,40 @@ use web_sys::WebGlFramebuffer;
 use std::collections::HashSet;
 use crate::healpix_cell::HEALPixCell;
 
-use std::collections::HashMap;
+use crate::projection::*;
+use crate::ShaderManager;
+use crate::shaders;
+pub trait CatalogShaderProjection {
+    fn get_catalog_shader(shaders: &ShaderManager) -> &Shader;
+}
 
+impl CatalogShaderProjection for Aitoff {
+    fn get_catalog_shader(shaders: &ShaderManager) -> &Shader {
+        shaders.get::<shaders::Catalog_Aitoff>().unwrap()
+    }
+}
+impl CatalogShaderProjection for Mollweide {
+    fn get_catalog_shader(shaders: &ShaderManager) -> &Shader {
+        shaders.get::<shaders::Catalog_MollWeide>().unwrap()
+    }
+}
+impl CatalogShaderProjection for AzimutalEquidistant {
+    fn get_catalog_shader(shaders: &ShaderManager) -> &Shader {
+        shaders.get::<shaders::Catalog_Orthographic>().unwrap()
+    }
+}
+impl CatalogShaderProjection for Mercator {
+    fn get_catalog_shader(shaders: &ShaderManager) -> &Shader {
+        shaders.get::<shaders::Catalog_Mercator>().unwrap()
+    }
+}
+impl CatalogShaderProjection for Orthographic {
+    fn get_catalog_shader(shaders: &ShaderManager) -> &Shader {
+        shaders.get::<shaders::Catalog_Orthographic>().unwrap()
+    }
+}
+
+use crate::shaders::Colormap;
 pub struct Catalog {
     num_instances: usize,
 
@@ -25,24 +57,22 @@ pub struct Catalog {
 
     fbo: Option<WebGlFramebuffer>,
     fbo_texture: Texture2D,
+
+    colormap: Colormap,
     colormap_texture: Texture2D,
 
     fbo_texture_width: i32,
     fbo_texture_height: i32,
 
-    // VAO for the screen
-    vao_screen: VertexArrayObject,
+    // VAOs
+    vertex_array_object_catalog: VertexArrayObject,
+    vertex_array_object_screen: VertexArrayObject,
 
     data: Storage,
     cells: HashSet<(u8, u32)>,
 
     prev_field_of_view: HashSet<HEALPixCell>,
     sources: BinaryHeap<Source>,
-
-    vertex_array_object: VertexArrayObject,
-
-    colormap_shader_key: &'static str,
-    catalog_shader_key: &'static str,
 
     // min and max plx
     min_plx: f32,
@@ -125,14 +155,10 @@ impl From<&[f32]> for Source {
 }
 
 use web_sys::console;
-use crate::shaders::colormap::BluePastelRed;
-use crate::shaders::catalog::*;
+//use crate::shader::Shaderize;
 
-use crate::shader::Shaderize;
-
-
-impl Catalog{
-    pub fn new(gl: &WebGl2Context, sources: Vec<Source>, shaders: &HashMap<&'static str, Shader>) -> Catalog {
+impl Catalog {
+    pub fn new(gl: &WebGl2Context, sources: Vec<Source>, shaders: &ShaderManager) -> Catalog {
         // Build the quadtree from the list of sources
         //console::log_1(&format!("BEGIN quadtree build").into());
         //let quadtree = QuadTree::new(sources);
@@ -218,13 +244,14 @@ impl Catalog{
         gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
 
         // Create the VAO for the screen
-        let colormap_shader_key = BluePastelRed::name();
+        let colormap = Colormap::BluePastelRed;
 
-        let vao_screen = {
-            let shader = &shaders[colormap_shader_key];
+        let vertex_array_object_screen = {
+            let shader = colormap.get_shader(shaders);
             shader.bind(gl);
-            let mut vao_screen = VertexArrayObject::new(gl);
-            vao_screen.bind()
+
+            let mut vao = VertexArrayObject::new(gl);
+            vao.bind()
                 // Store the screen and uv of the billboard in a VBO
                 .add_array_buffer(
                     4 * std::mem::size_of::<f32>(),
@@ -247,7 +274,39 @@ impl Catalog{
                 )
                 // Unbind the buffer
                 .unbind();
-            vao_screen
+            vao
+        };
+
+        let vertex_array_object_catalog = {
+            let shader = Orthographic::get_catalog_shader(shaders);
+            shader.bind(gl);
+
+            let mut vao = VertexArrayObject::new(gl);
+            vao.bind()
+                // Store the UV and the offsets of the billboard in a VBO
+                .add_array_buffer(
+                    4 * std::mem::size_of::<f32>(),
+                    &[2, 2],
+                    &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
+                    WebGl2RenderingContext::STATIC_DRAW,
+                    BufferData::VecData(vertices.as_ref()),
+                )
+                // Store the cartesian position of the center of the source in the a instanced VBO
+                .add_instanced_array_buffer(
+                    std::mem::size_of::<Source>(),
+                    &[3, 2, 1, 1],
+                    &[0 * mem::size_of::<f32>(), 3 * mem::size_of::<f32>(), 5 * mem::size_of::<f32>(), 6 * mem::size_of::<f32>()],
+                    WebGl2RenderingContext::DYNAMIC_DRAW,
+                    BufferData::VecData(data.sources.as_ref()),
+                )
+                // Set the element buffer
+                .add_element_buffer(
+                    WebGl2RenderingContext::STATIC_DRAW,
+                    BufferData::VecData(indices.as_ref()),
+                )
+                // Unbind the buffer
+                .unbind();
+            vao
         };
 
         let alpha = 0_f32;
@@ -257,15 +316,13 @@ impl Catalog{
         let prev_field_of_view = HashSet::new();
 
         let sources = BinaryHeap::with_capacity(MAX_SOURCES);
-        let vertex_array_object = VertexArrayObject::new(gl);
 
-        let catalog_shader_key = Catalog_Aitoff::name();
         let strength_coeff = 20_f32;
 
         let min_size_source = 0.02_f32;
         let max_size_source = 0.02_f32;
 
-        let mut catalog = Catalog {
+        Catalog {
             num_instances, 
 
             vertices,
@@ -280,12 +337,15 @@ impl Catalog{
 
             fbo,
             fbo_texture,
+
+            colormap,
             colormap_texture,
 
             fbo_texture_width,
             fbo_texture_height,
 
-            vao_screen,
+            vertex_array_object_catalog,
+            vertex_array_object_screen,
 
             data,
             cells,
@@ -293,21 +353,13 @@ impl Catalog{
 
             sources,
 
-            vertex_array_object,
-
-            colormap_shader_key,
-            catalog_shader_key,
-
             // min and max parallax
             min_plx,
             max_plx,
 
             min_size_source,
             max_size_source,
-        };
-
-        catalog.create_buffers(gl, shaders);
-        catalog
+        }
     }
 
     pub fn set_max_size_source(&mut self, max_size_source: f32) {
@@ -317,20 +369,8 @@ impl Catalog{
         self.min_size_source = min_size_source;
     }
 
-    pub fn set_colormap<K: Shaderize>(&mut self) {
-        self.colormap_shader_key = K::name();
-    }
-
-    pub fn set_projection<P: Projection>(&mut self) {
-        let catalog_shader_key = match P::name() {
-            "Aitoff" => Catalog_Aitoff::name(),
-            "Orthographic" => Catalog_Orthographic::name(),
-            "MollWeide" => Catalog_MollWeide::name(),
-            "Arc" => Catalog_MollWeide::name(), // TODO
-            "Mercator" => Catalog_Mercator::name(),
-            _ => unreachable!()
-        };
-        self.catalog_shader_key = catalog_shader_key;
+    pub fn set_colormap(&mut self, colormap: Colormap) {
+        self.colormap = colormap;
     }
 
     pub fn set_alpha(&mut self, alpha: f32) {
@@ -483,16 +523,16 @@ impl Catalog{
         };
         
         // Update the VAO
-        self.vertex_array_object.bind()
+        self.vertex_array_object_catalog.bind()
             .update_instanced_array(0, BufferData::VecData(&sources));
 
         //console::log_1(&format!("num sources: {:?}", self.num_instances).into());
     }
 
-    pub fn draw(
+    pub fn draw<P: Projection>(
         &self,
         gl: &WebGl2Context,
-        shaders: &HashMap<&'static str, Shader>,
+        shaders: &ShaderManager,
         viewport: &ViewPort
     ) {
         // Render to the FRAMEBUFFER
@@ -507,10 +547,10 @@ impl Catalog{
             gl.clear_color(0.0, 0.0, 0.0, 1.0);
             gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
 
-            let shader = &shaders[self.catalog_shader_key];
+            let shader = P::get_catalog_shader(shaders);
             shader.bind(gl);
 
-            self.vertex_array_object.bind_ref();
+            self.vertex_array_object_catalog.bind_ref();
 
             // Send uniforms
             // Send the viewport uniforms
@@ -543,7 +583,7 @@ impl Catalog{
 
             gl.draw_elements_instanced_with_i32(
                 WebGl2RenderingContext::TRIANGLES,
-                self.vertex_array_object.num_elements() as i32,
+                self.vertex_array_object_catalog.num_elements() as i32,
                 WebGl2RenderingContext::UNSIGNED_SHORT,
                 0,
                 self.num_instances as i32,
@@ -559,10 +599,10 @@ impl Catalog{
             let window_size = viewport.get_window_size();
             gl.viewport(0, 0, window_size.x as i32, window_size.y as i32);
 
-            let shader = &shaders[self.colormap_shader_key];
+            let shader = self.colormap.get_shader(shaders);
             shader.bind(gl);
 
-            self.vao_screen.bind_ref();
+            self.vertex_array_object_screen.bind_ref();
 
             self.colormap_texture.bind()
                 .send_to_shader(shader, "colormap");
@@ -575,7 +615,7 @@ impl Catalog{
 
             gl.draw_elements_with_i32(
                 WebGl2RenderingContext::TRIANGLES,
-                self.vao_screen.num_elements() as i32,
+                self.vertex_array_object_screen.num_elements() as i32,
                 WebGl2RenderingContext::UNSIGNED_SHORT,
                 0,
             );
@@ -583,7 +623,6 @@ impl Catalog{
     }
 }
 
-use crate::renderable::Renderable;
 use crate::shader::Shader;
 
 use web_sys::WebGl2RenderingContext;
@@ -596,42 +635,6 @@ use std::collections::BinaryHeap;
 
 use crate::math;
 use crate::projection::Projection;
-
-impl Renderable for Catalog {
-    /*fn get_shader<'a>(&self, shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader {
-        &shaders[self.catalog_shader_key]
-    }*/
-
-    fn create_buffers(&mut self, gl: &WebGl2Context, shaders: &HashMap<&'static str, Shader>) {
-        let shader = &shaders[self.catalog_shader_key];
-        shader.bind(gl);
-
-        self.vertex_array_object.bind()
-            // Store the UV and the offsets of the billboard in a VBO
-            .add_array_buffer(
-                4 * std::mem::size_of::<f32>(),
-                &[2, 2],
-                &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
-                WebGl2RenderingContext::STATIC_DRAW,
-                BufferData::VecData(self.vertices.as_ref()),
-            )
-            // Store the cartesian position of the center of the source in the a instanced VBO
-            .add_instanced_array_buffer(
-                std::mem::size_of::<Source>(),
-                &[3, 2, 1, 1],
-                &[0 * mem::size_of::<f32>(), 3 * mem::size_of::<f32>(), 5 * mem::size_of::<f32>(), 6 * mem::size_of::<f32>()],
-                WebGl2RenderingContext::DYNAMIC_DRAW,
-                BufferData::VecData(self.data.sources.as_ref()),
-            )
-            // Set the element buffer
-            .add_element_buffer(
-                WebGl2RenderingContext::STATIC_DRAW,
-                BufferData::VecData(self.indices.as_ref()),
-            )
-            // Unbind the buffer
-            .unbind();
-    }
-}
 
 use crate::renderable::DisableDrawing;
 impl DisableDrawing for Catalog {

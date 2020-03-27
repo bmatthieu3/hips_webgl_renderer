@@ -56,8 +56,7 @@ fn wheel_idx<P: Projection>(fov: Rad<f32>) -> i32 {
     ((p0.0 / fov.0).log2() * (NUM_WHEEL_PER_DEPTH as f32)) as i32
 }
 
-use crate::renderable::hips_sphere::HiPSSphere;
-use crate::renderable::Renderable;
+use crate::renderable::HiPSSphere;
 
 use crate::renderable::catalog::Catalog;
 
@@ -275,16 +274,34 @@ impl ViewPort {
 
         (*model_mat) * P::clip_to_world_space(Vector2::new(0_f32, 0_f32)).unwrap()
     }
+
+    // Check whether border of the screen are inside
+    // the projection
+    pub fn screen_inside_of_projection<P: Projection>(&self) -> bool {
+        // Projection are symmetric, we can check for only one vertex
+        // of the screen
+        let corner_tl_ndc = Vector2::new(-1_f32, 1_f32);
+        let corner_tl_clip = crate::projection::ndc_to_clip_space(corner_tl_ndc, self);
+
+        if let Some(_) = P::clip_to_world_space(corner_tl_clip) {
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn apply_rotation(&mut self, axis: cgmath::Vector3<f32>, angle: cgmath::Rad<f32>) {
         self.model_mat = cgmath::Matrix4::<f32>::from_axis_angle(axis, angle) * self.model_mat;
         self.inverted_model_mat = self.model_mat.invert().unwrap();
     }
+
     pub fn apply_quarternion_rotation(&mut self, q: &cgmath::Quaternion<f32>) {
         let drot: Matrix4<f32> = (*q).into();
         
         self.model_mat = drot * self.model_mat;
         self.inverted_model_mat = self.model_mat.invert().unwrap();
     }
+
     pub fn set_model_mat(&mut self, model_mat: &cgmath::Matrix4<f32>) {
         self.model_mat = *model_mat;
         self.inverted_model_mat = self.model_mat.invert().unwrap();

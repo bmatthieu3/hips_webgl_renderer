@@ -1,5 +1,4 @@
 use crate::renderable::{
- Renderable,
  HiPSSphere,
  Catalog,
  ProjetedGrid

@@ -2,12 +2,24 @@ use crate::shader::Shader;
 
 use crate::viewport::ViewPort;
 
-pub mod hips_sphere;
+mod hips_sphere;
 pub mod projection;
 pub mod grid;
+
 pub mod catalog;
+pub use catalog::CatalogShaderProjection;
+
 pub mod uv;
 
+mod ray_tracer;
+use ray_tracer::RayTracingProjection;
+use ray_tracer::RayTracer;
+
+mod rasterizer;
+use rasterizer::Rasterizer;
+use rasterizer::RasterizerProjection;
+
+use hips_sphere::RenderingMode;
 pub use hips_sphere::HiPSSphere;
 pub use catalog::Catalog;
 pub use grid::ProjetedGrid;
@@ -15,17 +27,6 @@ pub use grid::ProjetedGrid;
 use crate::WebGl2Context;
 
 use std::collections::HashMap;
-pub trait Renderable {
-    /*fn bind_buffers(&mut self, gl: &WebGl2Context, shaders: &HashMap<&'static str, Shader>) {
-        let shader = self.get_shader(shaders);
-
-        shader.bind(gl);
-        self.create_buffers(gl);
-    }*/
-
-    fn create_buffers(&mut self, gl: &WebGl2Context, shaders: &HashMap<&'static str, Shader>);
-    //fn get_shader<'a>(&self, shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader;
-}
 
 pub trait DisableDrawing {
     fn disable(&mut self, viewport: &ViewPort);

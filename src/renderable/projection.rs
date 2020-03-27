@@ -116,12 +116,17 @@ use cgmath::Vector4;
 use cgmath::InnerSpace;
 use cgmath::Deg;
 
-use std::collections::BTreeSet;
 use crate::healpix_cell::HEALPixCell;
 use crate::field_of_view::{ALLSKY_ZERO_DEPTH, ALLSKY_ONE_DEPTH};
 
 use std::collections::HashSet;
-pub trait Projection {
+use crate::renderable::{
+ RayTracingProjection,
+ RasterizerProjection,
+ CatalogShaderProjection
+};
+
+pub trait Projection: RayTracingProjection + RasterizerProjection + CatalogShaderProjection {
     /// Screen to world space deprojection
 
     /// Perform a screen to the world space deprojection
@@ -207,7 +212,7 @@ pub trait Projection {
 #[derive(Clone, Copy)]
 pub struct Aitoff;
 #[derive(Clone, Copy)]
-pub struct MollWeide;
+pub struct Mollweide;
 #[derive(Clone, Copy)]
 pub struct Orthographic;
 #[derive(Clone, Copy)]
@@ -342,7 +347,7 @@ impl Projection for Aitoff {
 
 use cgmath::Vector3;
 use crate::math;
-impl Projection for MollWeide {
+impl Projection for Mollweide {
     fn check_for_allsky_fov(depth: u8) -> Option<HashSet<HEALPixCell>> {
         if depth == 0 {
             Some(ALLSKY_ZERO_DEPTH.lock().unwrap().clone())
@@ -634,7 +639,6 @@ impl Projection for AzimutalEquidistant {
         Deg(180_f32)
     }
 }
-
 
 impl Projection for Mercator {
     fn check_for_allsky_fov(depth: u8) -> Option<HashSet<HEALPixCell>> {

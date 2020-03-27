@@ -1,13 +1,17 @@
-pub mod proj_vert;
-pub mod proj_frag;
+mod uniform_healpix_tiles;
+pub use uniform_healpix_tiles::HPX_TILES_BUFFER_UNIFORMS;
 
-pub mod grid_vert;
-pub mod grid_projeted_vert;
-pub mod grid_frag;
+mod raytracer;
+pub use raytracer::Raytracing;
 
-pub mod hips_sphere_small_fov_vert;
-pub mod hips_sphere_small_fov_frag;
+mod rasterizer;
+pub use rasterizer::*;
 
-pub mod uniform_healpix_tiles;
-pub mod catalog;
-pub mod colormap;
+mod grid;
+pub use grid::*;
+
+mod catalog;
+pub use catalog::*;
+
+mod colormap;
+pub use colormap::*;

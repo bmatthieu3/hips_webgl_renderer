@@ -33,7 +33,6 @@ use crate::finite_state_machine::{
 };
 use crate::projection::Projection;
 use crate::renderable::{
- Renderable,
  HiPSSphere,
  Catalog,
  ProjetedGrid

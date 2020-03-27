@@ -314,8 +314,6 @@ pub struct IDL_CB_YIGnBu;
 "#]
 pub struct IDL_CB_GnBu;
 
-use crate::shaders::uniform_healpix_tiles::HPX_TILES_BUFFER_UNIFORMS;
-
 #[derive(Shaderize)]
 #[VertexShader = r#"#version 300 es
     precision lowp float;
@@ -412,3 +410,31 @@ pub struct Red_Temperature;
     }
 "#]
 pub struct Black_White_Linear;
+
+pub enum Colormap {
+    Black_White_Linear,
+    Red_Temperature,
+    IDL_CB_GnBu,
+    IDL_CB_YIGnBu,
+    BluePastelRed,
+    IDL_CB_BrBG,
+}
+
+use crate::ShaderManager;
+use crate::Shader;
+impl Colormap {
+    pub fn get_shader<'a>(&self, shaders: &'a ShaderManager) -> &'a Shader {
+        let shader = match self {
+            Colormap::Black_White_Linear => shaders.get::<Black_White_Linear>(),
+            Colormap::Red_Temperature => shaders.get::<Red_Temperature>(),
+            Colormap::IDL_CB_GnBu => shaders.get::<IDL_CB_GnBu>(),
+            Colormap::IDL_CB_YIGnBu => shaders.get::<IDL_CB_YIGnBu>(),
+            Colormap::BluePastelRed => shaders.get::<BluePastelRed>(),
+            Colormap::IDL_CB_BrBG => shaders.get::<IDL_CB_BrBG>(),
+        };
+
+        shader.unwrap()
+    }
+}
+
+

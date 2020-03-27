@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(non_snake_case)]
+
 #[macro_use]
 extern crate lazy_static;
 extern crate itertools_num;
@@ -43,14 +46,14 @@ mod binary_heap_tiles;
 mod buffer_tiles;
 
 use shader::Shader;
+use shader::ShaderManager;
 
-use renderable::Renderable;
-use renderable::hips_sphere::HiPSSphere;
+use renderable::HiPSSphere;
 use renderable::grid::ProjetedGrid;
 use renderable::catalog::{Catalog, Source};
 
 use renderable::projection;
-use renderable::projection::{Aitoff, Orthographic, MollWeide, AzimutalEquidistant, Mercator};
+use renderable::projection::{Aitoff, Orthographic, Mollweide, AzimutalEquidistant, Mercator};
 
 use viewport::ViewPort;
 
@@ -61,21 +64,12 @@ use std::rc::Rc;
 
 use std::collections::HashMap;
 
-use std::sync::atomic::{AtomicU32, AtomicU8, AtomicBool};
-use std::sync::atomic::Ordering;
-
-use crate::render_next_frame::LATEST_TIME_TILE_RECEIVED;
-use crate::binary_heap_tiles::BLENDING_DURATION_MS;
+use std::sync::atomic::AtomicBool;
 
 use crate::projection::Projection;
 
 #[macro_use]
 extern crate aladinlite_derive;
-
-use crate::shaders::colormap::*;
-use crate::shaders::catalog::*;
-
-use crate::renderable::hips_sphere::RenderingMode;
 
 use cgmath::Quaternion;
 
@@ -85,7 +79,7 @@ struct App<P>
 where P: Projection {
     gl: WebGl2Context,
 
-    shaders: HashMap<&'static str, Shader>,
+    shaders: ShaderManager,
 
     viewport: ViewPort,
     projection: std::marker::PhantomData<P>,
@@ -145,25 +139,27 @@ fn add_tile_buffer_uniforms(name: &'static str, size: usize, uniforms: &mut Vec<
 }*/
 
 use cgmath::Matrix4;
-use crate::shader::Shaderize;
 
-use crate::renderable::hips_sphere::RayTracing;
+//use crate::renderable::hips_sphere::RayTracer;
 
 use cgmath::{Vector2, Vector3, Matrix3};
 use cgmath::Deg;
-use cgmath::InnerSpace;
 
 use crate::buffer_tiles::{HiPSConfig, ImageFormat};
 
+
+use crate::shaders::Colormap;
 impl<P> App<P>
 where P: Projection {
     fn new(gl: &WebGl2Context, events: &EventManager) -> Result<App<Orthographic>, JsValue> {
         console::log_1(&format!("Init").into());
 
+        let mut shaders = ShaderManager::new();
+
         // Shader definition
         // HiPS sphere shader
         // uniforms definition
-        let mut uniforms_2d_proj = vec![
+        let mut uniforms_raytracer = vec![
             // General uniforms
             "current_time",
             "model",
@@ -179,16 +175,8 @@ where P: Projection {
             // Textures
             "tex",
         ];
-        uniforms_2d_proj.extend(crate::shaders::uniform_healpix_tiles::HPX_TILES_BUFFER_UNIFORMS);
-
-        //add_tile_buffer_uniforms("textures", 128, &mut uniforms_2d_proj);
-
-        let shader_2d_proj = Shader::new(&gl,
-            shaders::proj_vert::CONTENT,
-            shaders::proj_frag::CONTENT,
-            // uniform list
-            &uniforms_2d_proj[..]
-        );
+        uniforms_raytracer.extend(shaders::HPX_TILES_BUFFER_UNIFORMS);
+        shaders.insert::<shaders::Raytracing>(gl, &uniforms_raytracer[..]);
 
         // Grid shader
         // uniforms definition
@@ -204,48 +192,10 @@ where P: Projection {
             // Grid-specific uniforms
             "location_color",
         ];
-        let shader_grid = Shader::new(&gl,
-            shaders::grid_projeted_vert::CONTENT,
-            shaders::grid_frag::CONTENT,
-            &uniforms_grid[..]
-        );
-
-        // HiPS Ortho shader
-        // uniforms definition
-        let mut uniforms_ortho_hips = vec![
-            // General uniforms
-            "current_time",
-            "model",
-            // Viewport uniforms
-            "ndc_to_clip",
-            "clip_zoom_factor",
-            "aspect",
-            "last_zoom_action",
-            // HiPS Ortho specific uniforms
-            "current_depth",
-            "max_depth",
-            // Textures
-            "tex",
-            "num_tiles",
-        ];
-        uniforms_ortho_hips.extend(crate::shaders::uniform_healpix_tiles::HPX_TILES_BUFFER_UNIFORMS);
-        //add_tile_buffer_uniforms("textures", 128, &mut uniforms_ortho_hips);
-        console::log_1(&format!("CC").into());
-
-        let shader_ortho_hips = Shader::new(&gl,
-            shaders::hips_sphere_small_fov_vert::CONTENT,
-            shaders::hips_sphere_small_fov_frag::CONTENT,
-            &uniforms_ortho_hips[..]
-        );
-        console::log_1(&format!("DD").into());
-
-        let mut shaders = HashMap::new();
-        shaders.insert("hips_sphere", shader_2d_proj);
-        shaders.insert("grid", shader_grid);
-        //shaders.insert("catalog", shader_catalog);
+        shaders.insert::<shaders::Grid>(gl, &uniforms_grid[..]);
 
         // Colormap shaders definition
-        let colormap_shader_uniforms = &[
+        let uniforms_colormap = &[
             // General uniforms
             "current_time",
             "model",
@@ -259,15 +209,15 @@ where P: Projection {
             "colormap",
             "alpha",
         ];
-        BluePastelRed::create_shader(&gl, &mut shaders, colormap_shader_uniforms);
-        IDL_CB_BrBG::create_shader(&gl, &mut shaders, colormap_shader_uniforms);
-        IDL_CB_YIGnBu::create_shader(&gl, &mut shaders, colormap_shader_uniforms);
-        IDL_CB_GnBu::create_shader(&gl, &mut shaders, colormap_shader_uniforms);
-        Red_Temperature::create_shader(&gl, &mut shaders, colormap_shader_uniforms);
-        Black_White_Linear::create_shader(&gl, &mut shaders,colormap_shader_uniforms);
+        shaders.insert::<shaders::BluePastelRed>(gl, &uniforms_colormap[..]);
+        shaders.insert::<shaders::IDL_CB_BrBG>(gl, &uniforms_colormap[..]);
+        shaders.insert::<shaders::IDL_CB_YIGnBu>(gl, &uniforms_colormap[..]);
+        shaders.insert::<shaders::IDL_CB_GnBu>(gl, &uniforms_colormap[..]);
+        shaders.insert::<shaders::Red_Temperature>(gl, &uniforms_colormap[..]);
+        shaders.insert::<shaders::Black_White_Linear>(gl, &uniforms_colormap[..]);
 
         // Catalog shaders definition
-        let catalog_shader_uniforms = &[
+        let uniforms_catalog = &[
             // General uniforms
             "current_time",
             "model",
@@ -284,12 +234,10 @@ where P: Projection {
             "min_size_source",
             "max_size_source",
         ];
-        Catalog_Orthographic::create_shader(&gl, &mut shaders, catalog_shader_uniforms);
-        Catalog_Aitoff::create_shader(&gl, &mut shaders, catalog_shader_uniforms);
-        Catalog_MollWeide::create_shader(&gl, &mut shaders, catalog_shader_uniforms);
-        Catalog_Mercator::create_shader(&gl, &mut shaders, catalog_shader_uniforms);
-
-        shaders.insert("hips_sphere_small_fov", shader_ortho_hips);
+        shaders.insert::<shaders::Catalog_Orthographic>(gl, &uniforms_catalog[..]);
+        shaders.insert::<shaders::Catalog_Aitoff>(gl, &uniforms_catalog[..]);
+        shaders.insert::<shaders::Catalog_MollWeide>(gl, &uniforms_catalog[..]);
+        shaders.insert::<shaders::Catalog_Mercator>(gl, &uniforms_catalog[..]);
 
         gl.enable(WebGl2RenderingContext::BLEND);
         gl.blend_func(WebGl2RenderingContext::SRC_ALPHA, WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA);
@@ -308,7 +256,7 @@ where P: Projection {
         let viewport = ViewPort::new::<Orthographic>(&gl, &config);
 
         // HiPS Sphere definition
-        let mut sphere = HiPSSphere::new(&gl, &viewport, config, &shaders);
+        let mut sphere = HiPSSphere::new(&gl, &viewport, config, &mut shaders);
         sphere.update::<Orthographic>(&viewport, events);
 
         // Catalog definition
@@ -477,7 +425,7 @@ where P: Projection {
 
             if self.catalog.get_alpha() > 0_f32 {
                 // Draw the catalogs
-                self.catalog.draw(
+                self.catalog.draw::<P>(
                     &self.gl,
                     shaders,
                     viewport
@@ -556,7 +504,7 @@ where P: Projection {
         //self.hips_sphere.update_mesh(&self.shaders, hips_sphere_mesh);
         self.sphere.update::<Q>(&self.viewport, events);
 
-        self.catalog.set_projection::<Q>();
+        //self.catalog.set_projection::<Q>();
         self.catalog.retrieve_sources_in_fov::<Q>(&self.viewport);
         // Reproject the grid
         self.grid.reproject::<Q>(&self.viewport);
@@ -623,8 +571,8 @@ where P: Projection {
         }
     }*/
 
-    fn set_hips_config(&mut self, config: HiPSConfig, events: &EventManager) {
-        self.sphere.set_hips_config::<P>(config, &mut self.viewport, events);
+    fn set_hips_config(&mut self, config: HiPSConfig) {
+        self.sphere.set_hips_config::<P>(config, &mut self.viewport);
         // Render the next frame
         self.render = true;
     }
@@ -674,19 +622,11 @@ where P: Projection {
 
     fn add_catalog(&mut self, sources: Vec<Source>) {
         self.catalog = Catalog::new(&self.gl, sources, &self.shaders);
-        self.catalog.set_projection::<P>();
+        //self.catalog.set_projection::<P>();
     }
 
-    fn set_colormap(&mut self, colormap: String) {
-        match colormap.as_str() {
-            "BluePastelRed" => self.catalog.set_colormap::<BluePastelRed>(),
-            "IDL_CB_BrBG" => self.catalog.set_colormap::<IDL_CB_BrBG>(),
-            "IDL_CB_YIGnBu" => self.catalog.set_colormap::<IDL_CB_YIGnBu>(),
-            "IDL_CB_GnBu" => self.catalog.set_colormap::<IDL_CB_GnBu>(),
-            "Red_Temperature" => self.catalog.set_colormap::<Red_Temperature>(),
-            "Black_White_Linear" => self.catalog.set_colormap::<Black_White_Linear>(),
-            _ => panic!("{:?} colormap not recognized!", colormap)
-        }
+    fn set_colormap(&mut self, colormap: Colormap) {
+        self.catalog.set_colormap(colormap);
     }
 
     fn set_heatmap_opacity(&mut self, opacity: f32) {
@@ -769,119 +709,119 @@ impl Deref for WebGl2Context {
 }
 
 enum AppConfig {
-    Aitoff(App<Aitoff>, &'static str),
-    MollWeide(App<MollWeide>, &'static str),
-    Arc(App<AzimutalEquidistant>, &'static str),
-    Mercator(App<Mercator>, &'static str),
+    Aitoff(App<Aitoff>),
+    MollWeide(App<Mollweide>),
+    Arc(App<AzimutalEquidistant>),
+    Mercator(App<Mercator>),
 
-    Ortho(App<Orthographic>, &'static str),
+    Ortho(App<Orthographic>),
 }
 
 use cgmath::Rad;
 impl AppConfig {
-    fn set_projection(self, proj: &str, events: &EventManager) -> AppConfig {
-        match (self, proj) {
-            (AppConfig::Aitoff(app, _), "aitoff") => {
-                AppConfig::Aitoff(app, "aitoff")
+    fn set_projection(self, name: String, events: &EventManager) -> AppConfig {
+        match (self, name.as_str()) {
+            (AppConfig::Aitoff(app), "aitoff") => {
+                AppConfig::Aitoff(app)
             },
-            (AppConfig::MollWeide(app, _), "aitoff") => {
-                AppConfig::Aitoff(app.set_projection::<Aitoff>(events), "aitoff")
+            (AppConfig::MollWeide(app), "aitoff") => {
+                AppConfig::Aitoff(app.set_projection::<Aitoff>(events))
             },
-            (AppConfig::Ortho(app, _), "aitoff") => {
-                AppConfig::Aitoff(app.set_projection::<Aitoff>(events), "aitoff")
+            (AppConfig::Ortho(app), "aitoff") => {
+                AppConfig::Aitoff(app.set_projection::<Aitoff>(events))
             },
-            (AppConfig::Arc(app, _), "aitoff") => {
-                AppConfig::Aitoff(app.set_projection::<Aitoff>(events), "aitoff")
+            (AppConfig::Arc(app), "aitoff") => {
+                AppConfig::Aitoff(app.set_projection::<Aitoff>(events))
             },
-            (AppConfig::Mercator(app, _), "aitoff") => {
-                AppConfig::Aitoff(app.set_projection::<Aitoff>(events), "aitoff")
-            },
-
-
-            (AppConfig::Aitoff(app, _), "orthographic") => {
-                AppConfig::Ortho(app.set_projection::<Orthographic>(events), "orthographic")
-            },
-            (AppConfig::MollWeide(app, _), "orthographic") => {
-                AppConfig::Ortho(app.set_projection::<Orthographic>(events), "orthographic")
-            },
-            (AppConfig::Arc(app, _), "orthographic") => {
-                AppConfig::Ortho(app.set_projection::<Orthographic>(events), "orthographic")
-            },
-            (AppConfig::Mercator(app, _), "orthographic") => {
-                AppConfig::Ortho(app.set_projection::<Orthographic>(events), "orthographic")
-            },
-            (AppConfig::Ortho(app, _), "orthographic") => {
-                AppConfig::Ortho(app, "orthographic")
+            (AppConfig::Mercator(app), "aitoff") => {
+                AppConfig::Aitoff(app.set_projection::<Aitoff>(events))
             },
 
-            (AppConfig::Aitoff(app, _), "mollweide") => {
-                AppConfig::MollWeide(app.set_projection::<MollWeide>(events), "mollweide")
+
+            (AppConfig::Aitoff(app), "orthographic") => {
+                AppConfig::Ortho(app.set_projection::<Orthographic>(events))
             },
-            (AppConfig::MollWeide(app, _), "mollweide") => {
-                AppConfig::MollWeide(app, "mollweide")
+            (AppConfig::MollWeide(app), "orthographic") => {
+                AppConfig::Ortho(app.set_projection::<Orthographic>(events))
             },
-            (AppConfig::Ortho(app, _), "mollweide") => {
-                AppConfig::MollWeide(app.set_projection::<MollWeide>(events), "mollweide")
+            (AppConfig::Arc(app), "orthographic") => {
+                AppConfig::Ortho(app.set_projection::<Orthographic>(events))
             },
-            (AppConfig::Arc(app, _), "mollweide") => {
-                AppConfig::MollWeide(app.set_projection::<MollWeide>(events), "mollweide")
+            (AppConfig::Mercator(app), "orthographic") => {
+                AppConfig::Ortho(app.set_projection::<Orthographic>(events))
             },
-            (AppConfig::Mercator(app, _), "mollweide") => {
-                AppConfig::MollWeide(app.set_projection::<MollWeide>(events), "mollweide")
+            (AppConfig::Ortho(app), "orthographic") => {
+                AppConfig::Ortho(app)
             },
 
-            (AppConfig::Aitoff(app, _), "arc") => {
-                AppConfig::Arc(app.set_projection::<AzimutalEquidistant>(events), "arc")
+            (AppConfig::Aitoff(app), "mollweide") => {
+                AppConfig::MollWeide(app.set_projection::<Mollweide>(events))
             },
-            (AppConfig::MollWeide(app, _), "arc") => {
-                AppConfig::Arc(app.set_projection::<AzimutalEquidistant>(events), "arc")
+            (AppConfig::MollWeide(app), "mollweide") => {
+                AppConfig::MollWeide(app)
             },
-            (AppConfig::Ortho(app, _), "arc") => {
-                AppConfig::Arc(app.set_projection::<AzimutalEquidistant>(events), "arc")
+            (AppConfig::Ortho(app), "mollweide") => {
+                AppConfig::MollWeide(app.set_projection::<Mollweide>(events))
             },
-            (AppConfig::Mercator(app, _), "arc") => {
-                AppConfig::Arc(app.set_projection::<AzimutalEquidistant>(events), "arc")
+            (AppConfig::Arc(app), "mollweide") => {
+                AppConfig::MollWeide(app.set_projection::<Mollweide>(events))
             },
-            (AppConfig::Arc(app, _), "arc") => {
-                AppConfig::Arc(app, "arc")
+            (AppConfig::Mercator(app), "mollweide") => {
+                AppConfig::MollWeide(app.set_projection::<Mollweide>(events))
             },
 
-            (AppConfig::Aitoff(app, _), "mercator") => {
-                AppConfig::Mercator(app.set_projection::<Mercator>(events), "mercator")
+            (AppConfig::Aitoff(app), "arc") => {
+                AppConfig::Arc(app.set_projection::<AzimutalEquidistant>(events))
             },
-            (AppConfig::MollWeide(app, _), "mercator") => {
-                AppConfig::Mercator(app.set_projection::<Mercator>(events), "mercator")
+            (AppConfig::MollWeide(app), "arc") => {
+                AppConfig::Arc(app.set_projection::<AzimutalEquidistant>(events))
             },
-            (AppConfig::Ortho(app, _), "mercator") => {
-                AppConfig::Mercator(app.set_projection::<Mercator>(events), "mercator")
+            (AppConfig::Ortho(app), "arc") => {
+                AppConfig::Arc(app.set_projection::<AzimutalEquidistant>(events))
             },
-            (AppConfig::Arc(app, _), "mercator") => {
-                AppConfig::Mercator(app.set_projection::<Mercator>(events), "mercator")
+            (AppConfig::Mercator(app), "arc") => {
+                AppConfig::Arc(app.set_projection::<AzimutalEquidistant>(events))
             },
-            (AppConfig::Mercator(app, _), "mercator") => {
-                AppConfig::Mercator(app, "mercator")
+            (AppConfig::Arc(app), "arc") => {
+                AppConfig::Arc(app)
+            },
+
+            (AppConfig::Aitoff(app), "mercator") => {
+                AppConfig::Mercator(app.set_projection::<Mercator>(events))
+            },
+            (AppConfig::MollWeide(app), "mercator") => {
+                AppConfig::Mercator(app.set_projection::<Mercator>(events))
+            },
+            (AppConfig::Ortho(app), "mercator") => {
+                AppConfig::Mercator(app.set_projection::<Mercator>(events))
+            },
+            (AppConfig::Arc(app), "mercator") => {
+                AppConfig::Mercator(app.set_projection::<Mercator>(events))
+            },
+            (AppConfig::Mercator(app), "mercator") => {
+                AppConfig::Mercator(app)
             },
             _ => unreachable!()
         }
     }
 
-    fn set_colormap(&mut self, colormap: String) {
+    fn set_colormap(&mut self, colormap: Colormap) {
         match self {
-            AppConfig::Aitoff(app, _) => app.set_colormap(colormap),
-            AppConfig::MollWeide(app, _) => app.set_colormap(colormap),
-            AppConfig::Ortho(app, _) => app.set_colormap(colormap),
-            AppConfig::Arc(app, _) => app.set_colormap(colormap),
-            AppConfig::Mercator(app, _) => app.set_colormap(colormap),
+            AppConfig::Aitoff(app) => app.set_colormap(colormap),
+            AppConfig::MollWeide(app) => app.set_colormap(colormap),
+            AppConfig::Ortho(app) => app.set_colormap(colormap),
+            AppConfig::Arc(app) => app.set_colormap(colormap),
+            AppConfig::Mercator(app) => app.set_colormap(colormap),
         };
     }
 
     fn update(&mut self, dt: f32, events: &EventManager, enable_grid: bool) -> Vector2<Rad<f32>> {
         let pos_center_world = match self {
-            AppConfig::Aitoff(app, _) => app.update(dt, events, enable_grid),
-            AppConfig::MollWeide(app, _) => app.update(dt, events, enable_grid),
-            AppConfig::Ortho(app, _) => app.update(dt, events, enable_grid),
-            AppConfig::Arc(app, _) => app.update(dt, events, enable_grid),
-            AppConfig::Mercator(app, _) => app.update(dt, events, enable_grid),
+            AppConfig::Aitoff(app) => app.update(dt, events, enable_grid),
+            AppConfig::MollWeide(app) => app.update(dt, events, enable_grid),
+            AppConfig::Ortho(app) => app.update(dt, events, enable_grid),
+            AppConfig::Arc(app) => app.update(dt, events, enable_grid),
+            AppConfig::Mercator(app) => app.update(dt, events, enable_grid),
         };
 
         pos_center_world
@@ -889,11 +829,11 @@ impl AppConfig {
 
     fn render(&mut self, enable_grid: bool) {
         match self {
-            AppConfig::Aitoff(app, _) => app.render(enable_grid),
-            AppConfig::MollWeide(app, _) => app.render(enable_grid),
-            AppConfig::Ortho(app, _) => app.render(enable_grid),
-            AppConfig::Arc(app, _) => app.render(enable_grid),
-            AppConfig::Mercator(app, _) => app.render(enable_grid),
+            AppConfig::Aitoff(app) => app.render(enable_grid),
+            AppConfig::MollWeide(app) => app.render(enable_grid),
+            AppConfig::Ortho(app) => app.render(enable_grid),
+            AppConfig::Arc(app) => app.render(enable_grid),
+            AppConfig::Mercator(app) => app.render(enable_grid),
         }
     }
 
@@ -978,110 +918,110 @@ impl AppConfig {
         }
 
         match self {
-            AppConfig::Aitoff(app, _) => app.add_catalog(sources),
-            AppConfig::MollWeide(app, _) => app.add_catalog(sources),
-            AppConfig::Arc(app, _) => app.add_catalog(sources),
-            AppConfig::Ortho(app, _) => app.add_catalog(sources),
-            AppConfig::Mercator(app, _) => app.add_catalog(sources),
+            AppConfig::Aitoff(app) => app.add_catalog(sources),
+            AppConfig::MollWeide(app) => app.add_catalog(sources),
+            AppConfig::Arc(app) => app.add_catalog(sources),
+            AppConfig::Ortho(app) => app.add_catalog(sources),
+            AppConfig::Mercator(app) => app.add_catalog(sources),
 
         }
     }
 
-    pub fn set_hips_config(&mut self, config: HiPSConfig, events: &EventManager) {        
+    pub fn set_hips_config(&mut self, config: HiPSConfig) {        
         match self {
-            AppConfig::Aitoff(app, _) => app.set_hips_config(config, events),
-            AppConfig::MollWeide(app, _) =>  app.set_hips_config(config, events),
-            AppConfig::Arc(app, _) => app.set_hips_config(config, events),
-            AppConfig::Ortho(app, _) =>  app.set_hips_config(config, events),
-            AppConfig::Mercator(app, _) =>  app.set_hips_config(config, events),
+            AppConfig::Aitoff(app) => app.set_hips_config(config),
+            AppConfig::MollWeide(app) =>  app.set_hips_config(config),
+            AppConfig::Arc(app) => app.set_hips_config(config),
+            AppConfig::Ortho(app) =>  app.set_hips_config(config),
+            AppConfig::Mercator(app) =>  app.set_hips_config(config),
 
         }
     }
 
     pub fn resize(&mut self, width: f32, height: f32, enable_grid: bool) {        
         match self {
-            AppConfig::Aitoff(app, _) => app.resize_window(width, height, enable_grid),
-            AppConfig::MollWeide(app, _) => app.resize_window(width, height, enable_grid),
-            AppConfig::Arc(app, _) => app.resize_window(width, height, enable_grid),
-            AppConfig::Ortho(app, _) => app.resize_window(width, height, enable_grid),
-            AppConfig::Mercator(app, _) => app.resize_window(width, height, enable_grid),
+            AppConfig::Aitoff(app) => app.resize_window(width, height, enable_grid),
+            AppConfig::MollWeide(app) => app.resize_window(width, height, enable_grid),
+            AppConfig::Arc(app) => app.resize_window(width, height, enable_grid),
+            AppConfig::Ortho(app) => app.resize_window(width, height, enable_grid),
+            AppConfig::Mercator(app) => app.resize_window(width, height, enable_grid),
 
         }
     }
 
     pub fn set_kernel_strength(&mut self, strength: f32) {        
         match self {
-            AppConfig::Aitoff(app, _) => app.set_kernel_strength(strength),
-            AppConfig::MollWeide(app, _) => app.set_kernel_strength(strength),
-            AppConfig::Arc(app, _) => app.set_kernel_strength(strength),
-            AppConfig::Ortho(app, _) => app.set_kernel_strength(strength),
-            AppConfig::Mercator(app, _) => app.set_kernel_strength(strength),
+            AppConfig::Aitoff(app) => app.set_kernel_strength(strength),
+            AppConfig::MollWeide(app) => app.set_kernel_strength(strength),
+            AppConfig::Arc(app) => app.set_kernel_strength(strength),
+            AppConfig::Ortho(app) => app.set_kernel_strength(strength),
+            AppConfig::Mercator(app) => app.set_kernel_strength(strength),
 
         }
     }
 
     pub fn set_heatmap_opacity(&mut self, opacity: f32) {        
         match self {
-            AppConfig::Aitoff(app, _) => app.set_heatmap_opacity(opacity),
-            AppConfig::MollWeide(app, _) => app.set_heatmap_opacity(opacity),
-            AppConfig::Arc(app, _) => app.set_heatmap_opacity(opacity),
-            AppConfig::Ortho(app, _) => app.set_heatmap_opacity(opacity),
-            AppConfig::Mercator(app, _) => app.set_heatmap_opacity(opacity),
+            AppConfig::Aitoff(app) => app.set_heatmap_opacity(opacity),
+            AppConfig::MollWeide(app) => app.set_heatmap_opacity(opacity),
+            AppConfig::Arc(app) => app.set_heatmap_opacity(opacity),
+            AppConfig::Ortho(app) => app.set_heatmap_opacity(opacity),
+            AppConfig::Mercator(app) => app.set_heatmap_opacity(opacity),
 
         }
     }
 
     pub fn set_range_source_size(&mut self, source_size_range: std::ops::Range<f32>) {
         match self {
-            AppConfig::Aitoff(app, _) => app.set_range_source_size(source_size_range),
-            AppConfig::MollWeide(app, _) => app.set_range_source_size(source_size_range),
-            AppConfig::Arc(app, _) => app.set_range_source_size(source_size_range),
-            AppConfig::Ortho(app, _) => app.set_range_source_size(source_size_range),
-            AppConfig::Mercator(app, _) => app.set_range_source_size(source_size_range),
+            AppConfig::Aitoff(app) => app.set_range_source_size(source_size_range),
+            AppConfig::MollWeide(app) => app.set_range_source_size(source_size_range),
+            AppConfig::Arc(app) => app.set_range_source_size(source_size_range),
+            AppConfig::Ortho(app) => app.set_range_source_size(source_size_range),
+            AppConfig::Mercator(app) => app.set_range_source_size(source_size_range),
 
         }
     }
 
     pub fn set_position(&mut self, ra: Rad<f32>, dec: Rad<f32>) {
         match self {
-            AppConfig::Aitoff(app, _) => app.set_position(ra, dec),
-            AppConfig::MollWeide(app, _) => app.set_position(ra, dec),
-            AppConfig::Arc(app, _) => app.set_position(ra, dec),
-            AppConfig::Ortho(app, _) => app.set_position(ra, dec),
-            AppConfig::Mercator(app, _) => app.set_position(ra, dec),
+            AppConfig::Aitoff(app) => app.set_position(ra, dec),
+            AppConfig::MollWeide(app) => app.set_position(ra, dec),
+            AppConfig::Arc(app) => app.set_position(ra, dec),
+            AppConfig::Ortho(app) => app.set_position(ra, dec),
+            AppConfig::Mercator(app) => app.set_position(ra, dec),
 
         }
     }
 
     pub fn set_color_rgb(&mut self, red: f32, green: f32, blue: f32) {
         match self {
-            AppConfig::Aitoff(app, _) => app.set_color_rgb(red, green, blue),
-            AppConfig::MollWeide(app, _) => app.set_color_rgb(red, green, blue),
-            AppConfig::Arc(app, _) => app.set_color_rgb(red, green, blue),
-            AppConfig::Ortho(app, _) => app.set_color_rgb(red, green, blue),
-            AppConfig::Mercator(app, _) => app.set_color_rgb(red, green, blue),
+            AppConfig::Aitoff(app) => app.set_color_rgb(red, green, blue),
+            AppConfig::MollWeide(app) => app.set_color_rgb(red, green, blue),
+            AppConfig::Arc(app) => app.set_color_rgb(red, green, blue),
+            AppConfig::Ortho(app) => app.set_color_rgb(red, green, blue),
+            AppConfig::Mercator(app) => app.set_color_rgb(red, green, blue),
 
         }
     }
 
     pub fn change_grid_opacity(&mut self, alpha: f32) {
         match self {
-            AppConfig::Aitoff(app, _) => app.change_grid_opacity(alpha),
-            AppConfig::MollWeide(app, _) => app.change_grid_opacity(alpha),
-            AppConfig::Arc(app, _) => app.change_grid_opacity(alpha),
-            AppConfig::Ortho(app, _) => app.change_grid_opacity(alpha),
-            AppConfig::Mercator(app, _) => app.change_grid_opacity(alpha),
+            AppConfig::Aitoff(app) => app.change_grid_opacity(alpha),
+            AppConfig::MollWeide(app) => app.change_grid_opacity(alpha),
+            AppConfig::Arc(app) => app.change_grid_opacity(alpha),
+            AppConfig::Ortho(app) => app.change_grid_opacity(alpha),
+            AppConfig::Mercator(app) => app.change_grid_opacity(alpha),
 
         }
     }
 
     pub fn enable_grid(&mut self) {
         match self {
-            AppConfig::Aitoff(app, _) => app.enable_grid(),
-            AppConfig::MollWeide(app, _) => app.enable_grid(),
-            AppConfig::Arc(app, _) => app.enable_grid(),
-            AppConfig::Ortho(app, _) => app.enable_grid(),
-            AppConfig::Mercator(app, _) => app.enable_grid(),
+            AppConfig::Aitoff(app) => app.enable_grid(),
+            AppConfig::MollWeide(app) => app.enable_grid(),
+            AppConfig::Arc(app) => app.enable_grid(),
+            AppConfig::Ortho(app) => app.enable_grid(),
+            AppConfig::Mercator(app) => app.enable_grid(),
         }
     }
 }
@@ -1130,7 +1070,7 @@ impl WebClient {
         let events = EventManager::new();
 
         let app = App::<Orthographic>::new(&gl, &events).unwrap();
-        let appconfig = AppConfig::Ortho(app, "orthographic");
+        let appconfig = AppConfig::Ortho(app);
         let dt = 0_f32;
         let enable_inertia = false;
         let enable_grid = true;
@@ -1183,14 +1123,23 @@ impl WebClient {
 
     /// Change the current projection of the HiPS
     pub fn set_projection(mut self, name: String) -> Result<WebClient, JsValue> {
-        self.appconfig = self.appconfig.set_projection(&name, &self.events);
+        self.appconfig = self.appconfig.set_projection(name, &self.events);
 
         Ok(self)
     }
 
     /// Change the current projection of the HiPS
     pub fn set_colormap(&mut self, name: String) -> Result<(), JsValue> {
-        self.appconfig.set_colormap(name);
+        let colormap = match name.as_str() {
+            "BluePastelRed" => Colormap::BluePastelRed,
+            "IDL_CB_BrBG" => Colormap::IDL_CB_BrBG,
+            "IDL_CB_YIGnBu" => Colormap::IDL_CB_YIGnBu,
+            "IDL_CB_GnBu" => Colormap::IDL_CB_GnBu,
+            "Red_Temperature" => Colormap::Red_Temperature,
+            "Black_White_Linear" => Colormap::Black_White_Linear,
+            _ => panic!("{:?} colormap not recognized!", name)
+        };
+        self.appconfig.set_colormap(colormap);
 
         Ok(())
     }
@@ -1261,7 +1210,7 @@ impl WebClient {
             tile_img_fmt?
         );
 
-        self.appconfig.set_hips_config(config, &self.events);
+        self.appconfig.set_hips_config(config);
 
         Ok(())
     }

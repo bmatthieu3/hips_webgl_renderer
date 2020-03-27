@@ -5,7 +5,6 @@ use crate::core::{
 
 const NUM_POINTS: usize = 40;
 
-use crate::renderable::Renderable;
 use web_sys::WebGl2RenderingContext;
 
 use crate::color::Color;
@@ -95,13 +94,14 @@ pub struct ProjetedGrid {
     vertex_array_object: VertexArrayObject,
 }
 
-use cgmath::{SquareMatrix, InnerSpace};
+use cgmath::InnerSpace;
 use wasm_bindgen::JsCast;
 use crate::math::radec_to_xyzw;
-use crate::renderable::hips_sphere::HiPSSphere;
 use crate::projection::Projection;
 
-use cgmath::Deg;
+use crate::ShaderManager;
+use crate::shaders;
+use cgmath::SquareMatrix;
 impl ProjetedGrid {
     pub fn new<P: Projection>(
         gl: &WebGl2Context,
@@ -110,7 +110,7 @@ impl ProjetedGrid {
         lat_bound: Option<Vector2<Rad<f32>>>,
         lon_bound: Option<Vector2<Rad<f32>>>,
         viewport: &ViewPort,
-        shaders: &HashMap<&'static str, Shader>
+        shaders: &ShaderManager
     ) -> ProjetedGrid {
         let (lat_min, lat_max) = if let Some(lat_bound) = lat_bound {
             (lat_bound.x.0, lat_bound.y.0)
@@ -220,7 +220,27 @@ impl ProjetedGrid {
 
         let label_pos_screen_space = Vec::new();
 
-        let vertex_array_object = VertexArrayObject::new(&gl);
+        // Define the Vertex Array Object
+        let shader = shaders.get::<shaders::Grid>().unwrap();
+        shader.bind(gl);
+        let mut vertex_array_object = VertexArrayObject::new(&gl);
+
+        vertex_array_object.bind()
+            // Store the vertex positions
+            .add_array_buffer(
+                2 * std::mem::size_of::<f32>(),
+                &[2],
+                &[0 * std::mem::size_of::<f32>()],
+                WebGl2RenderingContext::DYNAMIC_DRAW,
+                BufferData::VecData(&pos_clip_space),
+            )
+            // Set the element buffer
+            .add_element_buffer(
+                WebGl2RenderingContext::DYNAMIC_DRAW,
+                BufferData::VecData(&idx_vertices),
+            )
+            // Unbind the buffer
+            .unbind();
 
         let mut grid = ProjetedGrid {
             lat,
@@ -246,7 +266,6 @@ impl ProjetedGrid {
         grid.update_grid_positions::<P>(&cgmath::Matrix4::identity(), viewport);
         grid.update_label_positions::<P>(&cgmath::Matrix4::identity(), viewport);
 
-        grid.create_buffers(gl, shaders);
         grid
     }
 
@@ -396,13 +415,11 @@ impl ProjetedGrid {
     pub fn draw(
         &self,
         gl: &WebGl2Context,
-        shaders: &HashMap<&'static str, Shader>,
+        shaders: &ShaderManager,
         viewport: &ViewPort
     ) {
-        let shader = &shaders["grid"];
+        let shader = shaders.get::<shaders::Grid>().unwrap();
         shader.bind(gl);
-
-        self.vertex_array_object.bind_ref();
 
         // Send Uniforms
         viewport.send_to_vertex_shader(gl, shader);
@@ -417,6 +434,7 @@ impl ProjetedGrid {
         let location_time = shader.get_uniform_location("current_time");
         gl.uniform1f(location_time, utils::get_current_time());
 
+        self.vertex_array_object.bind_ref();
         gl.draw_elements_with_i32(
             WebGl2RenderingContext::LINES,
             self.vertex_array_object.num_elements() as i32,
@@ -430,37 +448,6 @@ use crate::WebGl2Context;
 use cgmath::Matrix4;
 
 use crate::utils;
-use std::collections::HashMap;
-impl Renderable for ProjetedGrid {
-    fn create_buffers(&mut self, gl: &WebGl2Context, shaders: &HashMap<&'static str, Shader>) {
-        let ref vertices_data = self.pos_clip_space;
-        let ref idx_data = self.idx_vertices;
-
-        let shader = &shaders["grid"];
-        shader.bind(gl);
-
-        self.vertex_array_object.bind()
-            // Store the vertex positions
-            .add_array_buffer(
-                2 * std::mem::size_of::<f32>(),
-                &[2],
-                &[0 * std::mem::size_of::<f32>()],
-                WebGl2RenderingContext::DYNAMIC_DRAW,
-                BufferData::VecData(&vertices_data),
-            )
-            // Set the element buffer
-            .add_element_buffer(
-                WebGl2RenderingContext::DYNAMIC_DRAW,
-                BufferData::VecData(&idx_data),
-            )
-            // Unbind the buffer
-            .unbind();
-    }
-
-    /*fn get_shader<'a>(&self, shaders: &'a HashMap<&'static str, Shader>) -> &'a Shader {
-        &shaders["grid"]
-    }*/
-}
 
 use crate::renderable::DisableDrawing;
 impl DisableDrawing for ProjetedGrid {
