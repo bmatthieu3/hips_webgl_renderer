@@ -257,7 +257,7 @@ where P: Projection {
 
         // HiPS Sphere definition
         let mut sphere = HiPSSphere::new(&gl, &viewport, config, &mut shaders);
-        sphere.update::<Orthographic>(&viewport, events);
+        sphere.update::<Orthographic>(&viewport, events, &shaders);
 
         // Catalog definition
         let catalog = Catalog::new(&gl, vec![], &shaders);
@@ -368,7 +368,7 @@ where P: Projection {
         self.user_zoom_fsm.run::<P>(dt, &mut self.sphere, &mut self.catalog, &mut self.grid, &mut self.viewport, &events);
 
         // Update the HiPS sphere VAO
-        self.sphere.update::<P>(&self.viewport, &events);
+        self.sphere.update::<P>(&self.viewport, &events, &self.shaders);
 
         /*// Mouse inertia
         if let Some(inertia) = self.inertia.clone() {
@@ -502,7 +502,7 @@ where P: Projection {
         //let hips_sphere_mesh = HiPSSphere::<R>::new(&self.gl, &self.viewport);
         //let mut hips_sphere = Renderable::new(&self.gl, &self.shaders, hips_sphere_mesh);
         //self.hips_sphere.update_mesh(&self.shaders, hips_sphere_mesh);
-        self.sphere.update::<Q>(&self.viewport, events);
+        self.sphere.update::<Q>(&self.viewport, events, &self.shaders);
 
         //self.catalog.set_projection::<Q>();
         self.catalog.retrieve_sources_in_fov::<Q>(&self.viewport);

@@ -25,7 +25,7 @@ pub trait RenderingMode {
         &mut self,
         buffer: &mut BufferTiles,
         viewport: &ViewPort,
-        events: &EventManager
+        events: &EventManager,
     );
 
     fn draw<P: Projection>(&self, gl: &WebGl2Context, shader: &ShaderBound);
@@ -100,7 +100,7 @@ impl HiPSSphere {
         self.buffer.request_tiles(cells, &self.config);
     }
 
-    pub fn update<P: Projection>(&mut self, viewport: &ViewPort, events: &EventManager) {
+    pub fn update<P: Projection>(&mut self, viewport: &ViewPort, events: &EventManager, shaders: &ShaderManager) {
         /*if viewport.screen_inside_of_projection::<P>() {
         
         } else {
@@ -110,7 +110,7 @@ impl HiPSSphere {
         self.raster.update::<P>(
             &mut self.buffer,
             viewport,
-            events
+            events,
         );
     }
 

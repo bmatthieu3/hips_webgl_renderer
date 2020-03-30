@@ -86,8 +86,6 @@ fn create_vertex_array_object<P: Projection>(
 
 struct RayTracerVAOs([VertexArrayObject; 5]);
 
-use std::collections::HashMap;
-use crate::shader::Shader;
 impl RayTracerVAOs {
     fn new(
         gl: &WebGl2Context,
@@ -169,7 +167,7 @@ impl RenderingMode for RayTracer {
         );*/
     }
 
-    fn update<Q: Projection>(&mut self, buffer: &mut BufferTiles, viewport: &ViewPort, events: &EventManager) {}
+    fn update<P: Projection>(&mut self, buffer: &mut BufferTiles, viewport: &ViewPort, events: &EventManager) {}
 
     //fn send_to_shader(buffer: &BufferTiles, shader: &Shader) {}
 }

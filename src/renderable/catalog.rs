@@ -400,7 +400,7 @@ impl Catalog {
     pub fn retrieve_sources_in_fov<P: Projection>(&mut self, viewport: &ViewPort) {
         let field_of_view = viewport.field_of_view();
 
-        let mut current_field_of_view = field_of_view.healpix_cells();
+        let current_field_of_view = field_of_view.healpix_cells();
         let current_depth = field_of_view.current_depth();
 
         let mut rebuild_binary_heap = true;
@@ -585,7 +585,7 @@ impl Catalog {
                     .draw_elements_with_i32(
                         WebGl2RenderingContext::TRIANGLES,
                         None
-                    );
+                    )
         }
     }
 }

@@ -72,6 +72,8 @@ impl VertexArrayObject {
     // This returns a VertexArrayObjectBound for which it is only possible to
     // update the buffers
     pub fn bind_for_update<'a>(&'a mut self) -> VertexArrayObjectBound<'a> {
+        self.gl.bind_vertex_array(Some(self.vao.as_ref()));
+
         VertexArrayObjectBound {
             vao: self
         }
@@ -161,26 +163,21 @@ impl<'a, 'b> ShaderVertexArrayObjectBound<'a, 'b> {
         self
     }
 
-    pub fn draw_elements_with_i32(&self, mode: u32, num_elements: Option<i32>) {
-        let num_elements = num_elements.unwrap_or(
-            self.vao.num_elements() as i32
-        );
-        self.vao.gl.draw_elements_with_i32(
-            mode,
-            num_elements,
-            WebGl2RenderingContext::UNSIGNED_SHORT,
-            0,
-        );
+    pub fn update_array<T: VertexAttribPointerType>(&mut self, idx: usize, usage: u32, array_data: BufferData<'a, T>) -> &mut Self {
+        self.vao.array_buffer[idx].update(usage, array_data);
+        self
     }
 
-    pub fn draw_elements_instanced_with_i32(&self, mode: u32, num_instances: i32) {
-        self.vao.gl.draw_elements_instanced_with_i32(
-            WebGl2RenderingContext::TRIANGLES,
-            self.vao.num_elements() as i32,
-            WebGl2RenderingContext::UNSIGNED_SHORT,
-            0,
-            num_instances,
-        );
+    pub fn update_element_array(&mut self, usage: u32, element_data: BufferData<'a, u16>) -> &mut Self {
+        if let Some(ref mut element_array_buffer) = self.vao.element_array_buffer {
+            element_array_buffer.update(usage, element_data);
+        }
+        self
+    }
+
+    pub fn update_instanced_array(&mut self, idx: usize, array_data: BufferData<'a, f32>) -> &mut Self {
+        self.vao.array_buffer_instanced[idx].update(array_data);
+        self
     }
 
     pub fn unbind(&self) {
@@ -208,7 +205,7 @@ impl<'a, 'b> ShaderVertexArrayObjectBoundRef<'a, 'b> {
 
     pub fn draw_elements_instanced_with_i32(&self, mode: u32, num_instances: i32) {
         self.vao.gl.draw_elements_instanced_with_i32(
-            WebGl2RenderingContext::TRIANGLES,
+            mode,
             self.vao.num_elements() as i32,
             WebGl2RenderingContext::UNSIGNED_SHORT,
             0,
