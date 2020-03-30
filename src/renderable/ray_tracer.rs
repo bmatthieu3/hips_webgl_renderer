@@ -58,28 +58,28 @@ fn create_vertex_array_object<P: Projection>(
     shaders: &ShaderManager
 ) -> VertexArrayObject {
     let (vertices, idx) = create_vertices_array::<P>(gl, viewport);
+    
+    let mut vertex_array_object = VertexArrayObject::new(gl);
 
     let shader = shaders.get::<shaders::Raytracing>().unwrap();
-    shader.bind(gl);
-
-    let mut vertex_array_object = VertexArrayObject::new(gl);
-    // VAO for per-pixel computation mode (only in case of large fovs and 2D projections)
-    vertex_array_object.bind()
-        // Store the projeted and 3D vertex positions in a VBO
-        .add_array_buffer(
-            5 * std::mem::size_of::<f32>(),
-            &[2, 3],
-            &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
-            WebGl2RenderingContext::STATIC_DRAW,
-            BufferData::VecData(vertices.as_ref()),
-        )
-        // Set the element buffer
-        .add_element_buffer(
-            WebGl2RenderingContext::STATIC_DRAW,
-            BufferData::VecData(idx.as_ref()),
-        )
-        // Unbind the buffer
-        .unbind();
+    shader.bind(gl)
+        // VAO for per-pixel computation mode (only in case of large fovs and 2D projections)
+        .bind_vertex_array_object(&mut vertex_array_object)
+            // Store the projeted and 3D vertex positions in a VBO
+            .add_array_buffer(
+                5 * std::mem::size_of::<f32>(),
+                &[2, 3],
+                &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
+                WebGl2RenderingContext::STATIC_DRAW,
+                BufferData::VecData(vertices.as_ref()),
+            )
+            // Set the element buffer
+            .add_element_buffer(
+                WebGl2RenderingContext::STATIC_DRAW,
+                BufferData::VecData(idx.as_ref()),
+            )
+            // Unbind the buffer
+            .unbind();
 
     vertex_array_object
 }
@@ -143,6 +143,7 @@ use crate::buffer_tiles::BufferTiles;
 use crate::event_manager::EventManager;
 
 use crate::shader::ShaderManager;
+use crate::shader::ShaderBound;
 impl RenderingMode for RayTracer {
     fn new(gl: &WebGl2Context, viewport: &ViewPort, shaders: &mut ShaderManager) -> RayTracer {
         let vertex_array_objects = RayTracerVAOs::new(gl, viewport, shaders);
@@ -155,9 +156,9 @@ impl RenderingMode for RayTracer {
     fn draw<P: Projection>(
         &self,
         gl: &WebGl2Context,
-        shader: &Shader,
+        shader: &ShaderBound,
     ) {
-        let vertex_array_object = P::get_raytracer_vertex_array_object(&self);
+        /*let vertex_array_object = P::get_raytracer_vertex_array_object(&self);
         vertex_array_object.bind_ref();
 
         gl.draw_elements_with_i32(
@@ -165,10 +166,10 @@ impl RenderingMode for RayTracer {
             vertex_array_object.num_elements() as i32,
             WebGl2RenderingContext::UNSIGNED_SHORT,
             0,
-        );
+        );*/
     }
 
     fn update<Q: Projection>(&mut self, buffer: &mut BufferTiles, viewport: &ViewPort, events: &EventManager) {}
 
-    fn send_to_shader(buffer: &BufferTiles, shader: &Shader) {}
+    //fn send_to_shader(buffer: &BufferTiles, shader: &Shader) {}
 }

@@ -87,17 +87,136 @@ impl Shader {
         })
     }
 
-    pub fn bind(&self, gl: &WebGl2Context) {
+    pub fn bind<'a>(&'a self, gl: &WebGl2Context) -> ShaderBound<'a> {
         gl.use_program(Some(&self.program));
+        let gl = gl.clone();
+        ShaderBound {
+            shader: self,
+            gl
+        }
+    }
+}
+
+pub trait UniformType {
+    fn uniform(gl: &WebGl2Context, location: Option<&WebGlUniformLocation>, value: &Self);
+
+    fn attach_uniform<'a>(name: &'static str, value: &Self, shader: &ShaderBound<'a>) {
+        let location = shader.get_uniform_location(name);
+        Self::uniform(&shader.gl, location, value);
+    }
+}
+
+impl UniformType for i32 {
+    fn uniform(gl: &WebGl2Context, location: Option<&WebGlUniformLocation>, value: &Self) {
+        gl.uniform1i(location, *value);
+    }
+}
+impl UniformType for f32 {
+    fn uniform(gl: &WebGl2Context, location: Option<&WebGlUniformLocation>, value: &Self) {
+        gl.uniform1f(location, *value);
+    }
+}
+
+use cgmath::Vector2;
+impl UniformType for Vector2<f32> {
+    fn uniform(gl: &WebGl2Context, location: Option<&WebGlUniformLocation>, value: &Self) {
+        gl.uniform2f(location, value.x, value.y);
+    }
+}
+use cgmath::Vector3;
+impl UniformType for Vector3<f32> {
+    fn uniform(gl: &WebGl2Context, location: Option<&WebGlUniformLocation>, value: &Self) {
+        gl.uniform3f(location, value.x, value.y, value.z);
+    }
+}
+use cgmath::Vector4;
+impl UniformType for Vector4<f32> {
+    fn uniform(gl: &WebGl2Context, location: Option<&WebGlUniformLocation>, value: &Self) {
+        gl.uniform4f(location, value.x, value.y, value.z, value.w);
+    }
+}
+
+use crate::color::Color;
+impl UniformType for Color {
+    fn uniform(gl: &WebGl2Context, location: Option<&WebGlUniformLocation>, value: &Self) {
+        gl.uniform4f(location, value.red, value.green, value.blue, value.alpha);
+    }
+}
+
+use cgmath::Matrix4;
+impl UniformType for Matrix4<f32> {
+    fn uniform(gl: &WebGl2Context, location: Option<&WebGlUniformLocation>, value: &Self) {
+        gl.uniform_matrix4fv_with_f32_array(location, false, value.as_ref() as &[f32; 16]);
+    }
+}
+
+use crate::core::Texture2D;
+impl UniformType for Texture2D {
+    fn uniform(gl: &WebGl2Context, location: Option<&WebGlUniformLocation>, value: &Self) {
+        // 1. Bind the texture
+        let tex = value.bind();
+
+        // 2. Get its sampler idx and send it
+        // to the the GPU as a i32 uniform
+        let idx_sampler = tex.get_idx_sampler();
+        gl.uniform1i(location, idx_sampler);
+    }
+}
+
+use crate::core::Texture2DArray;
+impl UniformType for Texture2DArray {
+    fn uniform(gl: &WebGl2Context, location: Option<&WebGlUniformLocation>, value: &Self) {
+        // 1. Bind the texture array
+        let tex = value.bind();
+
+        // 2. Get its sampler idx and send it
+        // to the the GPU as a i32 uniform
+        let idx_sampler = tex.get_idx_sampler();
+        gl.uniform1i(location, idx_sampler);
+    }
+}
+
+pub struct ShaderBound<'a> {
+    shader: &'a Shader,
+    gl: WebGl2Context,
+}
+
+use crate::core::{VertexArrayObject,
+ ShaderVertexArrayObjectBound,
+ ShaderVertexArrayObjectBoundRef
+};
+impl<'a> ShaderBound<'a> {
+    fn get_uniform_location(&self, name: &str) -> Option<&WebGlUniformLocation> {
+        self.shader.uniform_locations.get(name).unwrap().as_ref()
     }
 
-    pub fn unbind(&self, gl: &WebGl2Context) {
+    pub fn attach_uniform<T: UniformType>(&self, name: &'static str, value: &T) -> &Self {
+        T::attach_uniform(name, value, self);
+
+        self
+    }
+
+    pub fn attach_uniforms_from<T: HasUniforms>(&'a self, t: &T) -> &'a Self {
+        t.attach_uniforms(self);
+
+        self
+    }
+
+    pub fn bind_vertex_array_object<'b>(&'a self, vao: &'b mut VertexArrayObject) -> ShaderVertexArrayObjectBound<'b, 'a> {
+        vao.bind(self)
+    }
+    pub fn bind_vertex_array_object_ref<'b>(&'a self, vao: &'b VertexArrayObject) -> ShaderVertexArrayObjectBoundRef<'b, 'a> {
+        vao.bind_ref(self)
+    }
+
+    pub fn unbind(&'a self, gl: &WebGl2Context) -> &'a Shader {
         gl.use_program(None);
+        self.shader
     }
+}
 
-    pub fn get_uniform_location(&self, name: &str) -> Option<&WebGlUniformLocation> {
-        self.uniform_locations.get(name).unwrap().as_ref()
-    }
+pub trait HasUniforms {
+    fn attach_uniforms<'a>(&self, shader: &'a ShaderBound<'a>) -> &'a ShaderBound<'a>;
 }
 
 pub trait Shaderize {

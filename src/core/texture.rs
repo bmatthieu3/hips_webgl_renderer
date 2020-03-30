@@ -216,15 +216,39 @@ impl Texture2D {
     }
 }
 
+use crate::shader::HasUniforms;
+use crate::shader::ShaderBound;
+
+/*impl HasUniforms for Texture2D {
+    fn attach_uniforms<'a>(&self, shader: &'a ShaderBound<'a>) -> &'a ShaderBound<'a> {
+        // Before attaching any uniforms to the current bound shader
+        // we need to bind the texture
+        self.bind();
+
+        // Send window size
+        shader.attach_uniform("aspect", &self.fov.get_aspect())
+            // Send ndc to clip
+            .attach_uniform("ndc_to_clip", self.fov.get_ndc_to_clip())
+            // Send clip zoom factor
+            .attach_uniform("clip_zoom_factor", &self.fov.get_clip_zoom_factor())
+            // Send last zoom action
+            .attach_uniform("last_zoom_action", &(self.last_zoom_action as i32));
+
+        shader
+    }
+}*/
+
+
 pub struct Texture2DBound<'a> {
     texture_2d: &'a Texture2D,
 }
 impl<'a> Texture2DBound<'a> {
-    pub fn send_to_shader(&self, shader: &Shader, name: &'static str) {        
-        let idx_sampler: i32 = (self.texture_2d.idx_texture_unit - WebGl2RenderingContext::TEXTURE0).try_into().unwrap();
-
-        let location_tex = shader.get_uniform_location(name);
-        self.texture_2d.gl.uniform1i(location_tex, idx_sampler);
+    pub fn get_idx_sampler(&self) -> i32 {
+        let idx_sampler: i32 = (self.texture_2d.idx_texture_unit - WebGl2RenderingContext::TEXTURE0)
+            .try_into()
+            .unwrap();
+   
+        idx_sampler
     }
 
     pub fn clear(&self) {

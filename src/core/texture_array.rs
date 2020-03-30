@@ -183,11 +183,12 @@ pub struct Texture2DArrayBound<'a> {
     texture_2d_array: &'a Texture2DArray,
 }
 impl<'a> Texture2DArrayBound<'a> {
-    pub fn send_to_shader(&self, shader: &Shader, name: &'static str) {        
-        let idx_sampler: i32 = (self.texture_2d_array.idx_texture_unit - WebGl2RenderingContext::TEXTURE0).try_into().unwrap();
-
-        let location_tex = shader.get_uniform_location(name);
-        self.texture_2d_array.gl.uniform1i(location_tex, idx_sampler);
+    pub fn get_idx_sampler(&self) -> i32 {
+        let idx_sampler: i32 = (self.texture_2d_array.idx_texture_unit - WebGl2RenderingContext::TEXTURE0)
+            .try_into()
+            .unwrap();
+   
+        idx_sampler
     }
 
     pub fn clear(&self) {

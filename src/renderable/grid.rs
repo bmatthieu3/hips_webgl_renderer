@@ -221,26 +221,26 @@ impl ProjetedGrid {
         let label_pos_screen_space = Vec::new();
 
         // Define the Vertex Array Object
-        let shader = shaders.get::<shaders::Grid>().unwrap();
-        shader.bind(gl);
         let mut vertex_array_object = VertexArrayObject::new(&gl);
 
-        vertex_array_object.bind()
-            // Store the vertex positions
-            .add_array_buffer(
-                2 * std::mem::size_of::<f32>(),
-                &[2],
-                &[0 * std::mem::size_of::<f32>()],
-                WebGl2RenderingContext::DYNAMIC_DRAW,
-                BufferData::VecData(&pos_clip_space),
-            )
-            // Set the element buffer
-            .add_element_buffer(
-                WebGl2RenderingContext::DYNAMIC_DRAW,
-                BufferData::VecData(&idx_vertices),
-            )
-            // Unbind the buffer
-            .unbind();
+        let shader = shaders.get::<shaders::Grid>().unwrap();
+        shader.bind(gl)
+            .bind_vertex_array_object(&mut vertex_array_object)
+                // Store the vertex positions
+                .add_array_buffer(
+                    2 * std::mem::size_of::<f32>(),
+                    &[2],
+                    &[0 * std::mem::size_of::<f32>()],
+                    WebGl2RenderingContext::DYNAMIC_DRAW,
+                    BufferData::VecData(&pos_clip_space),
+                )
+                // Set the element buffer
+                .add_element_buffer(
+                    WebGl2RenderingContext::DYNAMIC_DRAW,
+                    BufferData::VecData(&idx_vertices),
+                )
+                // Unbind the buffer
+                .unbind();
 
         let mut grid = ProjetedGrid {
             lat,
@@ -382,13 +382,8 @@ impl ProjetedGrid {
         self.color.alpha = alpha;
     }
 
-    fn send_uniforms(&self, gl: &WebGl2Context, shader: &Shader) {
-        let location_color = shader.get_uniform_location("location_color");
-        gl.uniform4f(location_color, self.color.red, self.color.green, self.color.blue, self.color.alpha);
-    }
-
     pub fn reproject<P: Projection>(&mut self, viewport: &ViewPort) {
-        if P::name() != "Orthographic" {
+        //if P::name() != "Orthographic" {
             self.update_grid_positions::<P>(
                 viewport.get_inverted_model_mat(),
                 viewport,
@@ -399,7 +394,7 @@ impl ProjetedGrid {
             );
 
             // Update the VAO
-            self.vertex_array_object.bind()
+            self.vertex_array_object.bind_for_update()
                 .update_array(
                     0, 
                     WebGl2RenderingContext::DYNAMIC_DRAW,
@@ -409,7 +404,7 @@ impl ProjetedGrid {
                     WebGl2RenderingContext::DYNAMIC_DRAW,
                     BufferData::VecData(&self.idx_vertices)
                 );
-        }
+        //}
     }
 
     pub fn draw(
@@ -419,28 +414,21 @@ impl ProjetedGrid {
         viewport: &ViewPort
     ) {
         let shader = shaders.get::<shaders::Grid>().unwrap();
-        shader.bind(gl);
-
-        // Send Uniforms
-        viewport.send_to_vertex_shader(gl, shader);
-        self.send_uniforms(gl, shader);
-
-        // Send model matrix
-        let model_mat_location = shader.get_uniform_location("model");
-        let model_mat_f32_slice: &[f32; 16] = viewport.get_inverted_model_mat().as_ref();
-        gl.uniform_matrix4fv_with_f32_array(model_mat_location, false, model_mat_f32_slice);
-
-        // Send current time
-        let location_time = shader.get_uniform_location("current_time");
-        gl.uniform1f(location_time, utils::get_current_time());
-
-        self.vertex_array_object.bind_ref();
-        gl.draw_elements_with_i32(
-            WebGl2RenderingContext::LINES,
-            self.vertex_array_object.num_elements() as i32,
-            WebGl2RenderingContext::UNSIGNED_SHORT,
-            0,
-        );
+        shader.bind(gl)
+            // Attach all the uniforms from the viewport
+            .attach_uniforms_from(viewport)
+            // Attach grid specialized uniforms
+            .attach_uniform("grid_color", &self.color)
+            .attach_uniform("model", viewport.get_inverted_model_mat())
+            .attach_uniform("current_time", &utils::get_current_time())
+            // Bind the Vertex Array Object for drawing
+            .bind_vertex_array_object_ref(&self.vertex_array_object)
+                .draw_elements_with_i32(
+                    // Mode of render
+                    WebGl2RenderingContext::LINES,
+                    // Number of elements, by default None
+                    None
+                );
     }
 }
 

@@ -247,65 +247,65 @@ impl Catalog {
         let colormap = Colormap::BluePastelRed;
 
         let vertex_array_object_screen = {
-            let shader = colormap.get_shader(shaders);
-            shader.bind(gl);
-
             let mut vao = VertexArrayObject::new(gl);
-            vao.bind()
-                // Store the screen and uv of the billboard in a VBO
-                .add_array_buffer(
-                    4 * std::mem::size_of::<f32>(),
-                    &[2, 2],
-                    &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
-                    WebGl2RenderingContext::STATIC_DRAW,
-                    BufferData::VecData(
-                        &vec![
-                            -1.0, -1.0, 0.0, 0.0,
-                            1.0, -1.0, 1.0, 0.0,
-                            1.0, 1.0, 1.0, 1.0,
-                            -1.0, 1.0, 0.0, 1.0,
-                        ]
-                    ),
-                )
-                // Set the element buffer
-                .add_element_buffer(
-                    WebGl2RenderingContext::STATIC_DRAW,
-                    BufferData::VecData(indices.as_ref()),
-                )
-                // Unbind the buffer
-                .unbind();
+
+            let shader = colormap.get_shader(shaders);
+            shader.bind(gl)
+                .bind_vertex_array_object(&mut vao)
+                    // Store the screen and uv of the billboard in a VBO
+                    .add_array_buffer(
+                        4 * std::mem::size_of::<f32>(),
+                        &[2, 2],
+                        &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
+                        WebGl2RenderingContext::STATIC_DRAW,
+                        BufferData::VecData(
+                            &vec![
+                                -1.0, -1.0, 0.0, 0.0,
+                                1.0, -1.0, 1.0, 0.0,
+                                1.0, 1.0, 1.0, 1.0,
+                                -1.0, 1.0, 0.0, 1.0,
+                            ]
+                        ),
+                    )
+                    // Set the element buffer
+                    .add_element_buffer(
+                        WebGl2RenderingContext::STATIC_DRAW,
+                        BufferData::VecData(indices.as_ref()),
+                    )
+                    // Unbind the buffer
+                    .unbind();
             vao
         };
 
         let vertex_array_object_catalog = {
-            let shader = Orthographic::get_catalog_shader(shaders);
-            shader.bind(gl);
-
             let mut vao = VertexArrayObject::new(gl);
-            vao.bind()
-                // Store the UV and the offsets of the billboard in a VBO
-                .add_array_buffer(
-                    4 * std::mem::size_of::<f32>(),
-                    &[2, 2],
-                    &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
-                    WebGl2RenderingContext::STATIC_DRAW,
-                    BufferData::VecData(vertices.as_ref()),
-                )
-                // Store the cartesian position of the center of the source in the a instanced VBO
-                .add_instanced_array_buffer(
-                    std::mem::size_of::<Source>(),
-                    &[3, 2, 1, 1],
-                    &[0 * mem::size_of::<f32>(), 3 * mem::size_of::<f32>(), 5 * mem::size_of::<f32>(), 6 * mem::size_of::<f32>()],
-                    WebGl2RenderingContext::DYNAMIC_DRAW,
-                    BufferData::VecData(data.sources.as_ref()),
-                )
-                // Set the element buffer
-                .add_element_buffer(
-                    WebGl2RenderingContext::STATIC_DRAW,
-                    BufferData::VecData(indices.as_ref()),
-                )
-                // Unbind the buffer
-                .unbind();
+
+            let shader = Orthographic::get_catalog_shader(shaders);
+            shader.bind(gl)
+                .bind_vertex_array_object(&mut vao)
+                    // Store the UV and the offsets of the billboard in a VBO
+                    .add_array_buffer(
+                        4 * std::mem::size_of::<f32>(),
+                        &[2, 2],
+                        &[0 * std::mem::size_of::<f32>(), 2 * std::mem::size_of::<f32>()],
+                        WebGl2RenderingContext::STATIC_DRAW,
+                        BufferData::VecData(vertices.as_ref()),
+                    )
+                    // Store the cartesian position of the center of the source in the a instanced VBO
+                    .add_instanced_array_buffer(
+                        std::mem::size_of::<Source>(),
+                        &[3, 2, 1, 1],
+                        &[0 * mem::size_of::<f32>(), 3 * mem::size_of::<f32>(), 5 * mem::size_of::<f32>(), 6 * mem::size_of::<f32>()],
+                        WebGl2RenderingContext::DYNAMIC_DRAW,
+                        BufferData::VecData(data.sources.as_ref()),
+                    )
+                    // Set the element buffer
+                    .add_element_buffer(
+                        WebGl2RenderingContext::STATIC_DRAW,
+                        BufferData::VecData(indices.as_ref()),
+                    )
+                    // Unbind the buffer
+                    .unbind();
             vao
         };
 
@@ -523,7 +523,7 @@ impl Catalog {
         };
         
         // Update the VAO
-        self.vertex_array_object_catalog.bind()
+        self.vertex_array_object_catalog.bind_for_update()
             .update_instanced_array(0, BufferData::VecData(&sources));
 
         //console::log_1(&format!("num sources: {:?}", self.num_instances).into());
@@ -548,46 +548,23 @@ impl Catalog {
             gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
 
             let shader = P::get_catalog_shader(shaders);
-            shader.bind(gl);
-
-            self.vertex_array_object_catalog.bind_ref();
-
-            // Send uniforms
-            // Send the viewport uniforms
-            viewport.send_to_vertex_shader(gl, shader);
-            // Send the gaussian kernel texture
-            self.kernel_texture.bind()
-                .send_to_shader(shader, "kernel_texture");
-            // Send the max strength of one kernel
-            let location_strength = shader.get_uniform_location("strength");
-            gl.uniform1f(location_strength, self.strength);
-            // Send the min and max plx
-            let location_plx_max = shader.get_uniform_location("max_plx");
-            gl.uniform1f(location_plx_max, self.max_plx);
-            let location_plx_min = shader.get_uniform_location("min_plx");
-            gl.uniform1f(location_plx_min, self.min_plx);
-            // Send min/max size source
-            let location_max_size_source = shader.get_uniform_location("max_size_source");
-            gl.uniform1f(location_max_size_source, self.max_size_source);
-            let location_min_size_source = shader.get_uniform_location("min_size_source");
-            gl.uniform1f(location_min_size_source, self.min_size_source);
-
-            // Send model matrix
-            let model_mat_location = shader.get_uniform_location("model");
-            let model_mat_f32_slice: &[f32; 16] = viewport.get_inverted_model_mat().as_ref();
-            gl.uniform_matrix4fv_with_f32_array(model_mat_location, false, model_mat_f32_slice);
-
-            // Send current time
-            let location_time = shader.get_uniform_location("current_time");
-            gl.uniform1f(location_time, utils::get_current_time());
-
-            gl.draw_elements_instanced_with_i32(
-                WebGl2RenderingContext::TRIANGLES,
-                self.vertex_array_object_catalog.num_elements() as i32,
-                WebGl2RenderingContext::UNSIGNED_SHORT,
-                0,
-                self.num_instances as i32,
-            );
+            shader.bind(gl)
+                // Uniforms associated to the viewport
+                .attach_uniforms_from(viewport)
+                // Attach catalog specialized uniforms
+                .attach_uniform("kernel_texture", &self.kernel_texture) // Gaussian kernel texture
+                .attach_uniform("strength", &self.strength) // Strengh of the kernel
+                .attach_uniform("min_plx", &self.min_plx) // Min parallax
+                .attach_uniform("max_plx", &self.max_plx) // Max parallax
+                .attach_uniform("min_size_source", &self.min_size_source) // Min size source
+                .attach_uniform("max_size_source", &self.max_size_source) // Max size source
+                .attach_uniform("model", viewport.get_inverted_model_mat())
+                .attach_uniform("current_time", &utils::get_current_time())
+                .bind_vertex_array_object_ref(&self.vertex_array_object_catalog)
+                    .draw_elements_instanced_with_i32(
+                        WebGl2RenderingContext::TRIANGLES,
+                        self.num_instances as i32
+                    );
 
             // Unbind the FBO
             gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
@@ -600,25 +577,15 @@ impl Catalog {
             gl.viewport(0, 0, window_size.x as i32, window_size.y as i32);
 
             let shader = self.colormap.get_shader(shaders);
-            shader.bind(gl);
-
-            self.vertex_array_object_screen.bind_ref();
-
-            self.colormap_texture.bind()
-                .send_to_shader(shader, "colormap");
-            self.fbo_texture.bind()
-                .send_to_shader(shader, "texture_fbo");
-
-            // Send alpha
-            let location_alpha = shader.get_uniform_location("alpha");
-            gl.uniform1f(location_alpha, self.alpha);
-
-            gl.draw_elements_with_i32(
-                WebGl2RenderingContext::TRIANGLES,
-                self.vertex_array_object_screen.num_elements() as i32,
-                WebGl2RenderingContext::UNSIGNED_SHORT,
-                0,
-            );
+            shader.bind(gl)
+                .attach_uniform("colormap", &self.colormap_texture) // Colormap texture
+                .attach_uniform("texture_fbo", &self.fbo_texture) // FBO density texture computed just above
+                .attach_uniform("alpha", &self.alpha) // Alpha channel
+                .bind_vertex_array_object_ref(&self.vertex_array_object_screen)
+                    .draw_elements_with_i32(
+                        WebGl2RenderingContext::TRIANGLES,
+                        None
+                    );
         }
     }
 }

@@ -1,8 +1,5 @@
 use web_sys::console;
-
-use web_sys::WebGl2RenderingContext;
-
-use crate::shader::Shader;
+use crate::shader::ShaderBound;
 
 pub const NUM_VERTICES_PER_STEP: usize = 50;
 pub const NUM_STEPS: usize = 20;
@@ -15,13 +12,8 @@ lazy_static! {
     pub static ref DEPTH: Arc<AtomicU8> = Arc::new(AtomicU8::new(0));
 }
 
-use crate::core::{
- BufferData,
- VertexArrayObject
-};
 
 use crate::viewport::ViewPort;
-use cgmath::Vector2;
 use crate::WebGl2Context;
 
 use crate::projection::Projection;
@@ -36,9 +28,9 @@ pub trait RenderingMode {
         events: &EventManager
     );
 
-    fn draw<P: Projection>(&self, gl: &WebGl2Context, shader: &Shader);
+    fn draw<P: Projection>(&self, gl: &WebGl2Context, shader: &ShaderBound);
 
-    fn send_to_shader(buffer: &BufferTiles, shader: &Shader);
+    //fn send_to_shader(buffer: &BufferTiles, shader: &Shader);
 }
 
 use crate::renderable::RayTracer;
@@ -96,30 +88,6 @@ impl HiPSSphere {
         self.config = config;
     
         self.request_tiles(viewport);
-    }
-
-    fn send_global_uniforms(&self, gl: &WebGl2Context, shader: &Shader, viewport: &ViewPort) {
-        // TEXTURES TILES BUFFER
-        Rasterizer::send_to_shader(&self.buffer, shader);
-        
-        // Send viewport uniforms
-        viewport.send_to_vertex_shader(gl, shader);
-        //console::log_1(&format!("ADFSD").into());
-        // Send model matrix
-        let model_mat_location = shader.get_uniform_location("model");
-        let model_mat_f32_slice: &[f32; 16] = viewport.get_model_mat().as_ref();
-        gl.uniform_matrix4fv_with_f32_array(model_mat_location, false, model_mat_f32_slice);
-
-        // Send current time
-        let location_time = shader.get_uniform_location("current_time");
-        gl.uniform1f(location_time, utils::get_current_time());
-
-        // Send current depth
-        let location_current_depth = shader.get_uniform_location("current_depth");
-        gl.uniform1i(location_current_depth, self.depth as i32);
-
-        // Send HiPS config
-        self.config.send_to_shader(gl, shader);
     }
 
     pub fn request_tiles(&mut self, viewport: &ViewPort) {
@@ -198,16 +166,22 @@ impl HiPSSphere {
         } else {
 
         }*/
+        // TEXTURES TILES BUFFER
+        //Rasterizer::send_to_shader(&self.buffer, shader);
+
         // Rasterization
         let shader = Rasterizer::get_shader::<P>(shaders);
-        shader.bind(gl);
+        let shader_bound = shader.bind(gl);
+            shader_bound.attach_uniforms_from(viewport)
+            .attach_uniforms_from(&self.config)
+            .attach_uniforms_from(&self.buffer)
+            .attach_uniform("model", viewport.get_model_mat())
+            .attach_uniform("current_time", &utils::get_current_time())
+            .attach_uniform("current_depth", &(self.depth as i32));
 
-        self.send_global_uniforms(gl, shader, viewport);
-        self.raster.draw::<P>(gl, shader);
+        self.raster.draw::<P>(gl, &shader_bound);
     }
 }
-
-use std::collections::HashMap;
 
 use crate::utils;
 

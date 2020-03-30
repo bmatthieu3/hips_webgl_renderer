@@ -242,27 +242,6 @@ impl ViewPort {
         self.last_action
     }
 
-    /// Warning: this is executed by all the shaders
-    pub fn send_to_vertex_shader(&self, gl: &WebGl2RenderingContext, shader: &Shader) {
-        // Send window size
-        let location_aspect = shader.get_uniform_location("aspect");
-
-        let aspect = self.fov.get_aspect();
-        gl.uniform1f(location_aspect, aspect);
-        // Send ndc to clip
-        let ndc_to_clip_location = shader.get_uniform_location("ndc_to_clip");
-        let ndc_to_clip = self.fov.get_ndc_to_clip();
-        gl.uniform2f(ndc_to_clip_location, ndc_to_clip.x, ndc_to_clip.y);
-        // Send clip zoom factor
-        let clip_zoom_factor_location = shader.get_uniform_location("clip_zoom_factor");
-        let clip_zoom_factor = self.fov.get_clip_zoom_factor();
-        gl.uniform1f(clip_zoom_factor_location, clip_zoom_factor);
-
-        // Send last zoom action
-        let last_zoom_action_location = shader.get_uniform_location("last_zoom_action");
-        gl.uniform1i(last_zoom_action_location, self.last_zoom_action as i32);
-    }
-
     // Viewport model matrices
     pub fn get_window_size(&self) -> Vector2<f32> {
         let (width, height) = self.fov.get_size_screen();
@@ -325,5 +304,23 @@ impl ViewPort {
 
     pub fn get_inverted_model_mat(&self) -> &cgmath::Matrix4<f32> {
         return &self.inverted_model_mat;
+    }
+}
+
+use crate::shader::HasUniforms;
+use crate::shader::ShaderBound;
+
+impl HasUniforms for ViewPort {
+    fn attach_uniforms<'a>(&self, shader: &'a ShaderBound<'a>) -> &'a ShaderBound<'a> {
+        // Send window size
+        shader.attach_uniform("aspect", &self.fov.get_aspect())
+            // Send ndc to clip
+            .attach_uniform("ndc_to_clip", self.fov.get_ndc_to_clip())
+            // Send clip zoom factor
+            .attach_uniform("clip_zoom_factor", &self.fov.get_clip_zoom_factor())
+            // Send last zoom action
+            .attach_uniform("last_zoom_action", &(self.last_zoom_action as i32));
+
+        shader
     }
 }

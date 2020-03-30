@@ -496,6 +496,7 @@ use crate::event_manager::EventManager;
 
 use crate::shader::ShaderManager;
 use crate::shaders;
+use crate::shader::ShaderBound;
 impl RenderingMode for Rasterizer {
     fn new(gl: &WebGl2Context, viewport: &ViewPort, shaders: &mut ShaderManager) -> Rasterizer {
         // Define rasterization new shaders reponsible for rendering the HiPS
@@ -524,9 +525,8 @@ impl RenderingMode for Rasterizer {
         let mut vertex_array_object = VertexArrayObject::new(gl);
 
         let shader = shaders.get::<shaders::Rasterize_Ortho>().unwrap();
-        shader.bind(gl);
-
-        vertex_array_object.bind()
+        shader.bind(gl)
+            .bind_vertex_array_object(&mut vertex_array_object)
             // Store the projeted and 3D vertex positions in a VBO
             .add_array_buffer(
                 12 * mem::size_of::<f32>(),
@@ -561,16 +561,19 @@ impl RenderingMode for Rasterizer {
         }
     }
 
-    fn draw<P: Projection>(&self, gl: &WebGl2Context, shader: &Shader) {
-        self.vertex_array_object.bind_ref();
-        gl.draw_elements_with_i32(
-            //WebGl2RenderingContext::LINES,
+    fn draw<P: Projection>(&self, gl: &WebGl2Context, shader: &ShaderBound) {
+        shader.bind_vertex_array_object_ref(&self.vertex_array_object)
+            .draw_elements_with_i32(
+                //WebGl2RenderingContext::LINES
+                WebGl2RenderingContext::TRIANGLES,
+                Some(self.num_idx as i32)
+            );
+        /*gl.draw_elements_with_i32(
             WebGl2RenderingContext::TRIANGLES,
-            //self.vertex_array_object.num_elements() as i32,
             self.num_idx as i32,
             WebGl2RenderingContext::UNSIGNED_SHORT,
             0,
-        );
+        );*/
     }
 
     fn update<P: Projection>(&mut self, buffer: &mut BufferTiles, viewport: &ViewPort, events: &EventManager) {
@@ -593,7 +596,7 @@ impl RenderingMode for Rasterizer {
             buffer.signals_end_frame();
 
             // Update the VAO
-            self.vertex_array_object.bind()
+            self.vertex_array_object.bind_for_update()
                 .update_array(
                     0, 
                     WebGl2RenderingContext::DYNAMIC_DRAW,
@@ -608,7 +611,7 @@ impl RenderingMode for Rasterizer {
         buffer.poll_textures();
     }
 
-    fn send_to_shader(buffer: &BufferTiles, shader: &Shader) {
+    /*fn send_to_shader(buffer: &BufferTiles, shader: &Shader) {
         buffer.send_texture_to_shader(shader);
-    }
+    }*/
 }

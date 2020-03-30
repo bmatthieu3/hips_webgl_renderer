@@ -21,13 +21,13 @@ use crate::shader::Shaderize;
 
     out vec4 color;
 
-    uniform vec4 location_color;
+    uniform vec4 grid_color;
 
     uniform float current_time;
     uniform int last_zoom_action;
 
     void main() {
-        color = location_color;
+        color = grid_color;
     }
 "#]
 pub struct Grid;

@@ -190,7 +190,7 @@ where P: Projection {
             "aspect",
             "last_zoom_action",
             // Grid-specific uniforms
-            "location_color",
+            "grid_color",
         ];
         shaders.insert::<shaders::Grid>(gl, &uniforms_grid[..]);
 

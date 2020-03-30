@@ -11,7 +11,7 @@ pub struct MouseLeftButtonPressed;
 pub struct MouseLeftButtonReleased;
 pub struct MouseMove;
 
-pub const NUM_WHEEL_PER_DEPTH: usize = 3;
+pub const NUM_WHEEL_PER_DEPTH: usize = 2;
 pub struct MouseWheelUp;
 pub struct MouseWheelDown;
 // Keyboard events

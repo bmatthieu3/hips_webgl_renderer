@@ -270,9 +270,8 @@ impl HEALPixTexture {
         //console_log!("sdfsdfs4");
     }*/
 
-    fn send_texture_to_gpu(&self, shader: &Shader) {
-        self.textures.bind()
-            .send_to_shader(shader, "tex");
+    fn get_texture_array(&self) -> &Texture2DArray {
+        &self.textures
     }
 }
 use std::cell::Cell;
@@ -396,11 +395,17 @@ impl HiPSConfig {
             tile_config
         }
     }
+}
 
-    pub fn send_to_shader(&self, gl: &WebGl2Context, shader: &Shader) {
-        // Send max depth of the current HiPS
-        let location_max_depth = shader.get_uniform_location("max_depth");
-        gl.uniform1i(location_max_depth, self.max_depth as i32);
+use crate::shader::HasUniforms;
+use crate::shader::ShaderBound;
+
+impl HasUniforms for HiPSConfig {
+    fn attach_uniforms<'a>(&self, shader: &'a ShaderBound<'a>) -> &'a ShaderBound<'a> {
+        // Send max depth
+        shader.attach_uniform("max_depth", &(self.max_depth as i32));
+
+        shader
     }
 }
 
@@ -1016,14 +1021,7 @@ impl BufferTiles {
         self.gl.uniform1i(location_texture, idx_texture);
     }*/
 
-
-
     pub fn send_texture_to_shader(&self, shader: &Shader) {
-        self.hpx_texture.lock()
-            .unwrap()
-            .send_texture_to_gpu(shader);
-        //self.hpx_texture.borrow()
-        //    .send_to_shader();
         /*let tiles = self.uniq_ordered_tiles();
 
         for (i, tile) in tiles.iter().enumerate() {
@@ -1052,4 +1050,12 @@ impl BufferTiles {
     //pub fn len(&self) -> usize {
     //    self.buffer.len() + 12
     //}
+}
+
+impl HasUniforms for BufferTiles {
+    fn attach_uniforms<'a>(&self, shader: &'a ShaderBound<'a>) -> &'a ShaderBound<'a> {
+        shader.attach_uniform("tex", self.hpx_texture.lock().unwrap().get_texture_array()); // Send the texture array to the GPU
+
+        shader
+    }
 }
