@@ -216,27 +216,12 @@ impl Texture2D {
     }
 }
 
-use crate::shader::HasUniforms;
-use crate::shader::ShaderBound;
-
-/*impl HasUniforms for Texture2D {
-    fn attach_uniforms<'a>(&self, shader: &'a ShaderBound<'a>) -> &'a ShaderBound<'a> {
-        // Before attaching any uniforms to the current bound shader
-        // we need to bind the texture
-        self.bind();
-
-        // Send window size
-        shader.attach_uniform("aspect", &self.fov.get_aspect())
-            // Send ndc to clip
-            .attach_uniform("ndc_to_clip", self.fov.get_ndc_to_clip())
-            // Send clip zoom factor
-            .attach_uniform("clip_zoom_factor", &self.fov.get_clip_zoom_factor())
-            // Send last zoom action
-            .attach_uniform("last_zoom_action", &(self.last_zoom_action as i32));
-
-        shader
+impl Drop for Texture2D {
+    fn drop(&mut self) {
+        console::log_1(&format!("Delete texture!").into());
+        self.gl.delete_texture(self.texture.borrow().as_ref());
     }
-}*/
+}
 
 
 pub struct Texture2DBound<'a> {

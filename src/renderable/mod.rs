@@ -19,14 +19,14 @@ mod rasterizer;
 use rasterizer::Rasterizer;
 use rasterizer::RasterizerProjection;
 
-use hips_sphere::RenderingMode;
+use hips_sphere::{
+ RenderingMode,
+ UpdateTextureBufferEvent,
+ TextureStates
+};
 pub use hips_sphere::HiPSSphere;
 pub use catalog::Catalog;
 pub use grid::ProjetedGrid;
-
-use crate::WebGl2Context;
-
-use std::collections::HashMap;
 
 pub trait DisableDrawing {
     fn disable(&mut self, viewport: &ViewPort);

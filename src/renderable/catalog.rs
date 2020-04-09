@@ -398,7 +398,7 @@ impl Catalog {
     }
 
     pub fn retrieve_sources_in_fov<P: Projection>(&mut self, viewport: &ViewPort) {
-        let field_of_view = viewport.field_of_view();
+        /*let field_of_view = viewport.field_of_view();
 
         let current_field_of_view = field_of_view.healpix_cells();
         let current_depth = field_of_view.current_depth();
@@ -525,7 +525,7 @@ impl Catalog {
         // Update the VAO
         self.vertex_array_object_catalog.bind_for_update()
             .update_instanced_array(0, BufferData::VecData(&sources));
-
+        */
         //console::log_1(&format!("num sources: {:?}", self.num_instances).into());
     }
 

@@ -36,14 +36,12 @@ mod core;
 mod math;
 
 mod projeted_grid;
-mod render_next_frame;
 mod field_of_view;
 //mod mouse_inertia;
 mod event_manager;
 mod color;
 mod healpix_cell;
-mod binary_heap_tiles;
-mod buffer_tiles;
+mod buffer;
 
 use shader::Shader;
 use shader::ShaderManager;
@@ -145,7 +143,7 @@ use cgmath::Matrix4;
 use cgmath::{Vector2, Vector3, Matrix3};
 use cgmath::Deg;
 
-use crate::buffer_tiles::{HiPSConfig, ImageFormat};
+use crate::buffer::{HiPSConfig, ImageFormat};
 
 
 use crate::shaders::Colormap;
@@ -171,9 +169,9 @@ where P: Projection {
             // HiPS Sphere-specific uniforms
             "current_depth",
             "max_depth",
-            "num_tiles",
             // Textures
             "tex",
+            "num_textures",
         ];
         uniforms_raytracer.extend(shaders::HPX_TILES_BUFFER_UNIFORMS);
         shaders.insert::<shaders::Raytracing>(gl, &uniforms_raytracer[..]);
@@ -434,7 +432,7 @@ where P: Projection {
 
             // Draw the grid
             // The grid lines
-            if P::name() != "Orthographic" && enable_grid {
+            /*if P::name() != "Orthographic" && enable_grid {
                 self.grid.draw(
                     &self.gl,
                     shaders,
@@ -442,7 +440,7 @@ where P: Projection {
                 );
                 // The labels
                 self.grid.draw_labels(&self.viewport);
-            }
+            }*/
         /*} else {
             console::log_1(&format!("not render").into());
         }*/

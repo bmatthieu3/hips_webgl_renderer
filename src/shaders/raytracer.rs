@@ -3,6 +3,7 @@ use crate::shader::Shaderize;
 #[derive(Shaderize)]
 #[VertexShader = r#"#version 300 es
     precision highp float;
+    precision lowp sampler2DArray;
     precision highp int;
 
     layout (location = 0) in vec2 pos_clip_space;
@@ -21,6 +22,7 @@ use crate::shader::Shaderize;
 "#]
 #[FragmentShader = r#"#version 300 es
     precision highp float;
+    precision lowp sampler2DArray;
     precision lowp sampler3D;
     precision lowp sampler2D;
     precision highp int;
@@ -209,16 +211,15 @@ use crate::shader::Shaderize;
     struct Tile {
         int uniq; // Healpix cell
         int texture_idx; // Index in the texture buffer
-        float time_received; // Absolute time that the load has been done in ms
-        float time_request;
+        float start_time; // Absolute time that the load has been done in ms
     };
 
     uniform int current_depth;
     
-    uniform sampler2D tex;
+    uniform sampler2DArray tex;
     uniform Tile textures_tiles[64];
 
-    uniform int num_tiles;
+    uniform int num_textures;
 
     uniform float current_time; // current time in ms
     struct TileColor {
@@ -230,12 +231,13 @@ use crate::shader::Shaderize;
     TileColor get_tile_color(vec3 pos, int depth) {
         HashDxDy result = hash_with_dxdy(depth, pos.zxy);
         uint idx = result.idx;
-        int uniq = (1 << ((int(depth) + 1) << 1)) + int(idx);
+        //int uniq = (1 << ((int(depth) + 1) << 1)) + int(idx);
+        int uniq = (16 << (int(depth) << 1)) | int(idx);
 
         vec2 uv = vec2(result.dy, result.dx);
 
         int a = 0;
-        int b = num_tiles;
+        int b = num_textures;
 
         if (depth == 0) {
             b = 11;
@@ -249,12 +251,14 @@ use crate::shader::Shaderize;
             if (uniq == textures_tiles[i].uniq) {
                 Tile tile = textures_tiles[i];
 
-                float idx_row = float(tile.texture_idx / 8); // in [0; 7]
-                float idx_col = float(tile.texture_idx % 8); // in [0; 7]
+                int idx_texture = tile.texture_idx / 64;
+                int off = tile.texture_idx % 64;
+                float idx_row = float(off / 8); // in [0; 7]
+                float idx_col = float(off % 8); // in [0; 7]
 
                 vec2 offset = (vec2(idx_col, idx_row) + uv)/8.f;
 
-                vec3 color = texture(tex, offset).rgb;
+                vec3 color = texture(tex, vec3(offset, float(idx_texture))).rgb;
 
                 return TileColor(tile, color, true);
             } else if (uniq < textures_tiles[i].uniq) {
@@ -268,7 +272,7 @@ use crate::shader::Shaderize;
         }
 
         // code unreachable
-        Tile empty = Tile(0, -1, current_time, 0.f);
+        Tile empty = Tile(0, -1, current_time);
         return TileColor(empty, vec3(0.f), false);
     }
 
@@ -282,10 +286,6 @@ use crate::shader::Shaderize;
         TileColor current_tile = get_tile_color(frag_pos, current_depth);
         out_frag_color = vec4(current_tile.color, 1.f);
 
-        if (current_depth == 0) {
-            return;
-        }
-
         if (!current_tile.found) {
             vec3 out_color = vec3(0.f);
             int depth = 0;
@@ -298,7 +298,7 @@ use crate::shader::Shaderize;
             }
 
             TileColor prev_tile = get_tile_color(frag_pos, depth);
-            float alpha = clamp((current_time - prev_tile.tile.time_received) / duration, 0.f, 1.f);
+            float alpha = clamp((current_time - prev_tile.tile.start_time) / duration, 0.f, 1.f);
             if (alpha == 1.f) {
                 out_frag_color = vec4(prev_tile.color, 1.f);
                 return;
@@ -312,8 +312,8 @@ use crate::shader::Shaderize;
             return;
         }
 
-        float alpha = clamp((current_time - current_tile.tile.time_received) / duration, 0.f, 1.f);
-
+        float alpha = clamp((current_time - current_tile.tile.start_time) / duration, 0.f, 1.f);
+        
         // Little optimization: if the current tile is loaded since the time duration
         // then we do not need to evaluate the frag position for the previous/next depth
         if (alpha == 1.f) {
@@ -325,7 +325,7 @@ use crate::shader::Shaderize;
         if (last_zoom_action == 1) {
             // zoom
             depth = max(0, current_depth - 1);
-        } else {
+        } else if (last_zoom_action == 2) {
             // unzoom
             depth = min(max_depth, current_depth + 1);
         }

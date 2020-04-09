@@ -137,7 +137,7 @@ use crate::viewport::ViewPort;
 use web_sys::console;
 
 use crate::renderable::RenderingMode;
-use crate::buffer_tiles::BufferTiles;
+use crate::buffer::BufferTextures;
 use crate::event_manager::EventManager;
 
 use crate::shader::ShaderManager;
@@ -156,18 +156,15 @@ impl RenderingMode for RayTracer {
         gl: &WebGl2Context,
         shader: &ShaderBound,
     ) {
-        /*let vertex_array_object = P::get_raytracer_vertex_array_object(&self);
-        vertex_array_object.bind_ref();
-
-        gl.draw_elements_with_i32(
-            WebGl2RenderingContext::TRIANGLES,
-            vertex_array_object.num_elements() as i32,
-            WebGl2RenderingContext::UNSIGNED_SHORT,
-            0,
-        );*/
+        let vertex_array_object = P::get_raytracer_vertex_array_object(&self);
+        shader.bind_vertex_array_object_ref(&vertex_array_object)
+            .draw_elements_with_i32(
+                WebGl2RenderingContext::TRIANGLES,
+                None
+            );
     }
 
-    fn update<P: Projection>(&mut self, buffer: &mut BufferTiles, viewport: &ViewPort, events: &EventManager) {}
+    //fn update<P: Projection>(&mut self, buffer: &mut BufferTiles, viewport: &ViewPort, events: &EventManager) {}
 
     //fn send_to_shader(buffer: &BufferTiles, shader: &Shader) {}
 }

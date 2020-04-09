@@ -74,6 +74,7 @@ use crate::renderable::uv::{TileUVW, TileCorner};
 use crate::projection::Projection;
 use crate::healpix_cell::HEALPixCell;
 use crate::viewport::ViewPort;
+use crate::renderable::UpdateTextureBufferEvent;
 fn add_cell_vertices<P: Projection, E: UpdateTextureBufferEvent>(
     sphere_sub: &SphereSubdivided,
     vertices: &mut [f32],
@@ -84,9 +85,8 @@ fn add_cell_vertices<P: Projection, E: UpdateTextureBufferEvent>(
     uv_0: &TileUVW,
     uv_1: &TileUVW,
     alpha: f32,
-    viewport: &ViewPort,
 ) {
-    let num_subdivision = E::num_subdivision::<P>(cell, sphere_sub, viewport);
+    let num_subdivision = E::num_subdivision::<P>(cell, sphere_sub);
     add_vertices_grid(
         vertices,
         idx_vertices,
@@ -172,258 +172,6 @@ fn add_vertices_grid(
     *num_idx = k as u16;
 }
 
-use crate::event_manager::Event;
-use crate::buffer_tiles::BufferTiles;
-trait UpdateTextureBufferEvent: Event {
-    // Returns:
-    // * The UV of the starting tile in the global 4096x4096 texture
-    // * The UV of the ending tile in the global 4096x4096 texture
-    // * the blending factor between the two tiles in the texture
-    fn update_texture_buffer<P: Projection>(
-        sphere_sub: &SphereSubdivided,
-        // The VBO data to fill
-        vertices: &mut [f32],
-        idx_vertices: &mut [u16],
-        num_vertices: &mut usize,
-        num_idx: &mut u16,
-        // The buffer that will be modified due to the need of specific tile textures by the GPU
-        buffer: &mut BufferTiles,
-        // The HEALPix cells located in the FOV
-        viewport: &ViewPort,
-    );
-
-    fn num_subdivision<P: Projection>(cell: &HEALPixCell, sphere_sub: &SphereSubdivided, viewport: &ViewPort) -> u8;
-}
-
-use crate::event_manager::{
- MouseMove,
- MouseWheelDown,
- MouseWheelUp
-};
-
-impl UpdateTextureBufferEvent for MouseMove  {
-    // Returns:
-    // * The UV of the starting tile in the global 4096x4096 texture
-    // * The UV of the ending tile in the global 4096x4096 texture
-    // * the blending factor between the two tiles in the texture
-    fn update_texture_buffer<P: Projection>(
-        sphere_sub: &SphereSubdivided,
-        // The VBO data to fill
-        vertices: &mut [f32],
-        idx_vertices: &mut [u16],
-        num_vertices: &mut usize,
-        num_idx: &mut u16,
-        // The buffer that will be modified due to the need of specific tile textures by the GPU
-        buffer: &mut BufferTiles,
-        // The HEALPix cells located in the FOV
-        viewport: &ViewPort
-    ) {
-        let cells_fov = viewport.field_of_view()
-            .healpix_cells();
-        let depth = viewport.field_of_view()
-            .current_depth();
-
-        for cell in cells_fov {
-            let (uv_0, uv_1, time_received) = if buffer.contains(cell) {
-                let parent_cell = buffer.get_nearest_parent(cell);
-
-                let cell_in_tex = buffer.get_cell_in_texture(cell);
-                let parent_cell_in_tex = buffer.get_cell_in_texture(&parent_cell);
-
-                let uv_0 = TileUVW::new(&cell, &parent_cell_in_tex);
-                let uv_1 = TileUVW::new(cell, &cell_in_tex);
-
-                let time_received = cell_in_tex.time_received;
-                (uv_0, uv_1, time_received)
-            } else {
-                let parent_cell = buffer.get_nearest_parent(cell);
-                let grand_parent_cell = buffer.get_nearest_parent(&parent_cell);
-
-                let parent_cell_in_tex = buffer.get_cell_in_texture(&parent_cell);
-                let grand_parent_cell_in_tex = buffer.get_cell_in_texture(&grand_parent_cell);
-
-                let uv_0 = TileUVW::new(&cell, &grand_parent_cell_in_tex);
-                let uv_1 = TileUVW::new(&cell, &parent_cell_in_tex);
-
-                let time_received = parent_cell_in_tex.time_received;
-                (uv_0, uv_1, time_received)
-            };
-
-            add_cell_vertices::<P, Self>(
-                sphere_sub,
-                vertices,
-                idx_vertices,
-                num_vertices,
-                num_idx,
-                &cell,
-                &uv_0, &uv_1,
-                time_received,
-                viewport,
-            );
-        }
-    }
-    fn num_subdivision<P: Projection>(cell: &HEALPixCell, sphere_sub: &SphereSubdivided, viewport: &ViewPort) -> u8 {
-        sphere_sub.get_num_subdivide::<P>(cell, viewport, cell.depth())
-    }
-}
-
-impl UpdateTextureBufferEvent for MouseWheelUp {
-    // Returns:
-    // * The UV of the starting tile in the global 4096x4096 texture
-    // * The UV of the ending tile in the global 4096x4096 texture
-    // * the blending factor between the two tiles in the texture
-    fn update_texture_buffer<P: Projection>(
-        sphere_sub: &SphereSubdivided,
-        // The VBO data to fill
-        vertices: &mut [f32],
-        idx_vertices: &mut [u16],
-        num_vertices: &mut usize,
-        num_idx: &mut u16,
-        // The buffer that will be modified due to the need of specific tile textures by the GPU
-        buffer: &mut BufferTiles,
-        // The HEALPix cells located in the FOV
-        viewport: &ViewPort,
-    ) {
-        let cells_fov = viewport.field_of_view()
-            .healpix_cells();
-        let depth = viewport.field_of_view()
-            .current_depth();
-
-        let num_subdivision = if depth <= 2 {
-            1 << (3 - depth)
-        } else {
-            1
-        };
-        for cell in cells_fov {
-            let (uv_0, uv_1, time_received) = if buffer.contains(cell) {
-                let parent_cell = buffer.get_nearest_parent(cell);
-
-                let cell_in_tex = buffer.get_cell_in_texture(cell);
-                let parent_cell_in_tex = buffer.get_cell_in_texture(&parent_cell);
-
-                let uv_0 = TileUVW::new(&cell, &parent_cell_in_tex);
-                let uv_1 = TileUVW::new(cell, &cell_in_tex);
-
-                let time_received = cell_in_tex.time_received;
-                (uv_0, uv_1, time_received)
-            } else {
-                let parent_cell = buffer.get_nearest_parent(cell);
-                let grand_parent_cell = buffer.get_nearest_parent(&parent_cell);
-
-                let parent_cell_in_tex = buffer.get_cell_in_texture(&parent_cell);
-                let grand_parent_cell_in_tex = buffer.get_cell_in_texture(&grand_parent_cell);
-
-                let uv_0 = TileUVW::new(&cell, &grand_parent_cell_in_tex);
-                let uv_1 = TileUVW::new(&cell, &parent_cell_in_tex);
-
-                let time_received = parent_cell_in_tex.time_received;
-                (uv_0, uv_1, time_received)
-            };
-
-            add_cell_vertices::<P, Self>(
-                sphere_sub,
-                vertices,
-                idx_vertices,
-                num_vertices,
-                num_idx,
-                &cell,
-                &uv_0, &uv_1,
-                time_received,
-                viewport,
-            );
-        }
-    }
-
-    fn num_subdivision<P: Projection>(cell: &HEALPixCell, sphere_sub: &SphereSubdivided, viewport: &ViewPort) -> u8 {
-        sphere_sub.get_num_subdivide::<P>(cell, viewport, cell.depth())
-    }
-}
-
-impl UpdateTextureBufferEvent for MouseWheelDown {
-    // Returns:
-    // * The UV of the starting tile in the global 4096x4096 texture
-    // * The UV of the ending tile in the global 4096x4096 texture
-    // * the blending factor between the two tiles in the texture
-    fn update_texture_buffer<P: Projection>(
-        sphere_sub: &SphereSubdivided,
-        // The VBO data to fill
-        vertices: &mut [f32],
-        idx_vertices: &mut [u16],
-        num_vertices: &mut usize,
-        num_idx: &mut u16,
-        // The buffer that will be modified due to the need of specific tile textures by the GPU
-        buffer: &mut BufferTiles,
-        // The HEALPix cells located in the FOV
-        viewport: &ViewPort,
-    ) {
-        let depth_plus_two = viewport.field_of_view()
-            .current_depth() + 2;
-
-        let cells_fov = viewport.field_of_view()
-            .get_cells_in_fov(depth_plus_two);
-
-        for cell in cells_fov {
-            let parent_cell = cell.parent();
-            let grand_parent_cell = parent_cell.parent();
-
-            let (uv_0, uv_1, time_received) = if buffer.contains(&grand_parent_cell) {
-                let starting_cell = if buffer.contains(&cell) {
-                    cell
-                } else {
-                    buffer.get_nearest_parent(&cell)
-                };
-                let starting_cell_in_tex = buffer.get_cell_in_texture(&starting_cell);
-                let uv_0 = TileUVW::new(&cell, &starting_cell_in_tex);
-
-                let grand_parent_cell_in_tex = buffer.get_cell_in_texture(&grand_parent_cell);
-                let uv_1 = TileUVW::new(&cell, &grand_parent_cell_in_tex);
-
-                let time_received = grand_parent_cell_in_tex.time_received;
-                (uv_0, uv_1, time_received)
-            } else {
-
-                let ending_cell = if buffer.contains(&cell) {
-                    cell
-                } else {
-                    buffer.get_nearest_parent(&cell)
-                };
-
-                let starting_cell = buffer.get_nearest_parent(&ending_cell);
-
-                let starting_cell_in_tex = buffer.get_cell_in_texture(&starting_cell);
-                let ending_cell_in_tex = buffer.get_cell_in_texture(&ending_cell);
-
-                let time_received = ending_cell_in_tex.time_received;
-
-                let uv_0 = TileUVW::new(&cell, &starting_cell_in_tex);
-                let uv_1 = TileUVW::new(&cell, &ending_cell_in_tex);
-                (uv_0, uv_1, time_received)
-            };
-
-            add_cell_vertices::<P, Self>(
-                sphere_sub,
-                vertices,
-                idx_vertices,
-                num_vertices,
-                num_idx,
-                &cell,
-                &uv_0, &uv_1,
-                time_received,
-                viewport
-            );
-        }
-    }
-
-    fn num_subdivision<P: Projection>(cell: &HEALPixCell, sphere_sub: &SphereSubdivided, viewport: &ViewPort) -> u8 {
-        let num_subdivision = sphere_sub.get_num_subdivide::<P>(cell, viewport, cell.depth());
-        if num_subdivision <= 2 {
-            0
-        } else {
-            num_subdivision - 2
-        }
-    }
-}
-
 use crate::projection::*;
 pub trait RasterizerProjection {
     fn get_rasterize_shader(shaders: &ShaderManager) -> &Shader;
@@ -431,12 +179,12 @@ pub trait RasterizerProjection {
 
 impl RasterizerProjection for Aitoff {
     fn get_rasterize_shader(shaders: &ShaderManager) -> &Shader {
-        shaders.get::<shaders::Rasterize_Ortho>().unwrap()
+        shaders.get::<shaders::Rasterize_Aitoff>().unwrap()
     }
 }
 impl RasterizerProjection for Mollweide {
     fn get_rasterize_shader(shaders: &ShaderManager) -> &Shader {
-        shaders.get::<shaders::Rasterize_Ortho>().unwrap()
+        shaders.get::<shaders::Rasterize_Mollweide>().unwrap()
     }
 }
 impl RasterizerProjection for AzimutalEquidistant {
@@ -446,7 +194,7 @@ impl RasterizerProjection for AzimutalEquidistant {
 }
 impl RasterizerProjection for Mercator {
     fn get_rasterize_shader(shaders: &ShaderManager) -> &Shader {
-        shaders.get::<shaders::Rasterize_Ortho>().unwrap()
+        shaders.get::<shaders::Rasterize_Mercator>().unwrap()
     }
 }
 impl RasterizerProjection for Orthographic {
@@ -466,19 +214,56 @@ pub struct Rasterizer {
 
     vertex_array_object: VertexArrayObject,
 }
+
+use crate::buffer::BufferTextures;
+use crate::renderable::TextureStates;
 impl Rasterizer {
-    fn define_needed_hpx_cells<T: UpdateTextureBufferEvent, P: Projection>(
+    pub fn update_vertex_array_object<P: Projection, T: UpdateTextureBufferEvent>(&mut self, tile_textures: &TextureStates) {
+        console::log_1(&format!("update vertex array object").into());
+
+        let mut num_vertices = 0;
+        self.num_idx = 0;
+        for (cell, state) in tile_textures.iter() {
+            let uv_0 = TileUVW::new(cell, &state.starting_texture);
+            let uv_1 = TileUVW::new(cell, &state.ending_texture);
+            let start_time = state.ending_texture.start_time();
+
+            add_cell_vertices::<P, T>(
+                &self.sphere_sub,
+                &mut self.vertices,
+                &mut self.idx_vertices,
+                &mut num_vertices,
+                &mut self.num_idx,
+                &cell,
+                &uv_0, &uv_1,
+                start_time,
+            );
+        }
+
+        // Update the VAO
+        self.vertex_array_object.bind_for_update()
+            .update_array(
+                0, 
+                WebGl2RenderingContext::DYNAMIC_DRAW,
+                BufferData::SliceData(&self.vertices)
+            )
+            .update_element_array(
+                WebGl2RenderingContext::DYNAMIC_DRAW,
+                BufferData::SliceData(&self.idx_vertices)
+            );
+        
+    }
+
+    /*fn define_needed_hpx_cells<'a, T: UpdateTextureBufferEvent, P: Projection>(
         &mut self,
         // The buffer that will be modified due to the need of specific tile textures by the GPU
-        buffer: &mut BufferTiles,
+        buffer: &'a mut BufferTiles,
         // The HEALPix cells at the depth
         viewport: &ViewPort) {
         // Refill the vertices slice
         // Set its current index to 0
-        let mut num_vertices = 0;
-        self.num_idx = 0;
-        T::update_texture_buffer::<P>(&self.sphere_sub, &mut self.vertices, &mut self.idx_vertices, &mut num_vertices, &mut self.num_idx, buffer, viewport);
-    }
+        
+    }*/
 
     // The rasterizer has several shaders, one for each projection
     pub fn get_shader<P: Projection>(shaders: &ShaderManager) -> &Shader {
@@ -500,7 +285,7 @@ use crate::shader::ShaderBound;
 impl RenderingMode for Rasterizer {
     fn new(gl: &WebGl2Context, viewport: &ViewPort, shaders: &mut ShaderManager) -> Rasterizer {
         // Define rasterization new shaders reponsible for rendering the HiPS
-        let uniforms_raster = vec![
+        let mut uniforms_raster = vec![
             // General uniforms
             "current_time",
             "model",
@@ -514,9 +299,14 @@ impl RenderingMode for Rasterizer {
             "max_depth",
             // Textures
             "tex",
-            "num_tiles",
+            "num_textures",
         ];
+        uniforms_raster.extend(shaders::HPX_TILES_BUFFER_UNIFORMS);
+
         shaders.insert::<shaders::Rasterize_Ortho>(gl, &uniforms_raster[..]);
+        shaders.insert::<shaders::Rasterize_Mollweide>(gl, &uniforms_raster[..]);
+        shaders.insert::<shaders::Rasterize_Mercator>(gl, &uniforms_raster[..]);
+        shaders.insert::<shaders::Rasterize_Aitoff>(gl, &uniforms_raster[..]);
 
         // Define the Vertex Array Object where vertices data will be put
         // Memory reserved from the stack
@@ -574,41 +364,6 @@ impl RenderingMode for Rasterizer {
             WebGl2RenderingContext::UNSIGNED_SHORT,
             0,
         );*/
-    }
-
-    fn update<P: Projection>(&mut self, buffer: &mut BufferTiles, viewport: &ViewPort, events: &EventManager) {
-        // If at least the base tiles have not been loaded
-        // then we do nothing
-        if !buffer.is_ready() {
-            return;
-        }
-        // A tile has been received
-        if buffer.is_sphere_vbo_rebuild_necessary() {
-            console::log_1(&format!("update vbo").into());
-            // Signals a new frame to the buffer
-            buffer.signals_new_frame();
-            let last_user_action = viewport.get_last_action();
-            match last_user_action {
-                LastAction::Unzooming => self.define_needed_hpx_cells::<MouseWheelDown, P>(buffer, viewport),
-                LastAction::Zooming => self.define_needed_hpx_cells::<MouseWheelUp, P>(buffer, viewport),
-                LastAction::Moving => self.define_needed_hpx_cells::<MouseMove, P>(buffer, viewport)
-            };
-            buffer.signals_end_frame();
-
-            // Update the VAO
-            self.vertex_array_object.bind_for_update()
-                .update_array(
-                    0, 
-                    WebGl2RenderingContext::DYNAMIC_DRAW,
-                    BufferData::SliceData(&self.vertices)
-                )
-                .update_element_array(
-                    WebGl2RenderingContext::DYNAMIC_DRAW,
-                    BufferData::SliceData(&self.idx_vertices)
-                );
-        }
-        //console::log_1(&format!("poll").into());
-        buffer.poll_textures();
     }
 
     /*fn send_to_shader(buffer: &BufferTiles, shader: &Shader) {

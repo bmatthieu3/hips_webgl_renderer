@@ -116,10 +116,6 @@ use cgmath::Vector4;
 use cgmath::InnerSpace;
 use cgmath::Deg;
 
-use crate::healpix_cell::HEALPixCell;
-use crate::field_of_view::{ALLSKY_ZERO_DEPTH, ALLSKY_ONE_DEPTH};
-
-use std::collections::HashSet;
 use crate::renderable::{
  RayTracingProjection,
  RasterizerProjection,
@@ -204,9 +200,9 @@ pub trait Projection: RayTracingProjection + RasterizerProjection + CatalogShade
     // - 360 degrees for the 2D projections (i.e. mollweide, arc, aitoff...)
     fn aperture_start() -> Deg<f32>;
 
-    fn name() -> &'static str;
+    //fn name() -> &'static str;
 
-    fn check_for_allsky_fov(depth: u8) -> Option<HashSet<HEALPixCell>>;
+    //fn check_for_allsky_fov(depth: u8) -> Option<HashSet<HEALPixCell>>;
 }
 
 #[derive(Clone, Copy)]
@@ -227,7 +223,7 @@ use crate::renderable::hips_sphere::NUM_STEPS;
 
 use crate::math::is_inside_ellipse;
 impl Projection for Aitoff {
-    fn check_for_allsky_fov(depth: u8) -> Option<HashSet<HEALPixCell>> {
+    /*fn check_for_allsky_fov(depth: u8) -> Option<HashSet<HEALPixCell>> {
         if depth == 0 {
             Some(ALLSKY_ZERO_DEPTH.lock().unwrap().clone())
         } else if depth == 1 {
@@ -235,11 +231,11 @@ impl Projection for Aitoff {
         } else {
             None
         }
-    }
+    }*/
 
-    fn name() -> &'static str {
+    /*fn name() -> &'static str {
         "Aitoff"
-    }
+    }*/
     fn build_screen_map(viewport: &ViewPort) -> (Vec<Vector2<f32>>, Vec<u16>) {
         let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
 
@@ -348,7 +344,7 @@ impl Projection for Aitoff {
 use cgmath::Vector3;
 use crate::math;
 impl Projection for Mollweide {
-    fn check_for_allsky_fov(depth: u8) -> Option<HashSet<HEALPixCell>> {
+    /*fn check_for_allsky_fov(depth: u8) -> Option<HashSet<HEALPixCell>> {
         if depth == 0 {
             Some(ALLSKY_ZERO_DEPTH.lock().unwrap().clone())
         } else if depth == 1 {
@@ -356,11 +352,11 @@ impl Projection for Mollweide {
         } else {
             None
         }
-    }
+    }*/
 
-    fn name() -> &'static str {
+    /*fn name() -> &'static str {
         "MollWeide"
-    }
+    }*/
 
     fn build_screen_map(viewport: &ViewPort) -> (Vec<Vector2<f32>>, Vec<u16>) {
         let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
@@ -469,17 +465,17 @@ impl Projection for Mollweide {
 
 use cgmath::Rad;
 impl Projection for Orthographic {
-    fn check_for_allsky_fov(depth: u8) -> Option<HashSet<HEALPixCell>> {
+    /*fn check_for_allsky_fov(depth: u8) -> Option<HashSet<HEALPixCell>> {
         if depth == 0 {
             Some(ALLSKY_ZERO_DEPTH.lock().unwrap().clone())
         } else {
             None
         }
-    }
+    }*/
 
-    fn name() -> &'static str {
+    /*fn name() -> &'static str {
         "Orthographic"
-    }
+    }*/
 
     fn build_screen_map(viewport: &ViewPort) -> (Vec<Vector2<f32>>, Vec<u16>) {
         let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
@@ -544,7 +540,7 @@ impl Projection for Orthographic {
 }
 
 impl Projection for AzimutalEquidistant {
-    fn check_for_allsky_fov(depth: u8) -> Option<HashSet<HEALPixCell>> {
+    /*fn check_for_allsky_fov(depth: u8) -> Option<HashSet<HEALPixCell>> {
         if depth == 0 {
             Some(ALLSKY_ZERO_DEPTH.lock().unwrap().clone())
         } else if depth == 1 {
@@ -552,11 +548,11 @@ impl Projection for AzimutalEquidistant {
         } else {
             None
         }
-    }
+    }*/
 
-    fn name() -> &'static str {
+    /*fn name() -> &'static str {
         "Arc"
-    }
+    }*/
 
     fn build_screen_map(viewport: &ViewPort) -> (Vec<Vector2<f32>>, Vec<u16>) {
         let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
@@ -641,7 +637,7 @@ impl Projection for AzimutalEquidistant {
 }
 
 impl Projection for Mercator {
-    fn check_for_allsky_fov(depth: u8) -> Option<HashSet<HEALPixCell>> {
+    /*fn check_for_allsky_fov(depth: u8) -> Option<HashSet<HEALPixCell>> {
         if depth == 0 {
             Some(ALLSKY_ZERO_DEPTH.lock().unwrap().clone())
         } else if depth == 1 {
@@ -649,11 +645,11 @@ impl Projection for Mercator {
         } else {
             None
         }
-    }
+    }*/
 
-    fn name() -> &'static str {
+    /*fn name() -> &'static str {
         "Mercator"
-    }
+    }*/
 
     fn build_screen_map(viewport: &ViewPort) -> (Vec<Vector2<f32>>, Vec<u16>) {
         let N = 40;

@@ -19,22 +19,76 @@ pub enum Child {
     TopRight,
 }
 
+use crate::utils;
+use crate::buffer::TileConfig;
+use crate::buffer::Texture;
+
 impl HEALPixCell {
     // Build the parent cell
+    #[inline]
     pub fn parent(self) -> HEALPixCell {
-        if self.depth() == 0 {
+        let depth = self.depth();
+        if depth == 0 {
             // If cell belongs to a root cell
             // we return it as a root cell do not have any parent
             self
         } else {
-            HEALPixCell(self.0 - 1, self.1 >> 2)
+            HEALPixCell(depth - 1, self.1 >> 2)
         }
     }
 
+    fn ancestor(self, delta_depth: u8) -> HEALPixCell {
+        let HEALPixCell(depth, idx) = self;
+        let delta_depth = std::cmp::min(delta_depth, depth);
+        
+        let ancestor = HEALPixCell(
+            depth - delta_depth,
+            idx >> (2*delta_depth)
+        );
+        ancestor
+    }
+
+    // Get the texture cell in which the tile is
+    pub fn get_texture_cell(&self, config: &TileConfig) -> HEALPixCell {
+        let delta_depth_to_texture = config.delta_depth();
+        let texture_cell = self.ancestor(delta_depth_to_texture);
+        texture_cell
+    }
+    pub fn get_offset_in_texture_cell(&self, config: &TileConfig) -> (u32, u32) {
+        let texture_cell = self.get_texture_cell(config);
+        self.offset_in_parent(&texture_cell)
+    }
+
+    pub fn offset_in_parent(&self, parent_cell: &HEALPixCell) -> (u32, u32) {
+        let HEALPixCell(depth, idx) = *self;
+        let HEALPixCell(parent_depth, parent_idx) = *parent_cell;
+
+        let idx_off = parent_idx << (2*(depth - parent_depth));
+
+        assert!(idx >= idx_off);
+        assert!(depth >= parent_depth);
+        let nside = 1 << (depth - parent_depth);
+
+        let (x, y) = utils::unmortonize(idx - idx_off);
+        assert!(x < nside);
+        assert!(y < nside);
+        //console::log_1(&format!("OFFSET {:?}", (x, y)).into());
+
+        (x, y)
+    }
+
+    #[inline]
+    pub fn uniq(&self) -> i32 {
+        let HEALPixCell(depth, idx) = *self;
+        ((16 << (depth << 1)) | idx) as i32
+    }
+
+    #[inline]
     pub fn idx(&self) -> u64 {
         self.1
     }
 
+    #[inline]
     pub fn depth(&self) -> u8 {
         self.0
     }
@@ -54,7 +108,28 @@ impl HEALPixCell {
             }
         }
     }
+
+    #[inline]
+    pub fn is_root(&self) -> bool {
+        self.depth() == 0
+    }
+
+    // Returns the tile cells being contained into self
+    #[inline]
+    pub fn get_tile_cells(&self, config: &TileConfig) -> HEALPixTiles {
+        let delta_depth = config.delta_depth();
+
+        let HEALPixCell(depth, idx) = *self;
+        let first_idx = idx << (2*delta_depth);
+        let last_idx = (idx + 1) << (2*delta_depth);
+
+        let depth_tile = depth + delta_depth;
+        HEALPixTiles(depth_tile, first_idx..last_idx)
+    }
 }
+
+use std::ops::Range;
+pub struct HEALPixTiles(pub u8, pub Range<u64>);
 
 impl PartialOrd for HEALPixCell {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -70,14 +145,40 @@ impl Ord for HEALPixCell {
     }
 }
 
+#[derive(Clone, Copy)]
+#[derive(Debug)]
+#[derive(PartialEq, Eq, Hash)]
+struct HEALPixCellUniqOrd<'a> {
+    cell: &'a HEALPixCell,
+}
+
+impl<'a> PartialOrd for HEALPixCellUniqOrd<'a> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        let u1 = self.cell.uniq();
+        let u2 = other.cell.uniq();
+
+        u1.partial_cmp(&u2)
+    }
+}
+impl<'a> Ord for HEALPixCellUniqOrd<'a> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_cmp(&other).unwrap()
+    }
+}
+
+use std::collections::HashSet;
+pub fn allsky(depth: u8) -> HashSet<HEALPixCell> {
+    let npix = 12 << (depth << 1);
+
+    let mut cells = HashSet::with_capacity(npix);
+    for ipix in 0..npix {
+        cells.insert(HEALPixCell(depth, ipix as u64));
+    }
+
+    cells
+}
+
 pub struct SphereSubdivided(Box<[u8; 196608]>);
-
-/*const fn num_bits<T>() -> usize { std::mem::size_of::<T>() * 8 }
-
-fn log_2(x: u8) -> u32 {
-    assert!(x > 0);
-    num_bits::<u8>() as u32 - x.leading_zeros() - 1
-}*/ 
 
 fn subdivision(cell: &HEALPixCell) -> u8 {
     let mut subdivision = 0;
@@ -209,32 +310,7 @@ impl SphereSubdivided {
     }
 
     // Get the number of subdivision necessary for the given cell
-    pub fn get_num_subdivide<P: Projection>(&self, cell: &HEALPixCell, viewport: &ViewPort, depth_start: u8) -> u8 {
-        /*if cell.depth() == 29 || (cell.depth() - depth_start) == 3 {
-            return 0;
-        }
-
-        //let ratio = compute_ratio_projeted_diag::<P>(cell, viewport);
-        let ratio = compute_ratio_diag(cell);
-        if ratio < 0.8 {
-            let cbl = &cell.get(Child::BottomLeft);
-            let n1 = self.get_num_subdivide::<P>(cbl, viewport, depth_start);
-            let cbr = &cell.get(Child::BottomRight);
-            let n2 = self.get_num_subdivide::<P>(cbr, viewport, depth_start);
-            let ctl = &cell.get(Child::TopLeft);
-            let n3 = self.get_num_subdivide::<P>(ctl, viewport, depth_start);
-            let ctr = &cell.get(Child::TopRight);
-            let n4 = self.get_num_subdivide::<P>(ctr, viewport, depth_start);
-
-            let r = std::cmp::max(n1, std::cmp::max(n2, std::cmp::max(n3, n4)));
-            r + 1
-        } else {
-            if cell.depth() < 3 {
-                3 - cell.depth()
-            } else {
-                0
-            }
-        }*/
+    pub fn get_num_subdivide<P: Projection>(&self, cell: &HEALPixCell) -> u8 {
         let HEALPixCell(depth, idx) = *cell;
         let num_sub = if depth < 7 {
             // Get the 3 depth cells contained in it and add

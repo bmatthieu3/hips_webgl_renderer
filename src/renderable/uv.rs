@@ -19,12 +19,12 @@ where T: Float + Zero {
     }
 }
 
-use crate::buffer_tiles::{
- NUM_TILES_BY_TEXTURE,
- NUM_CELLS_BY_TEXTURE_SIDE
+use crate::buffer::{
+ NUM_TEXTURES_BY_SIDE_SLICE,
+ NUM_TEXTURES_BY_SLICE
 };
 use crate::healpix_cell::HEALPixCell;
-use crate::buffer_tiles::TileInTextureBuffer;
+use crate::buffer::Texture;
 use crate::utils;
 pub struct TileUVW([Vector3<f32>; 4]);
 impl TileUVW {
@@ -41,77 +41,35 @@ impl TileUVW {
         ])
     }*/
 
-    // Search in the buffer the UV of the cell
-    // At this point, cell is in the CPU buffer, but we do not know if the tile is 
-    // in the GPU texture
-    //
-    // We should be able to return the nearest parent cell loaded in the GPU buffer
-    // whilst the needed tile texture is moved into the big GPU textures
-    pub fn look(idx: usize) -> TileUVW {
-        let idx_texture = (idx / NUM_TILES_BY_TEXTURE) as f32;
-        let idx_in_texture = idx % NUM_TILES_BY_TEXTURE;
-
-        let idx_row = (idx_in_texture / NUM_CELLS_BY_TEXTURE_SIDE) as f32;
-        let idx_col = (idx_in_texture % NUM_CELLS_BY_TEXTURE_SIDE) as f32;
-
-        let u = idx_col / (NUM_CELLS_BY_TEXTURE_SIDE as f32);
-        let v = idx_row / (NUM_CELLS_BY_TEXTURE_SIDE as f32);
-
-        let ds = 1_f32 / (NUM_CELLS_BY_TEXTURE_SIDE as f32);
-        TileUVW([
-            Vector3::new(u, v, idx_texture),
-            Vector3::new(u + ds, v, idx_texture),
-            Vector3::new(u, v + ds, idx_texture),
-            Vector3::new(u + ds, v + ds, idx_texture)
-        ])
-    }
-
-    // Return the uv in the gpu texture of cell.
-    // Cell might not be in the gpu texture, if so, the cell_in_buf uv are given instead.
-    pub fn new(cell: &HEALPixCell, cell_in_buf: &TileInTextureBuffer) -> TileUVW {
-        /*if *cell  == cell_in_buf.cell {
-            let idx_texture = (cell_in_buf.idx_texture / NUM_TILES_BY_TEXTURE) as f32;
-            let idx_in_texture = cell_in_buf.idx_texture % NUM_TILES_BY_TEXTURE;
-
-            let idx_row = (idx_in_texture / NUM_CELLS_BY_TEXTURE_SIDE) as f32;
-            let idx_col = (idx_in_texture % NUM_CELLS_BY_TEXTURE_SIDE) as f32;
-
-            let u = idx_col / (NUM_CELLS_BY_TEXTURE_SIDE as f32);
-            let v = idx_row / (NUM_CELLS_BY_TEXTURE_SIDE as f32);
-
-            let ds = 1_f32 / (NUM_CELLS_BY_TEXTURE_SIDE as f32);
-            return TileUVW([
-                Vector3::new(u, v, idx_texture),
-                Vector3::new(u + ds, v, idx_texture),
-                Vector3::new(u, v + ds, idx_texture),
-                Vector3::new(u + ds, v + ds, idx_texture)
-            ]);
-        }*/
-
-        let HEALPixCell(depth, idx) = *cell;
-        let HEALPixCell(parent_depth, parent_idx) = cell_in_buf.cell;
+    // The texture cell passed must be a child of texture
+    pub fn new(child_texture_cell: &HEALPixCell, texture: &Texture) -> TileUVW {
+        let HEALPixCell(depth, idx) = *child_texture_cell;
+        let HEALPixCell(parent_depth, parent_idx) = *texture.cell();
 
         let idx_off = parent_idx << (2*(depth - parent_depth));
 
         assert!(idx >= idx_off);
         assert!(depth >= parent_depth);
-        let nside = (1 << (depth - parent_depth));
+        let nside = (1 << (depth - parent_depth)) as f32;
 
         let (x, y) = utils::unmortonize(idx - idx_off);
+        let x = x as f32;
+        let y = y as f32;
         assert!(x < nside);
         assert!(y < nside);
-        //console_log!("x {:?}, y {:?}, nside {:?}", x, y, nside);
 
-        let parent_idx_texture = cell_in_buf.idx_texture;
-        let idx_texture = (parent_idx_texture / NUM_TILES_BY_TEXTURE) as f32;
-        let parent_idx_in_texture = parent_idx_texture % NUM_TILES_BY_TEXTURE;
+        let parent_idx_texture = texture.idx();
+        let idx_texture = (parent_idx_texture / NUM_TEXTURES_BY_SLICE) as f32;
+        let parent_idx_in_texture = parent_idx_texture % NUM_TEXTURES_BY_SLICE;
 
-        let parent_idx_row = (parent_idx_in_texture / NUM_CELLS_BY_TEXTURE_SIDE) as f32; // in [0; 7]
-        let parent_idx_col = (parent_idx_in_texture % NUM_CELLS_BY_TEXTURE_SIDE) as f32; // in [0; 7]
-        let u = (parent_idx_col + ((y as f32)/(nside as f32))) / (NUM_CELLS_BY_TEXTURE_SIDE as f32);
-        let v = (parent_idx_row + ((x as f32)/(nside as f32))) / (NUM_CELLS_BY_TEXTURE_SIDE as f32);
+        let parent_idx_row = (parent_idx_in_texture / NUM_TEXTURES_BY_SIDE_SLICE) as f32; // in [0; 7]
+        let parent_idx_col = (parent_idx_in_texture % NUM_TEXTURES_BY_SIDE_SLICE) as f32; // in [0; 7]
 
-        let ds = 1_f32 / ((NUM_CELLS_BY_TEXTURE_SIDE as f32) * (nside as f32));
+        let num_textures_by_side_slice_f32 = NUM_TEXTURES_BY_SIDE_SLICE as f32;
+        let u = (parent_idx_col + (y/nside)) / num_textures_by_side_slice_f32;
+        let v = (parent_idx_row + (x/nside)) / num_textures_by_side_slice_f32;
+
+        let ds = 1_f32 / (num_textures_by_side_slice_f32 * nside);
 
         TileUVW([
             Vector3::new(u, v, idx_texture),

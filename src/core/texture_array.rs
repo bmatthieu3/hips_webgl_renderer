@@ -23,7 +23,7 @@ pub struct Texture2DArray {
 
     width: i32, // Width of a texture element
     height: i32, // Height of a texture element
-    num_textures: i32 // number of texture elements
+    num_slices: i32 // number of texture elements
 }
 
 use crate::core::NUM_TEXTURE_UNIT;
@@ -39,8 +39,8 @@ impl Texture2DArray {
         width: i32,
         // Their height
         height: i32,
-        // How many textures it contains
-        num_textures: i32,
+        // How many texture slices it contains
+        num_slices: i32,
         tex_params: &'static [(u32, u32)],
         // Texture format
         format: u32,
@@ -77,7 +77,7 @@ impl Texture2DArray {
                     format as i32, // internalformat
                     width, // width
                     height, // height
-                    num_textures, // depth
+                    num_slices, // depth
                     0, // border
                     format, // format
                     WebGl2RenderingContext::UNSIGNED_BYTE, // type
@@ -108,7 +108,7 @@ impl Texture2DArray {
 
             width,
             height,
-            num_textures
+            num_slices
         }
     }
 
@@ -117,8 +117,8 @@ impl Texture2DArray {
         width: i32,
         // Their height
         height: i32,
-        // How many textures it contains
-        num_textures: i32,
+        // How many texture slices it contains
+        num_slices: i32,
         tex_params: &'static [(u32, u32)],
         // Texture format
         format: u32,
@@ -141,7 +141,7 @@ impl Texture2DArray {
             format as i32, // internalformat
             width, // width
             height, // height
-            num_textures, // depth
+            num_slices, // depth
             0, // border
             format, // format
             WebGl2RenderingContext::UNSIGNED_BYTE, // type
@@ -162,7 +162,7 @@ impl Texture2DArray {
 
             width,
             height,
-            num_textures
+            num_slices
         }
     }
 
@@ -176,6 +176,13 @@ impl Texture2DArray {
         Texture2DArrayBound {
             texture_2d_array: self
         }
+    }
+}
+
+impl Drop for Texture2DArray {
+    fn drop(&mut self) {
+        console::log_1(&format!("Delete texture array!").into());
+        self.gl.delete_texture(self.texture.borrow().as_ref());
     }
 }
 
@@ -196,7 +203,7 @@ impl<'a> Texture2DArrayBound<'a> {
             3 * // TODO: Take into account the format
             (self.texture_2d_array.height as usize) *
             (self.texture_2d_array.width as usize) *
-            (self.texture_2d_array.num_textures as usize)
+            (self.texture_2d_array.num_slices as usize)
         ];
         self.texture_2d_array.gl.tex_sub_image_3d_with_opt_u8_array(
             WebGl2RenderingContext::TEXTURE_2D_ARRAY, // target: u32,
@@ -207,7 +214,7 @@ impl<'a> Texture2DArrayBound<'a> {
 
             self.texture_2d_array.width, // width: i32,
             self.texture_2d_array.height, // height: i32,
-            self.texture_2d_array.num_textures, // depth: i32,
+            self.texture_2d_array.num_slices, // depth: i32,
 
             self.texture_2d_array.format, // format: u32,
             WebGl2RenderingContext::UNSIGNED_BYTE, // type: u32

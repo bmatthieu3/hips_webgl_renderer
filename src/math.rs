@@ -55,16 +55,24 @@ pub fn radec_to_xyz(theta: cgmath::Rad<f32>, delta: cgmath::Rad<f32>) -> cgmath:
 // This takes into account the screen resolution and can impact
 // the number of healpix cells to load. Bigger resolution will need
 // more cells which can overfit the buffer!
-pub fn fov_to_depth(fov: Rad<f32>, width: f32) -> u8 {
+use crate::buffer::TileConfig;
+pub fn fov_to_depth(fov: Rad<f32>, width: f32, tile_config: &TileConfig) -> u8 {
     let pixel_ang = fov.0 / width;
 
-    let depth_pixel = (((4_f32 * std::f32::consts::PI) / (12_f32 * pixel_ang * pixel_ang)).log2() / 2_f32).ceil() as i32;
+    let depth_pixel = (((4_f32 * std::f32::consts::PI) / (12_f32 * pixel_ang * pixel_ang)).log2() / 2_f32).ceil() as i8;
 
-    let mut depth = depth_pixel - 9;
-    if depth < 0 {
-        depth = 0;
+    // The texture size in pixels
+    let texture_size = tile_config.get_texture_size();
+    // The depth of the texture
+    // A texture of 512x512 pixels will have a depth of 9
+    let depth_offset_texture = log_2(texture_size);
+    // The depth of the texture corresponds to the depth of a pixel
+    // minus the offset depth of the texture
+    let mut depth_texture = depth_pixel - depth_offset_texture;
+    if depth_texture < 0 {
+        depth_texture = 0;
     }
-    depth as u8
+    depth_texture as u8
 }
 /*
 pub fn depth_to_fov(depth: u8) -> Rad<f32> {
@@ -83,4 +91,13 @@ pub fn is_inside_ellipse(screen_pos: &Vector2<f32>, a: f32, b: f32) -> bool {
     let py2 = screen_pos.y * screen_pos.y;
 
     return (px2 * b2 + py2 * a2) <= a2 * b2;
+}
+
+#[inline]
+const fn num_bits<T>() -> usize { std::mem::size_of::<T>() * 8 }
+
+#[inline]
+pub fn log_2(x: i32) -> i8 {
+    assert!(x > 0);
+    (num_bits::<i32>() as u32 - x.leading_zeros() - 1) as i8
 }

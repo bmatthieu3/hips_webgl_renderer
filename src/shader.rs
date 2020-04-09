@@ -100,7 +100,7 @@ impl Shader {
 pub trait UniformType {
     fn uniform(gl: &WebGl2Context, location: Option<&WebGlUniformLocation>, value: &Self);
 
-    fn attach_uniform<'a>(name: &'static str, value: &Self, shader: &ShaderBound<'a>) {
+    fn attach_uniform<'a>(name: &str, value: &Self, shader: &ShaderBound<'a>) {
         let location = shader.get_uniform_location(name);
         Self::uniform(&shader.gl, location, value);
     }
@@ -190,7 +190,7 @@ impl<'a> ShaderBound<'a> {
         self.shader.uniform_locations.get(name).unwrap().as_ref()
     }
 
-    pub fn attach_uniform<T: UniformType>(&self, name: &'static str, value: &T) -> &Self {
+    pub fn attach_uniform<T: UniformType>(&self, name: &str, value: &T) -> &Self {
         T::attach_uniform(name, value, self);
 
         self
