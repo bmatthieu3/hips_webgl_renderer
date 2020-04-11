@@ -60,7 +60,7 @@ use crate::WebGl2Context;
 
 use std::collections::HashMap;
 use crate::healpix_cell;
-
+use web_sys::console;
 impl FieldOfView {
     pub fn new<P: Projection>(gl: &WebGl2Context, aperture_angle: Rad<f32>, config: &HiPSConfig) -> FieldOfView {
         let mut x_ndc_space = itertools_num::linspace::<f32>(-1., 1., NUM_VERTICES_WIDTH + 2)
@@ -274,10 +274,12 @@ impl FieldOfView {
         let max_depth = self.config
             // Max depth of the current HiPS tiles
             .max_depth();
+        
         let depth = std::cmp::min(
             math::fov_to_depth(self.aperture_angle, self.width, self.config.tile_config()),
             max_depth,
         );
+        //console::log_1(&format!("max depth {:?}", max_depth).into());
 
         let cells = self.get_cells_in_fov::<P>(depth);
 

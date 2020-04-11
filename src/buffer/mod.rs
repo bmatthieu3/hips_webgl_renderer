@@ -19,3 +19,4 @@ pub use hips_config::{
 pub use hips_config::{NUM_TEXTURES, NUM_TEXTURES_BY_SLICE, NUM_TEXTURES_BY_SIDE_SLICE};
 
 mod async_workers;
+use async_workers::Worker;

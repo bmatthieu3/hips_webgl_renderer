@@ -25,18 +25,18 @@ pub struct TileConfig {
 
 pub const NUM_TEXTURES_BY_SIDE_SLICE: i32 = 8;
 pub const NUM_TEXTURES_BY_SLICE: i32 = NUM_TEXTURES_BY_SIDE_SLICE * NUM_TEXTURES_BY_SIDE_SLICE;
-pub const NUM_SLICES: i32 = 2;
+pub const NUM_SLICES: i32 = 4;
 pub const NUM_TEXTURES: usize = (NUM_TEXTURES_BY_SLICE * NUM_SLICES) as usize;
 
 use crate::WebGl2Context;
 use crate::core::Texture2DArray;
 impl TileConfig {
-    fn new(tile_size: i32, max_depth: u8, format: ImageFormat) -> TileConfig {
+    fn new(tile_size: i32, max_depth_tile: u8, format: ImageFormat) -> TileConfig {
         // Assert size is a power of two
         assert!(is_power_of_two(tile_size as usize));
         // Determine the size of the texture to copy
         // it cannot be > to 512x512px
-        let texture_size = std::cmp::min(512, tile_size << max_depth);
+        let texture_size = std::cmp::min(512, tile_size << max_depth_tile);
         let num_tile_per_side_texture = texture_size / tile_size;
 
         let delta_depth = math::log_2(num_tile_per_side_texture as i32) as u8;
@@ -49,6 +49,8 @@ impl TileConfig {
         let num_tile_pixels = (tile_size as usize) * (tile_size as usize);
         let num_channels = format.num_channels();
         let num_bytes = num_channels * num_tile_pixels;
+
+        let max_depth = max_depth_tile - delta_depth;
         TileConfig {
             texture_size,
             tile_size,
@@ -206,10 +208,12 @@ impl HiPSConfig {
         }
     }
 
+    #[inline]
     pub fn max_depth(&self) -> u8 {
         self.tile_config.max_depth
     }
 
+    #[inline]
     pub fn tile_config(&self) -> &TileConfig {
         &self.tile_config
     }

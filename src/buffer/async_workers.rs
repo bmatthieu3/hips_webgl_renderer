@@ -1,6 +1,7 @@
 use cgmath::{Vector3, Vector2};
 
 struct WriteTexture {
+    cell: HEALPixCell, // The tile cell that has been written
     offset: Vector3<i32>,
     size: Vector2<i32>,
     image: Rc<Image>,
@@ -54,7 +55,9 @@ impl WriteTexture {
             tile_size,
         );
 
+        let cell = *cell;
         WriteTexture {
+            cell,
             offset,
             size,
             image,
@@ -81,7 +84,86 @@ impl Future for WriteTexture {
         Poll::Ready(())
     }
 }
-/*
-struct Workers {
-    tasks: Vec<WriteTexture>
-}*/
+
+pub struct Worker {
+    tasks: Vec<WriteTexture>,
+    textures_array: Rc<Texture2DArray>,
+    //num_root_textures_written: usize,
+}
+
+use crate::utils;
+use futures::executor::block_on;
+use web_sys::console;
+use std::collections::HashSet;
+impl Worker {
+    pub fn new(textures_array: Rc<Texture2DArray>) -> Worker {
+        let tasks = Vec::new();
+        //let num_root_textures_written = 0;
+        Worker {
+            tasks,
+            textures_array,
+            //num_root_textures_written
+        }
+    }
+
+    // Used for running tasks immediately i.e. write root texture cells
+    pub fn block_on_task(&self,
+     cell: &HEALPixCell,
+     texture: &mut Texture,
+     image: Rc<Image>,
+     config: &TileConfig
+    ) {
+        let task = WriteTexture::new(cell, texture, image, self.textures_array.clone(), config);
+        block_on(task);
+        // Register immediatly the tile as 'having being written'
+        texture.register_written_tile(cell, config);
+    }
+
+    pub fn append_task(&mut self, 
+     cell: &HEALPixCell,
+     texture: &Texture,
+     image: Rc<Image>,
+     config: &TileConfig
+    ) {
+        let task = WriteTexture::new(cell, texture, image, self.textures_array.clone(), config);
+        self.tasks.push(task);
+    }
+
+    // Return the set of tile cells that have been written (i.e. tiles within it)
+    pub fn run(&mut self) -> HashSet<HEALPixCell> {
+        // Get the current time
+        let start_time = utils::get_current_time();
+        // Define a maximum time duration in which tasks are polled
+        let duration = 10_f32; // in milliseconds
+        let mut task_finished = false;
+
+        let mut tiles_written = HashSet::new();
+
+        while !self.tasks_finished() && (utils::get_current_time() - start_time) < duration {
+            let task = self.tasks.pop().unwrap();
+            tiles_written.insert(task.cell);
+
+            block_on(task);
+
+            task_finished = true;
+        }
+
+        //console::log_1(&format!("num textures: {:?}", num_textures_written).into());
+
+        tiles_written
+    }
+
+    /*pub fn is_ready(&self) -> bool {
+        console::log_1(&format!("root textures written {:?}", self.num_root_textures_written).into());
+        self.num_root_textures_written == 12
+    }*/
+
+    pub fn clear(&mut self) {
+        //self.num_root_textures_written = 0;
+        self.tasks.clear();
+    }
+
+    fn tasks_finished(&self) -> bool {
+        self.tasks.is_empty()
+    }
+}

@@ -129,6 +129,7 @@ use std::collections::HashMap;
 use crate::core::Texture2DArray;
 use crate::buffer::TileConfig;
 
+use crate::buffer::Worker;
 // Fixed sized binary heap
 pub struct Textures {
     heap: BinaryHeap<TextureNode>,
@@ -143,6 +144,9 @@ pub struct Textures {
 
     // A config describing the tile (its storage format, extension, number of color channels)
     config: TileConfig,
+
+    // Write textures worker
+    worker: Worker,
 
     // A boolean ensuring the root textures
     // have already been loaded
@@ -171,6 +175,8 @@ impl Textures {
         // The root textures have not been loaded
         let ready = false;
         let config = *config;
+
+        let worker = Worker::new(texture_2d_array.clone());
         // Push the 
         Textures {
             heap,
@@ -183,6 +189,8 @@ impl Textures {
             config,
 
             ready,
+
+            worker,
         }
     }
 
@@ -250,7 +258,7 @@ impl Textures {
 
                 texture
             };
-            // Insert it to the textures hash map
+            // Insert it the texture
             self.textures.insert(texture_cell, texture);
         }
 
@@ -262,13 +270,49 @@ impl Textures {
         if let Some(texture) = self.textures.get_mut(&texture_cell) {
             texture.append(
                 cell, // The tile cell
-                image.clone(), // Its image data
-                self.texture_2d_array.clone(),
                 &self.config
             );
+
+            if texture_cell.is_root() {
+                // Root texture cells are pushed only one time at the beginning
+                // We need to ensure they are directly available
+                self.worker.block_on_task(
+                    cell,
+                    texture,
+                    image,
+                    &self.config
+                );
+            } else {
+                // Append new async task responsible for writing
+                // the image into the texture 2d array for the GPU
+                self.worker.append_task(
+                    cell,
+                    texture,
+                    image,
+                    &self.config
+                );
+            }
         } else {
             unreachable!()
         }
+    }
+
+    // Return true if at least one task has been processed
+    pub fn write_textures(&mut self) -> bool {
+        let tiles_written = self.worker.run();
+
+        for cell in &tiles_written {
+            let texture_cell = cell.get_texture_cell(&self.config);
+
+            if let Some(texture) = self.textures.get_mut(&texture_cell) {
+                texture.register_written_tile(cell, &self.config);
+            } else {
+                // Textures written have to be in the textures collection
+                unreachable!();
+            }
+        }
+
+        !tiles_written.is_empty()
     }
 
     fn is_heap_full(&self) -> bool {
@@ -347,6 +391,7 @@ impl Textures {
         // no matter the HiPS config
         self.root_textures.clear();
         self.heap.clear();
+        self.worker.clear();
 
         self.textures.clear();
         self.texture_2d_array.bind()
@@ -378,20 +423,22 @@ impl HasUniforms for Textures {
         // Send the textures
         let textures = self.get_sorted_textures();
         let mut num_textures = 0;
-        for (texture_idx, texture) in textures.iter().enumerate() {
-            let texture_uniforms = TextureUniforms::new(
-                texture,
-                texture_idx as i32
-            );
+        for texture in textures.iter() {
+            if texture.is_available() {
+                let texture_uniforms = TextureUniforms::new(
+                    texture,
+                    num_textures as i32
+                );
 
-            shader.attach_uniforms_from(&texture_uniforms);
-            num_textures += 1;
-            // TODO: send more tiles to the ray tracer
-            // As it is now, it only send the 64 min uniq tiles
-            // from the texture buffer i.e. all the 0 and 1 depth tiles
-            // + 4 tiles of depth 2: 12 + 48 + 4 = 64
-            if texture_idx == 63 {
-                break;
+                shader.attach_uniforms_from(&texture_uniforms);
+                num_textures += 1;
+                // TODO: send more tiles to the ray tracer
+                // As it is now, it only send the 64 min uniq tiles
+                // from the texture buffer i.e. all the 0 and 1 depth tiles
+                // + 4 tiles of depth 2: 12 + 48 + 4 = 64
+                if num_textures == 63 {
+                    break;
+                }
             }
         }
         num_textures += 1;

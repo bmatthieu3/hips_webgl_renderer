@@ -319,7 +319,7 @@ impl HiPSSphere {
     }
 
     pub fn update<P: Projection>(&mut self, viewport: &ViewPort, events: &EventManager, shaders: &ShaderManager) {
-        //if self.buffer.ready() {
+        if self.buffer.is_ready() {
             /*if let Some(_) = events.get::<MouseMove>() {
                 console::log_1(&format!("mouse move").into());
             }
@@ -331,6 +331,8 @@ impl HiPSSphere {
             if let Some(_) = events.get::<MouseWheelDown>() {
                 console::log_1(&format!("unzoom").into());
             }*/
+
+            let buffer_has_changed = self.buffer.has_changed();
 
             let aperture: Deg<f32> = viewport
                 .get_aperture()
@@ -347,19 +349,19 @@ impl HiPSSphere {
             let last_user_action = viewport.get_last_action();
             match last_user_action {
                 LastAction::Unzooming => {
-                    if /*self.buffer.tile_texture_remaining_processes() ||*/ new_cells_in_fov {
+                    if buffer_has_changed || new_cells_in_fov {
                         let tile_textures = MouseWheelDown::update_texture_buffer::<P>(&mut self.buffer, viewport);
                         self.raster.update_vertex_array_object::<P, MouseWheelDown>(&tile_textures);
                     }
                 },
                 LastAction::Zooming => {
-                    if /*self.buffer.tile_texture_remaining_processes() ||*/ new_cells_in_fov {
+                     if buffer_has_changed || new_cells_in_fov {
                         let tile_textures = MouseWheelUp::update_texture_buffer::<P>(&mut self.buffer, viewport);
                         self.raster.update_vertex_array_object::<P, MouseWheelUp>(&tile_textures);
                     }
                 },
                 LastAction::Moving => {
-                    if /*self.buffer.tile_texture_remaining_processes() ||*/ new_cells_in_fov {
+                    if buffer_has_changed || new_cells_in_fov {
                         let tile_textures = MouseMove::update_texture_buffer::<P>(&mut self.buffer, viewport);
                         self.raster.update_vertex_array_object::<P, MouseMove>(&tile_textures);
                     }
@@ -367,7 +369,7 @@ impl HiPSSphere {
             }
 
             //self.buffer.signals_end_frame();
-        //}
+        }
         /*// if self.buffer.is_ready() {
         if self.buffer.tile_texture_remaining_processes() && self.buffer.is_ready() {
             let aperture: Deg<f32> = viewport

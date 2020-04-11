@@ -47,6 +47,12 @@ pub struct Texture {
 
     // Full flag telling the texture has been filled
     full: bool,
+
+    // Num tiles written for the gpu
+    num_tiles_written: usize,
+    // Flag telling whether the texture is available
+    // for drawing
+    is_available: bool,
 }
 
 use crate::buffer::TileConfig;
@@ -67,6 +73,8 @@ impl Texture {
         let full = false;
         let texture_cell = *texture_cell;
         let uniq = texture_cell.uniq();
+        let is_available = false;
+        let num_tiles_written = 0;
         Texture {
             texture_cell,
             uniq,
@@ -74,7 +82,9 @@ impl Texture {
             tiles,
             idx,
             start_time,
-            full
+            full,
+            is_available,
+            num_tiles_written,
         }
     }
 
@@ -98,8 +108,6 @@ impl Texture {
     // Return true if the tile is newly added
     pub fn append(&mut self,
         cell: &HEALPixCell,
-        image: Rc<Image>,
-        textures_array: Rc<Texture2DArray>,
         config: &TileConfig
     ) {
         let texture_cell = cell.get_texture_cell(config);
@@ -113,11 +121,6 @@ impl Texture {
         // lead to new requests
         assert!(new_tile);
 
-        // Copy the tile image into the texture array
-        if cell.is_root() {
-            self.write_to_textures_array(cell, image, textures_array, config);
-        }
-
         if self.tiles.len() == config.num_tiles_per_texture() {
             // The texture is full, we set its start time
             self.full = true;
@@ -125,49 +128,19 @@ impl Texture {
         }
     }
 
-    // It must be ensured that cell is in the texture
-    fn write_to_textures_array(&self,
-        cell: &HEALPixCell,
-        image: Rc<Image>,
-        textures_array: Rc<Texture2DArray>,
-        config: &TileConfig
-    ) {
-        assert!(self.contains(cell));
+    pub fn register_written_tile(&mut self, cell: &HEALPixCell, config: &TileConfig) {
+        let texture_cell = cell.get_texture_cell(config);
+        assert!(texture_cell == self.texture_cell);
 
-        // Index of the texture in the total set of textures
-        let texture_idx = self.idx;
-        // Index of the slice of textures
-        let idx_slice = texture_idx / NUM_TEXTURES_BY_SLICE;
-        // Index of the texture in its slice
-        let idx_in_slice = texture_idx % NUM_TEXTURES_BY_SLICE;
+        let num_tiles_per_texture = config.num_tiles_per_texture();
+        self.num_tiles_written += 1;
 
-        // Index of the column of the texture in its slice
-        let idx_col_in_slice = idx_in_slice / NUM_TEXTURES_BY_SIDE_SLICE;
-        // Index of the row of the texture in its slice
-        let idx_row_in_slice = idx_in_slice % NUM_TEXTURES_BY_SIDE_SLICE;
-
-        // Row and column indexes of the tile in its texture
-        let (idx_col_in_tex, idx_row_in_tex) = cell.get_offset_in_texture_cell(config);
-
-        // The size of the global texture containing the tiles
-        let texture_size = config.get_texture_size();
-        // The size of a tile in its texture
-        let tile_size = config.get_tile_size();
-
-        // Offset in the slice in pixels
-        let offset = Vector3::new(
-            (idx_row_in_slice as i32) * texture_size + (idx_row_in_tex as i32) * tile_size,
-            (idx_col_in_slice as i32) * texture_size + (idx_col_in_tex as i32) * tile_size,
-            idx_slice
-        );
-        let size = Vector2::new(
-            tile_size,
-            tile_size,
-        );
-
-        image.write(&offset, &size, &textures_array);
+        // The texture is available to be drawn if all its
+        // sub tiles have been written to the texture array
+        if self.num_tiles_written == num_tiles_per_texture {
+            self.is_available = true;
+        }
     }
-
 
     pub fn contains(&self, cell: &HEALPixCell) -> bool {
         self.tiles.contains(cell)
@@ -175,6 +148,10 @@ impl Texture {
 
     fn is_full(&self) -> bool {
         self.full
+    }
+
+    pub fn is_available(&self) -> bool {
+        self.is_available
     }
 
     // Getter
@@ -206,8 +183,6 @@ impl Texture {
         self.time_request = time_request;
     }
 
-
-
     pub fn clear(&mut self, texture_cell: &HEALPixCell, time_request: f32) {
         self.texture_cell = *texture_cell;
         self.uniq = texture_cell.uniq();
@@ -215,6 +190,8 @@ impl Texture {
         self.start_time = None;
         self.time_request = time_request;
         self.tiles.clear();
+        self.is_available = false;
+        self.num_tiles_written = 0;
     }
 }
 

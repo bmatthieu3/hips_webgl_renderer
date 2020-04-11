@@ -139,7 +139,10 @@ pub struct BufferTextures {
     // The config of the current HiPS
     // This is needed whenever a new tile must be
     // requested
-    config: HiPSConfig, 
+    config: HiPSConfig,
+
+    // Flag telling whether the buffer has changed
+    has_changed: Rc<Cell<bool>>,
     // LocalPool
     //pool: LocalPool,
     //futures: Vec<HEALPixTextureWrite>, // A LIFO containing the futures to run
@@ -163,6 +166,7 @@ use crate::buffer::{
  Texture,
 };
 
+use std::cell::Cell;
 use crate::buffer::Image;
 use crate::healpix_cell::HEALPixTiles;
 impl BufferTextures {
@@ -179,6 +183,8 @@ impl BufferTextures {
         //let pool = LocalPool::new();
         //let futures = vec![];
 
+        let has_changed = Rc::new(Cell::new(true));
+
         let config = config.clone();
         let mut buffer = BufferTextures {
             gl,
@@ -189,6 +195,7 @@ impl BufferTextures {
             //textures_needed_per_frame,
 
             config,
+            has_changed,
 
             //pool,
             //futures,
@@ -249,6 +256,22 @@ impl BufferTextures {
             .collect();
 
         self.request_textures(&root_textures);
+    }
+
+    // The textures has changed if:
+    // * New tiles have been received
+    // * Textures have been written to the textures array for the GPU
+    // * New requests have been launched
+    // The flag is reset to false when this method has been called
+    // It must be called only one time per frame
+    pub fn has_changed(&mut self) -> bool {
+        let textures_written = self.textures.borrow_mut().write_textures();
+        //console::log_1(&format!("aaaa: {:?}", textures_written).into());
+
+        let has_changed = self.has_changed.get() | textures_written;
+        self.has_changed.set(false);
+
+        has_changed
     }
 /*
     pub fn signals_new_frame(&mut self) {
@@ -330,6 +353,10 @@ impl BufferTextures {
     pub fn request_textures(&mut self, texture_cells: &HashMap<HEALPixCell, bool>) {
         for (texture_cell, new) in texture_cells.iter() {
             let tiles = texture_cell.get_tile_cells(self.config.tile_config());
+
+            /*if *new {
+                self.has_changed.set(true);
+            }*/
 
             let HEALPixTiles(depth, indexes) = tiles;
             for idx in indexes {
@@ -447,8 +474,26 @@ impl BufferTextures {
         !self.futures.is_empty()
     }*/
 
+    // Tell if a texture is available meaning all its sub tiles
+    // must have been written for the GPU
     pub fn contains(&self, texture_cell: &HEALPixCell) -> bool {
-        self.textures.borrow().contains_texture(texture_cell)
+        if let Some(texture) = self.textures.borrow().get(texture_cell) {
+            // The texture is in the buffer i.e. there is at least one
+            // sub tile received
+
+            // It is possible that it is not available. Available means
+            // all its sub tiles have been received and written to the
+            // textures array!
+            texture.is_available()
+        } else {
+            // The texture is not contained in the buffer i.e.
+            // even not one sub tile that has been received
+            false
+        }
+    }
+
+    pub fn is_ready(&self) -> bool {
+        self.textures.borrow().is_ready()
     }
 }
 
