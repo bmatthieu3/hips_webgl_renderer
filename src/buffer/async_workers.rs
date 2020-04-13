@@ -1,7 +1,9 @@
 use cgmath::{Vector3, Vector2};
 
+#[derive(Clone)]
 struct WriteTexture {
-    cell: HEALPixCell, // The tile cell that has been written
+    tile: HEALPixCell, // The tile cell that has been written
+    texture: HEALPixCell, // the texture cell that contains tile
     offset: Vector3<i32>,
     size: Vector2<i32>,
     image: Rc<Image>,
@@ -55,9 +57,11 @@ impl WriteTexture {
             tile_size,
         );
 
-        let cell = *cell;
+        let tile = *cell;
+        let texture = *texture.cell();
         WriteTexture {
-            cell,
+            tile,
+            texture,
             offset,
             size,
             image,
@@ -135,17 +139,14 @@ impl Worker {
         let start_time = utils::get_current_time();
         // Define a maximum time duration in which tasks are polled
         let duration = 10_f32; // in milliseconds
-        let mut task_finished = false;
 
         let mut tiles_written = HashSet::new();
 
         while !self.tasks_finished() && (utils::get_current_time() - start_time) < duration {
             let task = self.tasks.pop().unwrap();
-            tiles_written.insert(task.cell);
+            tiles_written.insert(task.tile);
 
             block_on(task);
-
-            task_finished = true;
         }
 
         //console::log_1(&format!("num textures: {:?}", num_textures_written).into());
@@ -153,10 +154,20 @@ impl Worker {
         tiles_written
     }
 
-    /*pub fn is_ready(&self) -> bool {
-        console::log_1(&format!("root textures written {:?}", self.num_root_textures_written).into());
-        self.num_root_textures_written == 12
-    }*/
+    // This method is called when a texture is cleared but
+    // some tasks involving tiles in it are still in the queue
+    // to be processed.
+    //
+    // This ensures these remaining tasks are removed from the worker
+    // and will not be processed anymore.
+    pub fn clear_texture_tasks(&mut self, texture_cell: &HEALPixCell) {
+        self.tasks = self.tasks.clone()
+            .into_iter()
+            .filter(|task| {
+                task.texture != *texture_cell
+            })
+            .collect();
+    }
 
     pub fn clear(&mut self) {
         //self.num_root_textures_written = 0;

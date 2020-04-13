@@ -133,7 +133,9 @@ use crate::buffer::Worker;
 // Fixed sized binary heap
 pub struct Textures {
     heap: BinaryHeap<TextureNode>,
+
     pub root_textures: Vec<TextureNode>,
+    num_root_textures_available: usize,
 
     size: usize,
 
@@ -174,6 +176,7 @@ impl Textures {
 
         // The root textures have not been loaded
         let ready = false;
+        let num_root_textures_available = 0;
         let config = *config;
 
         let worker = Worker::new(texture_2d_array.clone());
@@ -183,6 +186,7 @@ impl Textures {
             root_textures,
 
             size,
+            num_root_textures_available,
 
             textures,
             texture_2d_array,
@@ -214,13 +218,6 @@ impl Textures {
                 // Push it to the buffer
                 self.root_textures.push(texture_node);
 
-                // If all the base textures have all been loaded
-                if self.root_textures.len() == 12 {
-                    // Then the buffer is ready
-                    // to be queried
-                    self.ready = true;
-                }
-
                 texture
             } else {
                 // The texture is not among the essential ones
@@ -235,7 +232,7 @@ impl Textures {
                     // Remove it from the textures HashMap
                     if let Some(mut texture) = self.textures.remove(&texture_node.cell) {
                         // Clear the texture to assign it to texture_cell
-                        texture.clear(&texture_cell, time_request);
+                        texture.clear(&texture_cell, time_request, &mut self.worker);
 
                         texture
                     } else {
@@ -282,6 +279,17 @@ impl Textures {
                     image,
                     &self.config
                 );
+                texture.register_written_tile(cell, &self.config);
+                if texture.is_available() && texture.is_full() {
+                    self.num_root_textures_available += 1;
+
+                    assert!(self.num_root_textures_available <= 12);
+                    console::log_1(&format!("aass {:?}", self.num_root_textures_available).into());
+
+                    if self.num_root_textures_available == 12 {
+                        self.ready = true;
+                    }
+                }
             } else {
                 // Append new async task responsible for writing
                 // the image into the texture 2d array for the GPU
@@ -398,6 +406,7 @@ impl Textures {
             .clear();
 
         self.ready = false;
+        self.num_root_textures_available = 0;
 
         self.config = *config;
     }

@@ -309,6 +309,8 @@ impl HiPSSphere {
     }
 
     pub fn request_tiles(&mut self, viewport: &ViewPort) {
+        console::log_1(&format!("request tiles").into());
+
         let field_of_view = viewport.field_of_view();
         
         let depth = field_of_view.current_depth();
@@ -320,6 +322,8 @@ impl HiPSSphere {
 
     pub fn update<P: Projection>(&mut self, viewport: &ViewPort, events: &EventManager, shaders: &ShaderManager) {
         if self.buffer.is_ready() {
+            let buffer_has_changed = self.buffer.has_changed();
+
             /*if let Some(_) = events.get::<MouseMove>() {
                 console::log_1(&format!("mouse move").into());
             }
@@ -332,7 +336,6 @@ impl HiPSSphere {
                 console::log_1(&format!("unzoom").into());
             }*/
 
-            let buffer_has_changed = self.buffer.has_changed();
 
             let aperture: Deg<f32> = viewport
                 .get_aperture()
@@ -344,24 +347,24 @@ impl HiPSSphere {
 
             //self.buffer.poll_textures();
 
-            let new_cells_in_fov = viewport.field_of_view().is_new_cells();
+            //let new_cells_in_fov = viewport.field_of_view().is_new_cells();
 
             let last_user_action = viewport.get_last_action();
             match last_user_action {
                 LastAction::Unzooming => {
-                    if buffer_has_changed || new_cells_in_fov {
+                    if buffer_has_changed {
                         let tile_textures = MouseWheelDown::update_texture_buffer::<P>(&mut self.buffer, viewport);
                         self.raster.update_vertex_array_object::<P, MouseWheelDown>(&tile_textures);
                     }
                 },
                 LastAction::Zooming => {
-                     if buffer_has_changed || new_cells_in_fov {
+                    if buffer_has_changed {
                         let tile_textures = MouseWheelUp::update_texture_buffer::<P>(&mut self.buffer, viewport);
                         self.raster.update_vertex_array_object::<P, MouseWheelUp>(&tile_textures);
                     }
                 },
                 LastAction::Moving => {
-                    if buffer_has_changed || new_cells_in_fov {
+                    if buffer_has_changed {
                         let tile_textures = MouseMove::update_texture_buffer::<P>(&mut self.buffer, viewport);
                         self.raster.update_vertex_array_object::<P, MouseMove>(&tile_textures);
                     }

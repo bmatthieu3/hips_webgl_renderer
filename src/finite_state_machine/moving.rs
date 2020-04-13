@@ -371,7 +371,7 @@ impl FiniteStateMachine for UserMoveSphere {
 }
 
 impl UserMoveSphere {
-        fn update<P: Projection>(&mut self,
+    fn update<P: Projection>(&mut self,
         // Time of the previous frame
         dt: f32,
         // Renderables

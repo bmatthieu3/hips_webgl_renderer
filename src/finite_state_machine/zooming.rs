@@ -377,6 +377,8 @@ impl Transition for T<Unzooming, Stalling> {
         events: &EventManager
     ) -> Option<Self::E> {
         if (s.z - s.zf).0.abs() < 1e-4 {
+            //viewport.unzoom::<P>(s.zf, sphere, catalog, grid);
+
             console::log_1(&format!("Welcome state Stalling").into());
             Some(Stalling {})
         } else {

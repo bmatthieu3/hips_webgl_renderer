@@ -3,8 +3,8 @@ use cgmath::{Vector2, Vector3, Vector4};
 use cgmath::Matrix4;
 use cgmath::SquareMatrix;
 
-const NUM_VERTICES_WIDTH: usize = 3;
-const NUM_VERTICES_HEIGHT: usize = 3;
+const NUM_VERTICES_WIDTH: usize = 5;
+const NUM_VERTICES_HEIGHT: usize = 5;
 const NUM_VERTICES: usize = 4 + 2*NUM_VERTICES_WIDTH + 2*NUM_VERTICES_HEIGHT;
 
 use std::collections::HashSet;
@@ -304,10 +304,12 @@ impl FieldOfView {
         }
     }
 
-    fn polygon_coverage<P: Projection>(&self, depth: u8, vertices: &[Vector4<f32>; 16]) -> HashSet<HEALPixCell> {
+    fn polygon_coverage<P: Projection>(&self, depth: u8, vertices: &[Vector4<f32>; NUM_VERTICES]) -> HashSet<HEALPixCell> {
         /*if depth <= 1 {
             return crate::healpix_cell::allsky(depth);
         }*/
+        //console::log_1(&format!("compute polygon {:?}", self.aperture_angle.0).into());
+
         let lon_lat_vertices = vertices.iter()
             .map(|vertex| {
                 let (ra, dec) = math::xyzw_to_radec(*vertex);

@@ -27,93 +27,6 @@ use core::pin::Pin;
 
 
 use std::sync::{Arc, Mutex};
-/*
-struct HEALPixTextureWrite {
-    buf: Arc<Mutex<HEALPixTexture>>,
-    tiles: Arc<Mutex<BinaryHeapTiles>>,
-
-    cell: HEALPixCell,
-    ancestor: HEALPixCell,
-}
-
-impl Future for HEALPixTextureWrite {
-    type Output = ();
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        let cell = self.cell;
-        let ancestor = self.ancestor;
-
-        // We ensure the cell is still contained in the cpu buffer
-        // e.g. has not been removed from it
-        let tiles = self.tiles.lock().unwrap();
-        if tiles.contains(&cell) {
-            let mut buffer = self.buf.lock().unwrap();
-            let start_time = utils::get_current_time();
-
-            let new_tile = if cell.depth() == 0 {
-                // 0 depth tiles are put at the indexes 0 -> 11
-                Tile::new(&cell, ancestor.idx() as i32, start_time)
-            } else {
-                // 1 -> 29 depth tiles are put at indexes 12 -> NUM_TILES
-                let num_tiles_per_texture_side = 1 << buffer.config.delta_depth;
-                let num_tiles_per_texture = num_tiles_per_texture_side * num_tiles_per_texture_side;
-                let num_tiles = NUM_TEXTURES * num_tiles_per_texture;
-
-                let tile = if buffer.cells.len() == num_tiles {
-                    let lost_cell = buffer.cells.pop_front().unwrap();
-                    buffer.task_launched.remove(&lost_cell);
-
-                    let mut lost_tile = buffer.tile_textures.remove(&lost_cell).unwrap();
-                    lost_tile.start_time = start_time;
-                    //lost_tile.cell = ancestor;
-
-                    lost_tile
-                } else {
-                    Tile::new(&cell, buffer.cells.len() as i32 + 12, start_time)
-                };
-                
-                // We need to avoid having doublon ancestors here
-                // If the delta_depth is 0, (i.e. there is one tile per texture)
-                // Then the ancestor will be unique so we do nothing
-                if buffer.config.delta_depth > 0 {
-                    // Otherwise, several cells can have the same ancestor
-
-                    // Seek the position of the cell in the vecqueue
-                    let idx_ancestor = buffer.cells.iter().position(|c| *c == ancestor).unwrap();
-                    // Remove it
-                    buffer.cells.remove(idx_ancestor);
-                }
-                // Push the ancestor to the queue
-                buffer.cells.push_back(ancestor);
-
-                tile
-            };
-
-            // The tile is contained in the cpu buffer so we can get it
-            let texture = tiles.get(&cell).unwrap().texture();
-            let idx = new_tile.idx;
-            let (off_x, off_y) = cell.offset_in_parent(&ancestor);
-
-            buffer.tex_sub_image_2d(
-                texture, // The texture data
-                idx, // The idx of the ancestor tile
-
-                off_y, // X off of the tile in ancestor 
-                off_x, // Y off of the tile in ancestor
-            );
-
-            buffer.tile_textures.insert(ancestor, new_tile);
-        } else {
-            let mut buffer = self.buf.lock().unwrap();
-            buffer.task_launched.remove(&ancestor);
-        }
-
-        // If it has been removed, we exit the future without doing
-        // anything
-        Poll::Ready(())
-    }
-}
-*/
 
 use crate::buffer::{
  Textures,
@@ -142,23 +55,13 @@ pub struct BufferTextures {
     config: HiPSConfig,
 
     // Flag telling whether the buffer has changed
-    has_changed: Rc<Cell<bool>>,
+    has_changed: bool,
     // LocalPool
     //pool: LocalPool,
     //futures: Vec<HEALPixTextureWrite>, // A LIFO containing the futures to run
 }
 
 use crate::utils;
-
-macro_rules! console_error {
-    ( $( $t:tt )* ) => {
-        web_sys::console::error(
-            &js_sys::Array::from(
-                &format!( $( $t )* ).into()
-            )
-        );
-    }
-}
 
 use crate::buffer::{
  TileConfig,
@@ -178,12 +81,8 @@ impl BufferTextures {
         let textures = Rc::new(RefCell::new(Textures::new(gl, tile_config)));
 
         let gl = gl.clone();
-        //let textures_needed_per_frame = HashSet::with_capacity(NUM_TEXTURES);
 
-        //let pool = LocalPool::new();
-        //let futures = vec![];
-
-        let has_changed = Rc::new(Cell::new(true));
+        let has_changed = false;
 
         let config = config.clone();
         let mut buffer = BufferTextures {
@@ -192,33 +91,12 @@ impl BufferTextures {
             textures,
             requested_tiles,
 
-            //textures_needed_per_frame,
 
             config,
             has_changed,
-
-            //pool,
-            //futures,
         };
 
-        let root_textures = [
-                (HEALPixCell(0, 0), true),
-                (HEALPixCell(0, 1), true),
-                (HEALPixCell(0, 2), true),
-                (HEALPixCell(0, 3), true),
-                (HEALPixCell(0, 4), true),
-                (HEALPixCell(0, 5), true),
-                (HEALPixCell(0, 6), true),
-                (HEALPixCell(0, 7), true),
-                (HEALPixCell(0, 8), true),
-                (HEALPixCell(0, 9), true),
-                (HEALPixCell(0, 10), true),
-                (HEALPixCell(0, 11), true),
-            ].iter()
-            .cloned()
-            .collect();
-
-        buffer.request_textures(&root_textures);
+        buffer.initialize();
 
         buffer
     }
@@ -238,24 +116,7 @@ impl BufferTextures {
         self.requested_tiles.borrow_mut()
             .clear();
 
-        let root_textures = [
-                (HEALPixCell(0, 0), true),
-                (HEALPixCell(0, 1), true),
-                (HEALPixCell(0, 2), true),
-                (HEALPixCell(0, 3), true),
-                (HEALPixCell(0, 4), true),
-                (HEALPixCell(0, 5), true),
-                (HEALPixCell(0, 6), true),
-                (HEALPixCell(0, 7), true),
-                (HEALPixCell(0, 8), true),
-                (HEALPixCell(0, 9), true),
-                (HEALPixCell(0, 10), true),
-                (HEALPixCell(0, 11), true),
-            ].iter()
-            .cloned()
-            .collect();
-
-        self.request_textures(&root_textures);
+        self.initialize();
     }
 
     // The textures has changed if:
@@ -265,66 +126,19 @@ impl BufferTextures {
     // The flag is reset to false when this method has been called
     // It must be called only one time per frame
     pub fn has_changed(&mut self) -> bool {
-        let textures_written = self.textures.borrow_mut().write_textures();
-        //console::log_1(&format!("aaaa: {:?}", textures_written).into());
+        let textures_written = if let Ok(mut textures) = self.textures.try_borrow_mut() {
+            //console::log_1(&format!("aaaa: {:?}", textures_written).into());
 
-        let has_changed = self.has_changed.get() | textures_written;
-        self.has_changed.set(false);
+            textures.write_textures()
+        } else {
+            false
+        };
+
+        let has_changed = self.has_changed | textures_written;
+        self.has_changed = false;
 
         has_changed
     }
-/*
-    pub fn signals_new_frame(&mut self) {
-        self.tiles_needed_per_frame.clear();
-    }
-    pub fn signals_end_frame(&mut self) {
-        // Ensure the current frame does not need more than
-        // 64 different tiles. Otherwise it will exceed the texture
-        // size capacity!
-        let num_tiles_needed = self.tiles_needed_per_frame.len();
-        if num_tiles_needed > NUM_TILES {
-            console_error!(
-                "The number of tiles needed to be plot ({:?}) exceeds the GPU texture buffer size ({:?})",
-                num_tiles_needed, NUM_TILES
-            );
-        }
-    }
-*/
-    /*// This method must be called between ``signals_new_frame`` and ``signals_end_frame``
-    // It counts the number of tiles needed by the current frame by added successively the cells
-    // in a HashSet. The number of tiles needed cannot exceed the maximum number of tiles
-    // that can be sent to the GPU (e.g. NUM_TILES)
-    pub fn get_cell_in_texture(&self, cell: &HEALPixCell) -> Tile {
-        /*let delta_depth = self.hpx_texture.lock().unwrap()
-            // Access to the tile config
-            .config
-            .delta_depth;
-        let ancestor = cell.ancestor(delta_depth);
-        self.tiles_needed_per_frame.insert(ancestor);
-
-        let mut spawn_future = false;
-        let tile = self.hpx_texture.lock().unwrap().insert(*cell, &mut spawn_future);
-
-        if spawn_future {
-            // Launch the async call to copy the cell to the GPU texture
-            // This is done only if the tile texture is not already in the GPU texture
-            let future = HEALPixTextureWrite {
-                buf: self.hpx_texture.clone(),
-                tiles: self.heap.clone(),
-                cell: *cell,
-                ancestor: ancestor,
-            };
-            self.futures.push(future);
-        }
-
-        tile*/
-
-        // The cell is contained in the buffer
-        // its image has been written to the buffer
-        self.texture_buf.lock().unwrap()
-            .get_tile(cell)
-            .unwrap()
-    }*/
 
     // cell is contained into the buffer
     pub fn get_texture(&self, cell: &HEALPixCell) -> Texture {
@@ -350,18 +164,52 @@ impl BufferTextures {
         }
     }
 
-    pub fn request_textures(&mut self, texture_cells: &HashMap<HEALPixCell, bool>) {
-        for (texture_cell, new) in texture_cells.iter() {
-            let tiles = texture_cell.get_tile_cells(self.config.tile_config());
+    fn initialize(&mut self) {
+        let root_textures = [
+            (HEALPixCell(0, 0), true),
+            (HEALPixCell(0, 1), true),
+            (HEALPixCell(0, 2), true),
+            (HEALPixCell(0, 3), true),
+            (HEALPixCell(0, 4), true),
+            (HEALPixCell(0, 5), true),
+            (HEALPixCell(0, 6), true),
+            (HEALPixCell(0, 7), true),
+            (HEALPixCell(0, 8), true),
+            (HEALPixCell(0, 9), true),
+            (HEALPixCell(0, 10), true),
+            (HEALPixCell(0, 11), true),
+        ];
 
-            /*if *new {
-                self.has_changed.set(true);
-            }*/
+        for (root_texture, new) in root_textures.iter() {
+            let root_tiles = root_texture.get_tile_cells(self.config.tile_config());
 
-            let HEALPixTiles(depth, indexes) = tiles;
+            let HEALPixTiles(depth, indexes) = root_tiles;
             for idx in indexes {
                 let cell = HEALPixCell(depth, idx);
                 self.load_tile(&cell, *new);
+            }
+        }
+    }
+
+    // This is called whenever the user:
+    // * zoom
+    // * unzoom
+    // * moves
+    pub fn request_textures(&mut self, texture_cells: &HashMap<HEALPixCell, bool>) {
+        // Until the buffer is ready, we do not send texture requests
+        if self.is_ready() {
+            // We set the changed flag to true
+            // This will cause the VAO vertices to be recomputed
+            self.has_changed = true;
+
+            for (texture_cell, new) in texture_cells.iter() {
+                let tiles = texture_cell.get_tile_cells(self.config.tile_config());
+
+                let HEALPixTiles(depth, indexes) = tiles;
+                for idx in indexes {
+                    let cell = HEALPixCell(depth, idx);
+                    self.load_tile(&cell, *new);
+                }
             }
         }
     }

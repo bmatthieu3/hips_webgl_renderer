@@ -65,6 +65,7 @@ use crate::buffer::{
 use crate::buffer::Image;
 use cgmath::{Vector3, Vector2};
 use std::rc::Rc;
+use crate::buffer::Worker;
 impl Texture {
     pub fn new(config: &TileConfig, texture_cell: &HEALPixCell, idx: i32, time_request: f32) -> Texture {
         let tiles = HashSet::with_capacity(config.num_tiles_per_texture());
@@ -146,7 +147,7 @@ impl Texture {
         self.tiles.contains(cell)
     }
 
-    fn is_full(&self) -> bool {
+    pub fn is_full(&self) -> bool {
         self.full
     }
 
@@ -183,7 +184,10 @@ impl Texture {
         self.time_request = time_request;
     }
 
-    pub fn clear(&mut self, texture_cell: &HEALPixCell, time_request: f32) {
+    pub fn clear(&mut self, texture_cell: &HEALPixCell, time_request: f32, worker: &mut Worker) {
+        // Cancel the tasks that have still not been processed
+        worker.clear_texture_tasks(&self.texture_cell);
+        
         self.texture_cell = *texture_cell;
         self.uniq = texture_cell.uniq();
         self.full = false;
