@@ -385,6 +385,10 @@ window.addEventListener('load', function () {
                 canvas.addEventListener("mousemove", (evt) => {
                     webClient.move_mouse(evt.clientX, evt.clientY);
                 });
+                canvas.addEventListener('dblclick', (evt) => {
+                    console.log("mouse click double");
+                    webClient.double_mouse_button_pressed(evt.clientX, evt.clientY);
+                });
             })();
             // Wheel events
             (() => {

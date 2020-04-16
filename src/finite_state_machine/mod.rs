@@ -78,3 +78,5 @@ mod moving;
 pub use moving::UserMoveSphere;
 mod zooming;
 pub use zooming::UserZoom;
+mod location;
+pub use location::MoveSphere;

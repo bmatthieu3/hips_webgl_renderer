@@ -72,7 +72,7 @@ extern crate aladinlite_derive;
 
 use cgmath::Quaternion;
 
-use crate::finite_state_machine:: {UserMoveSphere, UserZoom, FiniteStateMachine};
+use crate::finite_state_machine:: {UserMoveSphere, UserZoom, FiniteStateMachine, MoveSphere};
 
 struct App<P>
 where P: Projection {
@@ -93,6 +93,7 @@ where P: Projection {
     // Finite State Machine declarations
     user_move_fsm: UserMoveSphere,
     user_zoom_fsm: UserZoom,
+    move_fsm: MoveSphere,
 
     // Animation rotation
     pub animation_request: bool,
@@ -280,6 +281,7 @@ where P: Projection {
         // Finite State Machines definitions
         let user_move_fsm = UserMoveSphere::init();
         let user_zoom_fsm = UserZoom::init();
+        let move_fsm = MoveSphere::init();
 
         let gl = gl.clone();
         let render = true;
@@ -301,6 +303,7 @@ where P: Projection {
             // Finite state machines,
             user_move_fsm,
             user_zoom_fsm,
+            move_fsm,
 
             animation_request,
             final_pos,
@@ -365,6 +368,7 @@ where P: Projection {
         // Run the Finite State Machines
         self.user_move_fsm.run::<P>(dt, &mut self.sphere, &mut self.catalog, &mut self.grid, &mut self.viewport, &events);
         self.user_zoom_fsm.run::<P>(dt, &mut self.sphere, &mut self.catalog, &mut self.grid, &mut self.viewport, &events);
+        self.move_fsm.run::<P>(dt, &mut self.sphere, &mut self.catalog, &mut self.grid, &mut self.viewport, &events);
 
         // Update the HiPS sphere VAO
         self.sphere.update::<P>(&self.viewport, &events, &self.shaders);
@@ -525,6 +529,7 @@ where P: Projection {
             // Finite State Machines
             user_move_fsm: self.user_move_fsm,
             user_zoom_fsm: self.user_zoom_fsm,
+            move_fsm: self.move_fsm,
 
             animation_request: self.animation_request,
             final_pos: self.final_pos,
@@ -1029,6 +1034,7 @@ use crate::event_manager::{
  EventManager,
  MouseLeftButtonPressed,
  MouseLeftButtonReleased,
+ MouseLeftButtonDoublePressed,
  MouseMove,
  MouseWheelUp,
  MouseWheelDown,
@@ -1231,6 +1237,18 @@ impl WebClient {
     pub fn release_left_mouse_button(&mut self, screen_pos_x: f32, screen_pos_y: f32) -> Result<(), JsValue> {
         // Enable the MouseLeftButtonReleased event
         self.events.enable::<MouseLeftButtonReleased>(
+            Vector2::new(
+                screen_pos_x,
+                screen_pos_y
+            )
+        );
+
+        Ok(())
+    }
+    /// Stop move
+    pub fn double_mouse_button_pressed(&mut self, screen_pos_x: f32, screen_pos_y: f32) -> Result<(), JsValue> {
+        // Enable the MouseLeftButtonReleased event
+        self.events.enable::<MouseLeftButtonDoublePressed>(
             Vector2::new(
                 screen_pos_x,
                 screen_pos_y

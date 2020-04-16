@@ -10,6 +10,7 @@ pub trait Event {
 pub struct MouseLeftButtonPressed;
 pub struct MouseLeftButtonReleased;
 pub struct MouseMove;
+pub struct MouseLeftButtonDoublePressed;
 
 pub const NUM_WHEEL_PER_DEPTH: usize = 2;
 pub struct MouseWheelUp;
@@ -43,6 +44,20 @@ impl Event for MouseLeftButtonReleased {
     fn get(event: &EventType) -> &Self::Data {
         match event {
             EventType::MouseLeftButtonReleased(data) => data,
+            _ => unreachable!()
+        }
+    }
+}
+impl Event for MouseLeftButtonDoublePressed {
+    type Data = Vector2<f32>;
+    const KEY_NAME: &'static str = "MouseLeftButtonDoublePressed";
+    
+    fn to(data: Self::Data) -> EventType {
+        EventType::MouseLeftButtonDoublePressed(data)
+    }
+    fn get(event: &EventType) -> &Self::Data {
+        match event {
+            EventType::MouseLeftButtonDoublePressed(data) => data,
             _ => unreachable!()
         }
     }
@@ -110,6 +125,7 @@ enum EventType {
     MouseLeftButtonPressed(Vector2<f32>),
     MouseLeftButtonReleased(Vector2<f32>),
     MouseMove(Vector2<f32>),
+    MouseLeftButtonDoublePressed(Vector2<f32>),
     MouseWheelUp(Vector2<f32>),
     MouseWheelDown(Vector2<f32>),
     KeyboardPressed(&'static str),
@@ -124,6 +140,7 @@ impl EventManager {
 
         manager.insert_new_event::<MouseLeftButtonPressed>();
         manager.insert_new_event::<MouseLeftButtonReleased>();
+        manager.insert_new_event::<MouseLeftButtonDoublePressed>();
         manager.insert_new_event::<MouseMove>();
         manager.insert_new_event::<MouseWheelUp>();
         manager.insert_new_event::<MouseWheelDown>();
