@@ -77,7 +77,7 @@ impl Event for KeyboardPressed {
 }
 
 impl Event for MouseWheelUp {
-    type Data = ();
+    type Data = Vector2<f32>;
     const KEY_NAME: &'static str = "MouseWheelUp";
     
     fn to(data: Self::Data) -> EventType {
@@ -91,11 +91,11 @@ impl Event for MouseWheelUp {
     }
 }
 impl Event for MouseWheelDown {
-    type Data = ();
+    type Data = Vector2<f32>;
     const KEY_NAME: &'static str = "MouseWheelDown";
     
     fn to(data: Self::Data) -> EventType {
-        EventType::MouseWheelDown(())
+        EventType::MouseWheelDown(data)
     }
     fn get(event: &EventType) -> &Self::Data {
         match event {
@@ -110,8 +110,8 @@ enum EventType {
     MouseLeftButtonPressed(Vector2<f32>),
     MouseLeftButtonReleased(Vector2<f32>),
     MouseMove(Vector2<f32>),
-    MouseWheelUp(()),
-    MouseWheelDown(()),
+    MouseWheelUp(Vector2<f32>),
+    MouseWheelDown(Vector2<f32>),
     KeyboardPressed(&'static str),
 }
 

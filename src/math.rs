@@ -1,42 +1,51 @@
-use cgmath::InnerSpace;
+use cgmath::{InnerSpace, BaseFloat, Angle};
 use cgmath::Rad;
-
-pub fn angular_distance_xyz(v1: cgmath::Vector3<f32>, v2: cgmath::Vector3<f32>) -> Rad<f32> {
-    Rad(v1.cross(v2).magnitude().atan2(v1.dot(v2)))
+use cgmath::{Vector4, Vector3};
+#[inline]
+pub fn ang_between_vect<S: BaseFloat>(x: &Vector3<S>, y: &cgmath::Vector3<S>) -> Rad<S> {
+    Rad(x.cross(*y).magnitude().atan2(x.dot(*y)))
 }
 
-pub fn angular_distance_lonlat(lon1: f32, lat1: f32, lon2: f32, lat2: f32) -> f32 {
-    let abs_diff_lon = (lon1 - lon2).abs();
-    (lat1.sin()*lat2.sin() + lat1.cos()*lat2.cos()*abs_diff_lon.cos()).acos()
-}
-
-pub fn xyz_to_radec(v: cgmath::Vector3<f32>) -> (f32, f32) {
-    (
-        v.x.atan2(v.z),
-        v.y.atan2((v.x*v.x + v.z*v.z).sqrt()),
+#[inline]
+pub fn ang_between_lonlat<S: BaseFloat>(lon1: Rad<S>, lat1: Rad<S>, lon2: Rad<S>, lat2: Rad<S>) -> Rad<S> {
+    let abs_diff_lon = (lon1 - lon2).0.abs();
+    Rad(
+        (lat1.sin()*lat2.sin() + lat1.cos()*lat2.cos()*abs_diff_lon.cos()).acos()
     )
 }
 
-pub fn xyzw_to_radec(v: cgmath::Vector4<f32>) -> (f32, f32) {
-    (
-        v.x.atan2(v.z),
-        v.y.atan2((v.x*v.x + v.z*v.z).sqrt()),
+#[inline]
+pub fn xyz_to_radec<S: BaseFloat>(v: &cgmath::Vector3<S>) -> (Rad<S>, Rad<S>) {
+    let lon = Rad(v.x.atan2(v.z));
+    let lat = Rad(v.y.atan2((v.x*v.x + v.z*v.z).sqrt()));
+
+    (lon, lat)
+}
+
+#[inline]
+pub fn xyzw_to_radec<S: BaseFloat>(v: &cgmath::Vector4<S>) -> (Rad<S>, Rad<S>) {
+    let lon = Rad(v.x.atan2(v.z));
+    let lat = Rad(v.y.atan2((v.x*v.x + v.z*v.z).sqrt()));
+
+    (lon, lat)
+}
+
+#[inline]
+pub fn radec_to_xyzw<S: BaseFloat>(theta: Rad<S>, delta: Rad<S>) -> Vector4<S> {
+    Vector4::<S>::new(
+        delta.cos() * theta.sin(),
+        delta.sin(),
+        delta.cos() * theta.cos(),
+        S::one()
     )
 }
 
-pub fn radec_to_xyzw(theta: cgmath::Rad<f32>, delta: cgmath::Rad<f32>) -> cgmath::Vector4<f32> {
-    cgmath::Vector4::<f32>::new(
-        delta.0.cos() * theta.0.sin(),
-        delta.0.sin(),
-        delta.0.cos() * theta.0.cos(),
-        1_f32
-    )
-}
-pub fn radec_to_xyz(theta: cgmath::Rad<f32>, delta: cgmath::Rad<f32>) -> cgmath::Vector3<f32> {
-    cgmath::Vector3::<f32>::new(
-        delta.0.cos() * theta.0.sin(),
-        delta.0.sin(),
-        delta.0.cos() * theta.0.cos(),
+#[inline]
+pub fn radec_to_xyz<S: BaseFloat>(theta: Rad<S>, delta: Rad<S>) -> Vector3<S> {
+    Vector3::<S>::new(
+        delta.cos() * theta.sin(),
+        delta.sin(),
+        delta.cos() * theta.cos(),
     )
 }
 

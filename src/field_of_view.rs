@@ -186,7 +186,7 @@ impl FieldOfView {
         let v0 = math::radec_to_xyzw(Rad(lon), Rad(0_f32));
 
         // Project this vertex into the screen
-        let p0 = P::world_to_clip_space(v0);
+        let p0 = P::model_to_clip_space(&v0);
         p0.x.abs()
     }
 
@@ -229,7 +229,7 @@ impl FieldOfView {
                 pos_ndc_space.y * self.ndc_to_clip.y * self.clip_zoom_factor,
             );
 
-            let pos_world_space = P::clip_to_world_space(pos_clip_space);
+            let pos_world_space = P::clip_to_model_space(&pos_clip_space);
             if let Some(pos_world_space) = pos_world_space {
                 vertices_world_space[idx_vertex] = pos_world_space;
             } else {
@@ -312,8 +312,8 @@ impl FieldOfView {
 
         let lon_lat_vertices = vertices.iter()
             .map(|vertex| {
-                let (ra, dec) = math::xyzw_to_radec(*vertex);
-                (ra as f64, dec as f64)
+                let (lon, lat) = math::xyzw_to_radec(vertex);
+                (lon.0 as f64, lat.0 as f64)
             })
             .collect::<Vec<_>>();
 
@@ -325,9 +325,10 @@ impl FieldOfView {
             .collect();
 
         // Get the position of the center of the field of view
-        let center_world_space: Vector3<f32> = (self.r * P::clip_to_world_space(Vector2::new(0_f32, 0_f32)).unwrap()).truncate();
-        let (center_ra, center_dec) = math::xyz_to_radec(center_world_space);
-        let hash_center_fov = healpix::nested::hash(depth, center_ra as f64, center_dec as f64);
+        let center_model_space = P::clip_to_model_space(&Vector2::new(0_f32, 0_f32)).unwrap();
+        let center_world_space = self.r * center_model_space;
+        let (center_ra, center_dec) = math::xyzw_to_radec(&center_world_space);
+        let hash_center_fov = healpix::nested::hash(depth, center_ra.0 as f64, center_dec.0 as f64);
         let cell_center_fov = HEALPixCell(depth, hash_center_fov);
 
         if !cells.contains(&cell_center_fov) {

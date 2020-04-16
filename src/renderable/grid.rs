@@ -275,7 +275,7 @@ impl ProjetedGrid {
         self.pos_clip_space.clear();
         // UPDATE GRID VERTICES POSITIONS
         for pos_local_space in self.pos_local_space.iter() {
-            let pos_clip_space = P::world_to_clip_space(local_to_world_mat * pos_local_space);
+            let pos_clip_space = P::model_to_clip_space(&(local_to_world_mat * pos_local_space));
 
             self.pos_clip_space.push(pos_clip_space.x);
             self.pos_clip_space.push(pos_clip_space.y);
@@ -349,7 +349,7 @@ impl ProjetedGrid {
         for (label_text, pos_local_space) in self.label_text.iter().zip(self.label_pos_local_space.iter()) {
             let offset_pos_screen = self.text_canvas.measure_text(label_text).unwrap().width() as f32;
 
-            let mut pos_screen_space = P::world_to_screen_space(local_to_world_mat * pos_local_space, viewport);            
+            let mut pos_screen_space = P::model_to_screen_space(&(local_to_world_mat * pos_local_space), viewport);
             //pos_screen_space += cgmath::Vector2::new(pos_screen_space.x - offset_pos_screen / 2_f32, pos_screen_space.y + self.font_size / 2_f32);
 
             self.label_pos_screen_space.push(pos_screen_space);

@@ -30,6 +30,11 @@ pub struct ViewPort {
     // HiPS current config
     config: HiPSConfig,
 
+    mat_x: cgmath::Matrix4::<f32>,
+    mat_y: cgmath::Matrix4::<f32>,
+
+
+    sr: SphericalRotation<f32>,
     model_mat: cgmath::Matrix4::<f32>,
     inverted_model_mat: cgmath::Matrix4<f32>,
 }
@@ -53,6 +58,9 @@ use crate::buffer::HiPSConfig;
 use cgmath::{Matrix3, Matrix4, Vector4};
 use cgmath::SquareMatrix;
 
+use crate::rotation::SphericalRotation;
+
+use cgmath::Quaternion;
 use crate::math;
 impl ViewPort {
     pub fn new<P: Projection>(gl: &WebGl2Context, config: &HiPSConfig) -> ViewPort {
@@ -65,7 +73,12 @@ impl ViewPort {
         let fov = FieldOfView::new::<P>(gl, P::aperture_start().into(), config);
 
         let model_mat = Matrix4::identity();
+        let mat_x = Matrix4::identity();
+        let mat_y = Matrix4::identity();
+
         let inverted_model_mat = model_mat;
+
+        let sr = SphericalRotation::zero();
 
         let config = config.clone();
         let viewport = ViewPort {
@@ -79,6 +92,9 @@ impl ViewPort {
             config,
 
             // The model matrix of the Renderable
+            mat_x,
+            mat_y,
+            sr,
             model_mat,
             inverted_model_mat,
         };
@@ -245,9 +261,10 @@ impl ViewPort {
     }
 
     pub fn compute_center_world_pos<P: Projection>(&self) -> Vector4<f32> {
-        let ref model_mat = self.get_model_mat();
-
-        (*model_mat) * P::clip_to_world_space(Vector2::new(0_f32, 0_f32)).unwrap()
+        P::clip_to_world_space(
+            &Vector2::new(0_f32, 0_f32),
+            self
+        ).unwrap()
     }
 
     // Check whether border of the screen are inside
@@ -256,9 +273,9 @@ impl ViewPort {
         // Projection are symmetric, we can check for only one vertex
         // of the screen
         let corner_tl_ndc = Vector2::new(-1_f32, 1_f32);
-        let corner_tl_clip = crate::projection::ndc_to_clip_space(corner_tl_ndc, self);
+        let corner_tl_clip = crate::projection::ndc_to_clip_space(&corner_tl_ndc, self);
 
-        if let Some(_) = P::clip_to_world_space(corner_tl_clip) {
+        if let Some(_) = P::clip_to_model_space(&corner_tl_clip) {
             true
         } else {
             false
@@ -266,20 +283,65 @@ impl ViewPort {
     }
 
     pub fn apply_rotation(&mut self, axis: cgmath::Vector3<f32>, angle: cgmath::Rad<f32>) {
-        self.model_mat = cgmath::Matrix4::<f32>::from_axis_angle(axis, angle) * self.model_mat;
+        let dm = Matrix4::from_axis_angle(axis, angle);
+        let dq: SphericalRotation<f32> = (&dm).into();
+
+        self.sr = dq * self.sr;
+
+        self.compute_model_mat();
+    }
+
+    fn compute_model_mat(&mut self) {
+        //self.model_mat = self.mat_y * self.mat_x;
+        self.model_mat = (&self.sr).into();
         self.inverted_model_mat = self.model_mat.invert().unwrap();
     }
 
-    pub fn apply_quarternion_rotation(&mut self, q: &cgmath::Quaternion<f32>) {
+    /*pub fn apply_rotation_longitude(&mut self, dtheta: Rad<f32>) {
+        let rot_y = Matrix4::from_angle_y(dtheta);
+        self.mat_y = rot_y * self.mat_y;
+
+        self.compute_model_mat();
+    }
+
+    pub fn apply_rotation_latitude(&mut self, ddelta: Rad<f32>) {
+        let rot_x = Matrix4::from_angle_x(-ddelta);
+        self.mat_x = rot_x * self.mat_x;
+
+        self.compute_model_mat();
+    }
+
+    pub fn apply_rotation_lonlat(&mut self, dtheta: Rad<f32>, ddelta: Rad<f32>) {
+        let rot_y = Matrix4::from_angle_y(dtheta);
+        let rot_x = Matrix4::from_angle_x(-ddelta);
+
+        self.mat_y = rot_y * self.mat_y;
+        self.mat_x = rot_x * self.mat_x;
+
+        self.compute_model_mat();
+    }*/
+
+    pub fn set_rotation(&mut self, rot: &SphericalRotation<f32>) {
+        /*self.mat_x = rot.get_rot_x();
+        self.mat_y = rot.get_rot_y();*/
+        self.sr = *rot;
+
+        self.compute_model_mat();
+    }
+
+    /*pub fn apply_quarternion_rotation(&mut self, q: &cgmath::Quaternion<f32>) {
         let drot: Matrix4<f32> = (*q).into();
         
         self.model_mat = drot * self.model_mat;
         self.inverted_model_mat = self.model_mat.invert().unwrap();
-    }
+    }*/
 
-    pub fn set_model_mat(&mut self, model_mat: &cgmath::Matrix4<f32>) {
+    /*pub fn set_model_mat(&mut self, model_mat: &cgmath::Matrix4<f32>) {
         self.model_mat = *model_mat;
         self.inverted_model_mat = self.model_mat.invert().unwrap();
+    }*/
+    pub fn get_rotation(&self) -> &SphericalRotation<f32> {
+        &self.sr
     }
 
     pub fn get_model_mat(&self) -> &cgmath::Matrix4<f32> {

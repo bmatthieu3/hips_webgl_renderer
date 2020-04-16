@@ -2,8 +2,15 @@
 // Some states here
 struct Stalling;
 
-use cgmath::Vector4;
+use crate::rotation::SphericalRotation;
 struct Zooming {
+    // Quaternion describing the position of the center
+    start: SphericalRotation<f32>,
+    // Quaternion describing the position under the mouse when zooming
+    goal: SphericalRotation<f32>,
+    // Alpha coefficient representing the current position between
+    // start and goal
+    alpha: f32,
     // Initial field of view (rad)
     z0: Rad<f32>,
     // Goal field of view (rad)
@@ -13,6 +20,35 @@ struct Zooming {
     // The time when the zooming begins (in ms)
     t0: f32,
 }
+impl Zooming {
+    fn new<P: Projection>(z0: Rad<f32>, zf: Rad<f32>, pos: &Vector2<f32>, viewport: &ViewPort) -> Zooming {
+        console::log_1(&format!("Welcome state Zooming").into());
+        let t0 = utils::get_current_time();
+        let z = z0;
+        let start = *viewport.get_rotation();
+
+        let goal = if let Some(pos_world_space) = P::screen_to_world_space(pos, &viewport) {
+            SphericalRotation::from_sky_position(&pos_world_space)
+        } else {
+            // If the position of the mouse is out of the projection
+            // when zooming, then there will be no displacement of the camera
+            start.clone()
+        };
+
+        let alpha = 0_f32;
+
+        Zooming {
+            start,
+            goal,
+            alpha,
+            z0,
+            zf,
+            z,
+            t0
+        }
+    }
+}
+
 use cgmath::Vector3;
 struct Unzooming {
     // Initial field of view (rad)
@@ -54,35 +90,29 @@ impl State for Stalling {
     ) {}
 }
 
-use cgmath::Rad;
+use cgmath::{Rad, Quaternion};
 // Move the renderables between two world position on the sky
-fn move_renderables<P: Projection>(
+/*fn move_between_two_positions<P: Projection>(
  // Previous world position
- x: &Vector4<f32>,
+ x: &Quaternion<f32>,
  // Current world position
- y: &Vector4<f32>,
+ y: &Quaternion<f32>,
+ // Alpha coefficient between the two position
+ alpha: f32,
  // Renderables
  sphere: &mut HiPSSphere,
  catalog: &mut Catalog,
  grid: &mut ProjetedGrid,
  // Viewport
  viewport: &mut ViewPort,
-) -> (Vector3<f32>, Rad<f32>) {
-    let model_mat = viewport.get_model_mat();
+) {
+    let z = x.slerp(*y, alpha);
 
-    let x = (model_mat * x).truncate();
-    let y = (model_mat * y).truncate();
-
-    let axis = x.cross(y)
-        .normalize();
-    let d = math::angular_distance_xyz(x, y);
-
-    viewport.apply_rotation(-axis, d);
+    viewport.set_model_mat(&z.into());
 
     // Update all the renderables
     viewport.displacement::<P>(sphere, catalog, grid);
-    (axis, d)
-}
+}*/
 
 use crate::event_manager::MouseMove;
 use crate::math;
@@ -92,6 +122,17 @@ impl Zooming {
     #[inline]
     pub fn w0() -> f32 {
         15_f32
+    }
+
+    #[inline]
+    pub fn a0(viewport: &ViewPort) -> f32 {
+        let a0_max = 8_f32;
+        let a0 = a0_max / viewport.get_aperture().0;
+        if a0 > a0_max {
+            a0_max
+        } else {
+            a0
+        }
     }
 }
 
@@ -111,6 +152,7 @@ impl State for Zooming {
     ) {
         // Time elapsed since the beginning of the inertia
         let t = (utils::get_current_time() - self.t0)/1000_f32;
+        
         // Undamped angular frequency of the oscillator
         // From wiki: https://en.wikipedia.org/wiki/Harmonic_oscillator
         //
@@ -126,12 +168,20 @@ impl State for Zooming {
         viewport.zoom::<P>(z, sphere, catalog, grid);
 
         self.z = z;
+
+        let a = 1_f32 + (0_f32 - 1_f32) * (Zooming::a0(viewport) * t + 1_f32) * ((-Zooming::a0(viewport) * t).exp());
+        let p = self.start.slerp(&self.goal, a);
+
+        viewport.set_rotation(&p);
+        viewport.displacement::<P>(sphere, catalog, grid);
+
+        self.alpha = a;
     }
 }
 impl Unzooming {
     #[inline]
     pub fn w0() -> f32 {
-        15_f32
+        8_f32
     }
 }
 
@@ -176,6 +226,21 @@ fn fov<P: Projection>(wheel_idx: i32) -> Rad<f32> {
     fov.into()
 }
 
+/*
+// Define a rotation from a tuple of longitude and latitude
+impl<A, B> From<(A, B)> for SphereRotation
+where A: Into<R>{
+    fn from(p: &Vector3<f32>) -> Self {
+        let (lon, lat) = math::xyz_to_radec(*p);
+        let rot_y = Matrix3::from_angle_y(Rad(lon));
+        let rot_z = Matrix3::from_angle_x(Rad(-lat));
+
+        let m = rot_y * rot_z;
+        (&m).into()
+    }
+}*/
+
+
 use web_sys::console;
 use crate::event_manager::MouseWheelUp;
 // Stalling -> Zooming
@@ -193,22 +258,14 @@ impl Transition for T<Stalling, Zooming> {
         // User events
         events: &EventManager
     ) -> Option<Self::E> {
-        if let Some(_) = events.get::<MouseWheelUp>() {
-            console::log_1(&format!("Welcome state Zooming").into());
-            let t0 = utils::get_current_time();
-
+        if let Some(pos) = events.get::<MouseWheelUp>() {
             let wheel_idx = viewport.get_wheel_idx();
             viewport.up_wheel_idx();
 
             let z0 = fov::<P>(wheel_idx);
             let zf = fov::<P>(wheel_idx + 1);
-            let z = z0;
-            Some(Zooming {
-                t0,
-                z0,
-                zf,
-                z
-            })
+
+            Some(Zooming::new::<P>(z0, zf, pos, viewport))
         } else {
             // No left button pressed, we keep stalling
             None
@@ -230,29 +287,22 @@ impl Transition for T<Zooming, Zooming> {
         // User events
         events: &EventManager
     ) -> Option<Self::E> {
-        if let Some(_) = events.get::<MouseWheelUp>() {
-            console::log_1(&format!("Welcome state Zooming").into());
-            let t0 = utils::get_current_time();
-
+        if let Some(pos) = events.get::<MouseWheelUp>() {
             let wheel_idx = viewport.get_wheel_idx();
             viewport.up_wheel_idx();
 
             let zf = fov::<P>(wheel_idx + 1);
             // Change the final zoom fov zf only
             let z0 = s.z;
-            let z = z0;
-            Some(Zooming {
-                t0,
-                zf,
-                z,
-                z0,
-            })
+            
+            Some(Zooming::new::<P>(z0, zf, pos, viewport))
         } else {
             // No left button pressed, we keep stalling
             None
         }
     }
 }
+use crate::event_manager::MouseLeftButtonPressed;
 // Zooming -> Stalling
 impl Transition for T<Zooming, Stalling> {
     type S = Zooming;
@@ -268,7 +318,11 @@ impl Transition for T<Zooming, Stalling> {
         // User events
         events: &EventManager
     ) -> Option<Self::E> {
-        if (s.z - s.zf).0.abs() < 1e-4 {
+        if let Some(_) = events.get::<MouseLeftButtonPressed>() {
+            return Some(Stalling {});
+        }
+
+        if (s.z - s.zf).0.abs() < 1e-4 && (s.alpha - 1_f32).abs() < 1e-3 {
             console::log_1(&format!("Welcome state Stalling").into());
             Some(Stalling {})
         } else {
@@ -277,6 +331,7 @@ impl Transition for T<Zooming, Stalling> {
     }
 }
 
+use cgmath::Vector2;
 use crate::event_manager::MouseWheelDown;
 // Stalling -> Unzooming
 impl Transition for T<Stalling, Unzooming> {
@@ -445,23 +500,15 @@ impl Transition for T<Unzooming, Zooming> {
         // User events
         events: &EventManager
     ) -> Option<Self::E> {
-        if let Some(_) = events.get::<MouseWheelUp>() {
-            console::log_1(&format!("Welcome state Zooming").into());
-            let t0 = utils::get_current_time();
-
+        if let Some(pos) = events.get::<MouseWheelUp>() {
             let wheel_idx = viewport.get_wheel_idx();
             viewport.up_wheel_idx();
 
             let zf = fov::<P>(wheel_idx + 1);
             // Change the final zoom fov zf only
             let z0 = s.z;
-            let z = z0;
-            Some(Zooming {
-                t0,
-                zf,
-                z,
-                z0,
-            })
+
+            Some(Zooming::new::<P>(z0, zf, pos, viewport))
         } else {
             // No left button pressed, we keep stalling
             None

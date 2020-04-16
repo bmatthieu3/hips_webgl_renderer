@@ -5,7 +5,7 @@ struct Stalling;
 use cgmath::Vector4;
 struct Moving {
     // World position corresponding to the move
-    world_pos: Vector4<f32>,
+    pos_model_space: Vector4<f32>,
     time_move: f32,
 
     angular_dist: Rad<f32>,
@@ -53,11 +53,12 @@ impl State for Stalling {
 }
 
 use cgmath::Rad;
+use crate::rotation::SphericalRotation;
 // Move the renderables between two world position on the sky
-fn move_renderables<P: Projection>(
- // Previous world position
+pub fn move_renderables<P: Projection>(
+ // Previous model position
  x: &Vector4<f32>,
- // Current world position
+ // Current model position
  y: &Vector4<f32>,
  // Renderables
  sphere: &mut HiPSSphere,
@@ -66,14 +67,14 @@ fn move_renderables<P: Projection>(
  // Viewport
  viewport: &mut ViewPort,
 ) -> (Vector3<f32>, Rad<f32>) {
-    let model_mat = viewport.get_model_mat();
-
-    let x = (model_mat * x).truncate();
-    let y = (model_mat * y).truncate();
-
+    //let inv_model_mat = viewport.get_inverted_model_mat();
+    //viewport.set_rotation(&(&y).into());
+    let r = viewport.get_rotation();
+    let x = r.rotate(x).truncate();
+    let y = r.rotate(y).truncate();
     let axis = x.cross(y)
         .normalize();
-    let d = math::angular_distance_xyz(x, y);
+    let d = math::ang_between_vect(&x, &y);
 
     viewport.apply_rotation(-axis, d);
 
@@ -98,22 +99,22 @@ impl State for Moving {
         // User events
         events: &EventManager
     ) {
-        if let Some(screen_pos) = events.get::<MouseMove>() {
-            if let Some(world_pos) = P::screen_to_world_space(*screen_pos, &viewport) {
+        if let Some(pos_screen_space) = events.get::<MouseMove>() {
+            if let Some(pos_model_space) = P::screen_to_model_space(&pos_screen_space, &viewport) {
                 // Check whether the world pos is different
                 // Do not do the transition if the user move to the
                 // same position. In principle, a new mouse move event
                 // is launched if the position changed
-                if world_pos != self.world_pos {
+                if pos_model_space != self.pos_model_space {
                     let (axis, d) = move_renderables::<P>(
-                        &self.world_pos,
-                        &world_pos,
+                        &self.pos_model_space,
+                        &pos_model_space,
                         sphere, catalog, grid,
                         viewport
                     );
 
                     // Update the previous position
-                    self.world_pos = world_pos;
+                    self.pos_model_space = pos_model_space;
                     self.time_move = utils::get_current_time();
                     self.angular_dist = d;
                     self.axis = axis;
@@ -148,12 +149,11 @@ impl State for Inertia {
         // From wiki: https://en.wikipedia.org/wiki/Harmonic_oscillator
         //
         // In a damped harmonic oscillator system: w0 = sqrt(k / m)
-        // where: 
+        // where:
         // * k is the stiffness of the ressort
         // * m is its mass
         let theta = self.d0 * (Inertia::w0() * t + 1_f32) * ((-Inertia::w0() * t).exp());
 
-        //console::log_1(&format!("dtheta {:?}", theta).into());
         viewport.apply_rotation(-self.axis, theta);
         viewport.displacement::<P>(sphere, catalog, grid);
 
@@ -177,14 +177,14 @@ impl Transition for T<Stalling, Moving> {
         // User events
         events: &EventManager
     ) -> Option<Self::E> {
-        if let Some(screen_pos) = events.get::<MouseLeftButtonPressed>() {
-            if let Some(world_pos) = P::screen_to_world_space(*screen_pos, &viewport) {
+        if let Some(pos_screen_space) = events.get::<MouseLeftButtonPressed>() {
+            if let Some(pos_model_space) = P::screen_to_model_space(&pos_screen_space, &viewport) {
                 console::log_1(&format!("Welcome state Moving").into());
                 let time_move = utils::get_current_time();
                 let angular_dist = Rad(0_f32);
                 let axis = Vector3::new(0_f32, 0_f32, 0_f32);
                 Some(Moving {
-                    world_pos,
+                    pos_model_space,
                     time_move,
                     angular_dist,
                     axis
@@ -217,20 +217,20 @@ impl Transition for T<Moving, Stalling> {
         // User events
         events: &EventManager
     ) -> Option<Self::E> {
-        if let Some(screen_pos) = events.get::<MouseLeftButtonReleased>() {
+        if let Some(pos_screen_space) = events.get::<MouseLeftButtonReleased>() {
             let t = utils::get_current_time() - s.time_move;
             if t < 10_f32 {
                 return None;
             }
 
-            if let Some(world_pos) = P::screen_to_world_space(*screen_pos, &viewport) {
+            if let Some(pos_model_space) = P::screen_to_model_space(&pos_screen_space, &viewport) {
                 // Check whether the mouse has moved
-                if world_pos != s.world_pos {
+                if pos_model_space != s.pos_model_space {
                     // If so perform the last sphere rotation
                     // before diving in the Stalling state
                     move_renderables::<P>(
-                        &s.world_pos,
-                        &world_pos,
+                        &s.pos_model_space,
+                        &pos_model_space,
                         sphere, catalog, grid,
                         viewport
                     );
@@ -258,18 +258,18 @@ impl Transition for T<Moving, Inertia> {
         // User events
         events: &EventManager
     ) -> Option<Self::E> {
-        if let Some(screen_pos) = events.get::<MouseLeftButtonReleased>() {
+        if let Some(pos_screen_space) = events.get::<MouseLeftButtonReleased>() {
             let t = utils::get_current_time() - s.time_move;
             // Jump into the inertia mode if the mouse has been released in following 10ms after the last move
             if t <= 10_f32 {
-                if let Some(world_pos) = P::screen_to_world_space(*screen_pos, &viewport) {
+                if let Some(pos_model_space) = P::screen_to_model_space(&pos_screen_space, &viewport) {
                     // Check whether the mouse has moved
-                    if world_pos != s.world_pos {
+                    if pos_model_space != s.pos_model_space {
                         // If so perform the last sphere rotation
                         // before diving in the Stalling state
                         move_renderables::<P>(
-                            &s.world_pos,
-                            &world_pos,
+                            &s.pos_model_space,
+                            &pos_model_space,
                             sphere, catalog, grid,
                             viewport
                         );
@@ -334,14 +334,14 @@ impl Transition for T<Inertia, Moving> {
         // User events
         events: &EventManager
     ) -> Option<Self::E> {
-        if let Some(screen_pos) = events.get::<MouseLeftButtonPressed>() {
-            if let Some(world_pos) = P::screen_to_world_space(*screen_pos, &viewport) {
+        if let Some(pos_screen_space) = events.get::<MouseLeftButtonPressed>() {
+            if let Some(pos_model_space) = P::screen_to_model_space(pos_screen_space, &viewport) {
                 console::log_1(&format!("Welcome state Moving").into());
                 let time_move = utils::get_current_time();
                 let angular_dist = Rad(0_f32);
                 let axis = Vector3::new(0_f32, 0_f32, 0_f32);
                 Some(Moving {
-                    world_pos,
+                    pos_model_space,
                     time_move,
                     angular_dist,
                     axis

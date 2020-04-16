@@ -37,10 +37,17 @@ fn create_vertices_array<P: Projection>(gl: &WebGl2Context, viewport: &ViewPort)
     let vertices_data = vertex_screen_space_positions
         .into_iter()
         .map(|pos_screen_space| {
-            let pos_clip_space = crate::projection::screen_to_clip_space(pos_screen_space, viewport);
-            let pos_world_space = P::clip_to_world_space(pos_clip_space).unwrap();
+            let pos_clip_space = crate::projection::screen_to_clip_space(&pos_screen_space, viewport);
+            let pos_model_space = P::clip_to_model_space(&pos_clip_space).unwrap();
 
-            vec![pos_clip_space.x, pos_clip_space.y, pos_world_space.x, pos_world_space.y, pos_world_space.z]
+            vec![
+                pos_clip_space.x,
+                pos_clip_space.y,
+                
+                pos_model_space.x,
+                pos_model_space.y,
+                pos_model_space.z
+            ]
         })
         .flatten()
         .collect::<Vec<_>>();

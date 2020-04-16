@@ -251,8 +251,8 @@ fn compute_ratio_diag(cell: &HEALPixCell) -> f32 {
         .collect::<Vec<_>>();
 
     // Compute the diagonal of the cell
-    let d1 = math::angular_distance_xyz(vertices_world_space[0].truncate(), vertices_world_space[2].truncate());
-    let d2 = math::angular_distance_xyz(vertices_world_space[1].truncate(), vertices_world_space[3].truncate());
+    let d1 = math::ang_between_vect(&vertices_world_space[0].truncate(), &vertices_world_space[2].truncate());
+    let d2 = math::ang_between_vect(&vertices_world_space[1].truncate(), &vertices_world_space[3].truncate());
     
     let ratio = if d1 < d2 {
         d1 / d2 

@@ -622,7 +622,7 @@ fn area_clip_zoomed_space_healpix_tile<P: Projection>(viewport: &ViewPort, depth
 
     // Project this vertex into the screen
     let clip_zoom_factor = viewport.get_clip_zoom_factor();
-    let p0 = P::world_to_clip_space(v0) / clip_zoom_factor;
+    let p0 = P::model_to_clip_space(&v0) / clip_zoom_factor;
     //let p1 = P::world_to_clip_space(v1) / clip_zoom_factor;
 
     //let area_ndc_hpx_tile = p0.x * p0.x + p1.y * p1.y;

@@ -42,6 +42,7 @@ mod event_manager;
 mod color;
 mod healpix_cell;
 mod buffer;
+mod rotation;
 
 use shader::Shader;
 use shader::ShaderManager;
@@ -397,9 +398,9 @@ where P: Projection {
         // Return the position of the center of the projection
         // to the javascript main code
         let center_world_pos = self.viewport.compute_center_world_pos::<P>();
-        let (ra, dec) = math::xyzw_to_radec(center_world_pos);
+        let (lon, lat) = math::xyzw_to_radec(&center_world_pos);
 
-        Vector2::new(Rad(ra), Rad(dec))
+        Vector2::new(lon, lat)
     }
 
     fn render(&mut self, enable_grid: bool) {
@@ -475,7 +476,7 @@ where P: Projection {
         let start_pos_world = Vector3::new(start_pos_world.x, start_pos_world.y, start_pos_world.z);
         let end_pos_world = math::radec_to_xyz(ra, dec);
 
-        self.d = math::angular_distance_xyz(start_pos_world, end_pos_world);
+        self.d = math::ang_between_vect(&start_pos_world, &end_pos_world);
         let d: Deg<f32> = self.d.into();
 
         let end_aperture = self.start_aperture.0 + d.0;
@@ -1250,16 +1251,26 @@ impl WebClient {
     }
 
     /// Wheel event
-    pub fn wheel_mouse(&mut self, delta_y: i32) -> Result<(), JsValue> {
+    pub fn wheel_mouse(&mut self, screen_pos_x: f32, screen_pos_y: f32, delta_y: i32) -> Result<(), JsValue> {
         let up = delta_y < 0;
 
         // Wheel mouse up
         if up {
-            self.events.enable::<MouseWheelUp>(());
+            self.events.enable::<MouseWheelUp>(
+                Vector2::new(
+                    screen_pos_x,
+                    screen_pos_y,
+                )
+            );
             //self.appconfig.zoom(y, self.enable_grid);
         // Wheel mouse down
         } else {
-            self.events.enable::<MouseWheelDown>(());
+            self.events.enable::<MouseWheelDown>(
+                Vector2::new(
+                    screen_pos_x,
+                    screen_pos_y,
+                )
+            );
             //self.appconfig.unzoom(y, self.enable_grid);
         }
 
