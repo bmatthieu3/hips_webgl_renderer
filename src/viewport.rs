@@ -282,10 +282,8 @@ impl ViewPort {
         }
     }
 
-    pub fn apply_rotation(&mut self, axis: cgmath::Vector3<f32>, angle: cgmath::Rad<f32>) {
-        let dm = Matrix4::from_axis_angle(axis, angle);
-        let dq: SphericalRotation<f32> = (&dm).into();
-
+    pub fn apply_rotation(&mut self, axis: &cgmath::Vector3<f32>, angle: cgmath::Rad<f32>) {
+        let dq = SphericalRotation::from_axis_angle(axis, angle);
         self.sr = dq * self.sr;
 
         self.compute_model_mat();

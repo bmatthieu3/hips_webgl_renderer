@@ -76,7 +76,7 @@ pub fn move_renderables<P: Projection>(
         .normalize();
     let d = math::ang_between_vect(&x, &y);
 
-    viewport.apply_rotation(-axis, d);
+    viewport.apply_rotation(&(-axis), d);
 
     // Update all the renderables
     viewport.displacement::<P>(sphere, catalog, grid);
@@ -154,7 +154,7 @@ impl State for Inertia {
         // * m is its mass
         let theta = self.d0 * (Inertia::w0() * t + 1_f32) * ((-Inertia::w0() * t).exp());
 
-        viewport.apply_rotation(-self.axis, theta);
+        viewport.apply_rotation(&(-self.axis), theta);
         viewport.displacement::<P>(sphere, catalog, grid);
 
         self.d = theta;
