@@ -31,13 +31,13 @@ impl RayTracingProjection for Orthographic {
     }
 }
 
-fn create_vertices_array<P: Projection>(gl: &WebGl2Context, viewport: &ViewPort) -> (Vec<f32>, Vec<u16>) {
-    let (vertex_screen_space_positions, indices) = <P>::build_screen_map(viewport);
+use crate::renderable::Triangulation;
+fn create_vertices_array<P: Projection>(gl: &WebGl2Context) -> (Vec<f32>, Vec<u16>) {
+    let (vertices, idx) = Triangulation::new::<P>().into();
 
-    let vertices_data = vertex_screen_space_positions
+    let vertices = vertices
         .into_iter()
-        .map(|pos_screen_space| {
-            let pos_clip_space = crate::projection::screen_to_clip_space(&pos_screen_space, viewport);
+        .map(|pos_clip_space| {
             let pos_model_space = P::clip_to_model_space(&pos_clip_space).unwrap();
 
             vec![
@@ -53,7 +53,7 @@ fn create_vertices_array<P: Projection>(gl: &WebGl2Context, viewport: &ViewPort)
         .collect::<Vec<_>>();
     console::log_1(&format!("End Generation per pixel mode vertices").into());
 
-    (vertices_data, indices)
+    (vertices, idx)
 }
 
 use web_sys::WebGl2RenderingContext;
@@ -64,7 +64,7 @@ fn create_vertex_array_object<P: Projection>(
     viewport: &ViewPort,
     shaders: &ShaderManager
 ) -> VertexArrayObject {
-    let (vertices, idx) = create_vertices_array::<P>(gl, viewport);
+    let (vertices, idx) = create_vertices_array::<P>(gl);
     
     let mut vertex_array_object = VertexArrayObject::new(gl);
 
@@ -144,8 +144,6 @@ use crate::viewport::ViewPort;
 use web_sys::console;
 
 use crate::renderable::RenderingMode;
-use crate::buffer::BufferTextures;
-use crate::event_manager::EventManager;
 
 use crate::shader::ShaderManager;
 use crate::shader::ShaderBound;
@@ -167,6 +165,8 @@ impl RenderingMode for RayTracer {
         shader.bind_vertex_array_object_ref(&vertex_array_object)
             .draw_elements_with_i32(
                 WebGl2RenderingContext::TRIANGLES,
+                //WebGl2RenderingContext::LINE_LOOP,
+                //WebGl2RenderingContext::POINTS,
                 None
             );
     }

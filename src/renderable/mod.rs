@@ -19,6 +19,9 @@ mod rasterizer;
 use rasterizer::Rasterizer;
 use rasterizer::RasterizerProjection;
 
+mod triangulation;
+use triangulation::Triangulation;
+
 use hips_sphere::{
  RenderingMode,
  UpdateTextureBufferEvent,

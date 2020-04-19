@@ -237,6 +237,10 @@ pub trait Projection: RayTracingProjection + RasterizerProjection + CatalogShade
     //fn name() -> &'static str;
 
     //fn check_for_allsky_fov(depth: u8) -> Option<HashSet<HEALPixCell>>;
+
+    fn convex_hull(viewport: &ViewPort) -> Vec<Vector2<f32>>;
+
+    fn is_included_inside_projection(pos_clip_space: &Vector2<f32>) -> bool;
 }
 
 #[derive(Clone, Copy)]
@@ -256,25 +260,42 @@ use cgmath::Angle;
 use crate::renderable::hips_sphere::NUM_VERTICES_PER_STEP;
 use crate::renderable::hips_sphere::NUM_STEPS;
 
-use crate::math::is_inside_ellipse;
 impl Projection for Aitoff {
-    /*fn check_for_allsky_fov(depth: u8) -> Option<HashSet<HEALPixCell>> {
-        if depth == 0 {
-            Some(ALLSKY_ZERO_DEPTH.lock().unwrap().clone())
-        } else if depth == 1 {
-            Some(ALLSKY_ONE_DEPTH.lock().unwrap().clone())
-        } else {
-            None
+    fn is_included_inside_projection(pos_clip_space: &Vector2<f32>) -> bool {
+        // Semi-major axis length
+        let a = 1_f32;
+        // Semi-minor axis length
+        let b = 0.5_f32;
+
+        let a2 = a * a;
+        let b2 = b * b;
+        let px2 = pos_clip_space.x * pos_clip_space.x;
+        let py2 = pos_clip_space.y * pos_clip_space.y;
+
+        return (px2 * b2 + py2 * a2) <= a2 * b2;
+    }
+
+    fn convex_hull(viewport: &ViewPort) -> Vec<Vector2<f32>> {
+        let window_size = viewport.get_window_size();
+
+        let center_screen_space = window_size / 2_f32;
+        let num_vertices = 40;
+
+        let mut vertices_screen_space = Vec::with_capacity(num_vertices);
+
+        for i in 0..num_vertices {
+            let angle = (i as f32) * 2_f32 * std::f32::consts::PI / (num_vertices as f32);
+
+            let pos_screen_space = Vector2::<f32>::new(
+                (window_size.x/2_f32 - 1_f32) * angle.cos(),
+                ((window_size.x/2_f32 - 1_f32) / 2_f32) * angle.sin()
+            );
+
+            vertices_screen_space.push(pos_screen_space + center_screen_space);
         }
-    }*/
 
-    /*fn name() -> &'static str {
-        "Aitoff"
-    }*/
-
-    /*fn subdivide(viewport: &ViewPort, min_pos: &Vector2<f32>, max_pos: &Vector2<f32>) {
-        
-    }*/
+        vertices_screen_space
+    }
 
     fn build_screen_map(viewport: &ViewPort) -> (Vec<Vector2<f32>>, Vec<u16>) {
         let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
@@ -313,9 +334,7 @@ impl Projection for Aitoff {
     /// * `x` - in normalized device coordinates between [-1; 1]
     /// * `y` - in normalized device coordinates between [-1; 1]
     fn clip_to_model_space(pos_clip_space: &Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
-        let a = 1_f32;
-        let b = 0.5_f32;
-        if is_inside_ellipse(&pos_clip_space, a, b) {
+        if Self::is_included_inside_projection(&pos_clip_space) {
             let u = pos_clip_space.x * std::f32::consts::PI * 0.5_f32;
             let v = pos_clip_space.y * std::f32::consts::PI;
             //da uv a lat/lon
@@ -384,19 +403,41 @@ impl Projection for Aitoff {
 use cgmath::Vector3;
 use crate::math;
 impl Projection for Mollweide {
-    /*fn check_for_allsky_fov(depth: u8) -> Option<HashSet<HEALPixCell>> {
-        if depth == 0 {
-            Some(ALLSKY_ZERO_DEPTH.lock().unwrap().clone())
-        } else if depth == 1 {
-            Some(ALLSKY_ONE_DEPTH.lock().unwrap().clone())
-        } else {
-            None
-        }
-    }*/
+    fn is_included_inside_projection(pos_clip_space: &Vector2<f32>) -> bool {
+        // Semi-major axis length
+        let a = 1_f32;
+        // Semi-minor axis length
+        let b = 0.5_f32;
 
-    /*fn name() -> &'static str {
-        "MollWeide"
-    }*/
+        let a2 = a * a;
+        let b2 = b * b;
+        let px2 = pos_clip_space.x * pos_clip_space.x;
+        let py2 = pos_clip_space.y * pos_clip_space.y;
+
+        return (px2 * b2 + py2 * a2) <= a2 * b2;
+    }
+
+    fn convex_hull(viewport: &ViewPort) -> Vec<Vector2<f32>> {
+        let window_size = viewport.get_window_size();
+
+        let center_screen_space = window_size / 2_f32;
+        let num_vertices = 40;
+
+        let mut vertices_screen_space = Vec::with_capacity(num_vertices);
+
+        for i in 0..num_vertices {
+            let angle = (i as f32) * 2_f32 * std::f32::consts::PI / (num_vertices as f32);
+
+            let pos_screen_space = Vector2::<f32>::new(
+                (window_size.x/2_f32 - 1_f32) * angle.cos(),
+                ((window_size.x/2_f32 - 1_f32) / 2_f32) * angle.sin()
+            );
+
+            vertices_screen_space.push(pos_screen_space + center_screen_space);
+        }
+
+        vertices_screen_space
+    }
 
     fn build_screen_map(viewport: &ViewPort) -> (Vec<Vector2<f32>>, Vec<u16>) {
         let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
@@ -435,9 +476,7 @@ impl Projection for Mollweide {
     /// * `x` - in normalized device coordinates between [-1; 1]
     /// * `y` - in normalized device coordinates between [-1; 1]
     fn clip_to_model_space(pos_clip_space: &Vector2<f32>) -> Option<cgmath::Vector4<f32>> {
-        let a = 1_f32;
-        let b = 0.5_f32;
-        if is_inside_ellipse(&pos_clip_space, a, b) {
+        if Self::is_included_inside_projection(&pos_clip_space) {
             let y2 = pos_clip_space.y * pos_clip_space.y;
             let k = (1_f32 - 4_f32 * y2).sqrt();
 
@@ -505,17 +544,34 @@ impl Projection for Mollweide {
 
 use cgmath::Rad;
 impl Projection for Orthographic {
-    /*fn check_for_allsky_fov(depth: u8) -> Option<HashSet<HEALPixCell>> {
-        if depth == 0 {
-            Some(ALLSKY_ZERO_DEPTH.lock().unwrap().clone())
-        } else {
-            None
-        }
-    }*/
+    fn is_included_inside_projection(pos_clip_space: &Vector2<f32>) -> bool {
+        let px2 = pos_clip_space.x * pos_clip_space.x;
+        let py2 = pos_clip_space.y * pos_clip_space.y;
 
-    /*fn name() -> &'static str {
-        "Orthographic"
-    }*/
+        return (px2 + py2) <= 1_f32;
+    }
+
+    fn convex_hull(viewport: &ViewPort) -> Vec<Vector2<f32>> {
+        let window_size = viewport.get_window_size();
+
+        let center_screen_space = window_size / 2_f32;
+        let num_vertices = 40;
+
+        let mut vertices_screen_space = Vec::with_capacity(num_vertices);
+
+        for i in 0..num_vertices {
+            let angle = (i as f32) * 2_f32 * std::f32::consts::PI / (num_vertices as f32);
+
+            let pos_screen_space = Vector2::<f32>::new(
+                (window_size.x/2_f32 - 1_f32) * angle.cos(),
+                (window_size.x/2_f32 - 1_f32) * angle.sin()
+            );
+
+            vertices_screen_space.push(pos_screen_space + center_screen_space);
+        }
+
+        vertices_screen_space
+    }
 
     fn build_screen_map(viewport: &ViewPort) -> (Vec<Vector2<f32>>, Vec<u16>) {
         let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
@@ -580,19 +636,34 @@ impl Projection for Orthographic {
 }
 
 impl Projection for AzimutalEquidistant {
-    /*fn check_for_allsky_fov(depth: u8) -> Option<HashSet<HEALPixCell>> {
-        if depth == 0 {
-            Some(ALLSKY_ZERO_DEPTH.lock().unwrap().clone())
-        } else if depth == 1 {
-            Some(ALLSKY_ONE_DEPTH.lock().unwrap().clone())
-        } else {
-            None
-        }
-    }*/
+    fn is_included_inside_projection(pos_clip_space: &Vector2<f32>) -> bool {
+        let px2 = pos_clip_space.x * pos_clip_space.x;
+        let py2 = pos_clip_space.y * pos_clip_space.y;
 
-    /*fn name() -> &'static str {
-        "Arc"
-    }*/
+        return (px2 + py2) <= 1_f32;
+    }
+
+    fn convex_hull(viewport: &ViewPort) -> Vec<Vector2<f32>> {
+        let window_size = viewport.get_window_size();
+
+        let center_screen_space = window_size / 2_f32;
+        let num_vertices = 40;
+
+        let mut vertices_screen_space = Vec::with_capacity(num_vertices);
+
+        for i in 0..num_vertices {
+            let angle = (i as f32) * 2_f32 * std::f32::consts::PI / (num_vertices as f32);
+
+            let pos_screen_space = Vector2::<f32>::new(
+                (window_size.x/2_f32 - 1_f32) * angle.cos(),
+                (window_size.x/2_f32 - 1_f32) * angle.sin()
+            );
+
+            vertices_screen_space.push(pos_screen_space + center_screen_space);
+        }
+
+        vertices_screen_space
+    }
 
     fn build_screen_map(viewport: &ViewPort) -> (Vec<Vector2<f32>>, Vec<u16>) {
         let mut vertices_screen = Vec::with_capacity(2*(NUM_VERTICES_PER_STEP*NUM_STEPS + 1) as usize);
@@ -677,19 +748,32 @@ impl Projection for AzimutalEquidistant {
 }
 
 impl Projection for Mercator {
-    /*fn check_for_allsky_fov(depth: u8) -> Option<HashSet<HEALPixCell>> {
-        if depth == 0 {
-            Some(ALLSKY_ZERO_DEPTH.lock().unwrap().clone())
-        } else if depth == 1 {
-            Some(ALLSKY_ONE_DEPTH.lock().unwrap().clone())
-        } else {
-            None
-        }
-    }*/
+    fn is_included_inside_projection(pos_clip_space: &Vector2<f32>) -> bool {
+        let px = pos_clip_space.x;
+        let py = pos_clip_space.y;
 
-    /*fn name() -> &'static str {
-        "Mercator"
-    }*/
+        return px >= -1_f32 && px <= 1_f32 && py >= -1_f32 && py <= 1_f32;
+    }
+
+    fn convex_hull(viewport: &ViewPort) -> Vec<Vector2<f32>> {
+        let window_size = viewport.get_window_size();
+
+        let num_vertices = 40;
+
+        let mut vertices_screen_space = Vec::with_capacity(num_vertices);
+
+        for i in 0..num_vertices {
+            for j in 0..num_vertices {
+                let pos_clip_space = Vector2::new(
+                    -1_f32 + ((j as f32)/((num_vertices-1) as f32))*2_f32,
+                    -1_f32 + ((i as f32)/((num_vertices-1) as f32))*2_f32,
+                );
+                vertices_screen_space.push(crate::projection::clip_to_screen_space(&pos_clip_space, viewport));
+            }
+        }
+
+        vertices_screen_space
+    }
 
     fn build_screen_map(viewport: &ViewPort) -> (Vec<Vector2<f32>>, Vec<u16>) {
         let N = 40;

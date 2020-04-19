@@ -138,7 +138,7 @@ impl Worker {
         // Get the current time
         let start_time = utils::get_current_time();
         // Define a maximum time duration in which tasks are polled
-        let duration = 10_f32; // in milliseconds
+        let duration = 5_f32; // in milliseconds
 
         let mut tiles_written = HashSet::new();
 

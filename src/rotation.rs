@@ -32,20 +32,6 @@ where S: BaseFloat {
     }
 }
 
-/*impl<S> From<&Vector4<S>> for SphericalRotation<S>
-where S: BaseFloat {
-    fn from(p: &Vector4<S>) -> Self {
-        let (lon, lat) = math::xyzw_to_radec(&p.normalize());
-
-        let rot_y = Matrix4::from_angle_y(lon);
-        let rot_x = Matrix4::from_angle_x(-lat);
-
-        let mat4 = rot_y * rot_x;
-        (&mat4).into()
-    }
-}*/
-
-
 use cgmath::Rad;
 impl<S> SphericalRotation<S>
 where S: BaseFloat {

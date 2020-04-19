@@ -7,6 +7,7 @@ extern crate itertools_num;
 extern crate rand;
 extern crate serde_derive;
 extern crate num;
+extern crate delaunator;
 
 use web_sys::console;
 #[macro_export]

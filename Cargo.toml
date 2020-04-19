@@ -8,6 +8,7 @@ edition = "2018"
 crate-type = ["cdylib"]
 
 [dependencies]
+delaunator = "*"
 lazy_static = "1.4.0"
 futures = "0.3.4"
 js-sys = "0.3.25"

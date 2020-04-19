@@ -10,13 +10,15 @@ use crate::shader::Shaderize;
     layout (location = 1) in vec3 pos_world_space;
 
     out vec3 out_vert_pos;
+    out vec2 pos_clip;
 
     uniform mat4 model;
     uniform vec2 ndc_to_clip;
     uniform float clip_zoom_factor;
 
     void main() {
-        gl_Position = vec4((pos_clip_space / (ndc_to_clip * clip_zoom_factor)), 0.0, 1.0);
+        gl_Position = vec4(pos_clip_space / (ndc_to_clip * clip_zoom_factor), 0.0, 1.0);
+        pos_clip = pos_clip_space;
         out_vert_pos = vec3(model * vec4(pos_world_space, 1.f));
     }
 "#]
@@ -28,6 +30,7 @@ use crate::shader::Shaderize;
     precision highp int;
 
     in vec3 out_vert_pos;
+    in vec2 pos_clip;
 
     out vec4 out_frag_color;
 
@@ -278,6 +281,100 @@ use crate::shader::Shaderize;
 
     const float duration = 500.f; // 500ms
     uniform int max_depth; // max depth of the HiPS
+    uniform mat4 model;
+    uniform vec2 ndc_to_clip;
+    uniform float clip_zoom_factor;
+
+    vec2 world2clip_orthographic(vec3 p) {
+        return vec2(-p.x, p.y);
+    }
+
+    vec3 clip2world_orthographic(vec2 pos_clip_space) {
+        float z = 1.f - dot(pos_clip_space, pos_clip_space);
+        if (z > 0.f) {
+            return vec3(-pos_clip_space.x, pos_clip_space.y, sqrt(z));
+        } else {
+            discard;
+        }
+    }
+
+    vec2 world2clip_aitoff(vec3 p) {
+        float delta = asin(p.y);
+        float theta = atan(p.x, p.z);
+
+        float theta_by_two = theta * 0.5f;
+
+        float alpha = acos(cos(delta)*cos(theta_by_two));
+        float inv_sinc_alpha = 1.f;
+        if (alpha > 1e-3f) {
+            inv_sinc_alpha = alpha / sin(alpha);
+        }
+
+        // The minus is an astronomical convention.
+        // longitudes are increasing from right to left
+        float x = -2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);
+        float y = inv_sinc_alpha * sin(delta);
+
+        return vec2(x / PI, y / PI);
+    }
+
+    float d_isolon(float theta) {
+        vec3 n = vec3(cos(theta), 0.0, sin(theta));
+        vec3 pos_world = clip2world_orthographic(pos_clip);
+        vec3 pos_model = vec3(model * vec4(pos_world, 1.f));
+        float d = abs(dot(n, pos_model));
+
+        vec3 h_model = normalize(pos_model - n*d);
+        vec3 h_world = vec3(inverse(model) * vec4(h_model, 1.f));
+
+        // Project to screen x and h and compute the distance
+        // between the two
+        vec2 sh = world2clip_orthographic(h_world);
+        
+        return length(pos_clip - sh);
+    }
+    float d_isolat(float delta) {
+        vec3 pos_world = clip2world_orthographic(pos_clip);
+        vec3 pos_model = vec3(model * vec4(pos_world, 1.f));
+
+        float d = abs(asin(pos_model.y) - delta);
+        return d;
+    }
+
+    float grid_alpha(vec3 x)
+    {
+        float v = 1e4;
+        float min_theta = 0.0;
+        float max_theta = 360.0;
+        int num_lines = 10;
+        float s = (max_theta - min_theta) / float(num_lines);
+        for (int i = 0; i < num_lines; i++) {
+            float a = d_isolon(float(i) * s * PI / 180.f);
+
+            v = min(a, v);
+        }
+        float min_delta = -80.0;
+        float max_delta = 80.0;
+
+        float t = (max_delta - min_delta) / float(6);
+        for (int i = 0; i < 7; i++) {
+            float a = d_isolat((min_delta + float(i) * t) * PI / 180.f);
+
+            v = min(a, v);
+        }
+
+        //float eps = 1e-3 * clip_zoom_factor;
+        float eps = 1e-3;
+        return clamp(smoothstep(eps, 2.0*eps, v) + 0.5f, 0.f, 1.f);
+    }
+
+
+    const vec4 grid_color = vec4(1.f, 0.f, 0.f, 1.f);
+    vec4 compute_final_color(vec3 x, vec4 color) {
+        float alpha = grid_alpha(x);
+
+        return mix(grid_color, color, alpha);
+    }
 
     void main() {
         vec3 frag_pos = normalize(out_vert_pos);
@@ -307,8 +404,7 @@ use crate::shader::Shaderize;
             TileColor base_tile = get_tile_color(frag_pos, 0);
 
             out_color = mix(base_tile.color, prev_tile.color, alpha);
-            out_frag_color = vec4(out_color, 1.f);
-            //out_frag_color = vec4(1.f, 0.f, 0.f, 1.f);
+            out_frag_color = compute_final_color(frag_pos, vec4(out_color, 1.f));
             return;
         }
 
@@ -317,7 +413,7 @@ use crate::shader::Shaderize;
         // Little optimization: if the current tile is loaded since the time duration
         // then we do not need to evaluate the frag position for the previous/next depth
         if (alpha == 1.f) {
-            out_frag_color = vec4(current_tile.color, 1.f);
+            out_frag_color = compute_final_color(frag_pos,vec4(current_tile.color, 1.f));
             return;
         }
         vec3 out_color = vec3(0.f);
@@ -336,7 +432,7 @@ use crate::shader::Shaderize;
         }
 
         out_color = mix(tile.color, current_tile.color, alpha);
-        out_frag_color = vec4(out_color, 1.f);
+        out_frag_color = compute_final_color(frag_pos, vec4(out_color, 1.f));
     }
 "#]
 pub struct Raytracing;

@@ -92,7 +92,7 @@ pub fn depth_to_fov(depth: u8) -> Rad<f32> {
     hpx_cell_ang
 }
 */
-use cgmath::Vector2;
+/*use cgmath::Vector2;
 pub fn is_inside_ellipse(screen_pos: &Vector2<f32>, a: f32, b: f32) -> bool {
     let a2 = a * a;
     let b2 = b * b;
@@ -101,7 +101,7 @@ pub fn is_inside_ellipse(screen_pos: &Vector2<f32>, a: f32, b: f32) -> bool {
 
     return (px2 * b2 + py2 * a2) <= a2 * b2;
 }
-
+*/
 #[inline]
 const fn num_bits<T>() -> usize { std::mem::size_of::<T>() * 8 }
 
