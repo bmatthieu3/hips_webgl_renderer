@@ -12,7 +12,7 @@
     "webpack-dev-server": "^3.8.1"
   },
   "dependencies": {
-    "jquery": "^3.4.1",
+    "jquery": "^3.5.0",
     "jsvotable": "^2.0.2",
     "nouislider": "^14.1.1",
     "opencadc-votable": "^1.1.7",
