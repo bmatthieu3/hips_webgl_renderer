@@ -13,6 +13,7 @@ uniform float meridians[20];
 uniform int num_meridians;
 uniform float parallels[10];
 uniform int num_parallels;
+uniform vec2 window_size;
 
 const float PI = 3.141592653589793f;
 
@@ -129,7 +130,7 @@ float grid_alpha(vec3 pos_model) {
         v = min(a, v);
     }
 
-    float eps = 1e-3 * clip_zoom_factor;
+    float eps = 3.0 * clip_zoom_factor / window_size.x;
     return smoothstep(eps, 2.0*eps, v);
 }
 
