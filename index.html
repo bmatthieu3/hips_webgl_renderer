@@ -2,93 +2,29 @@
 	<head>
         <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
         <!-- autoComplete.js -->
+        <link rel="stylesheet" href="https://unpkg.com/purecss@2.0.3/build/pure-min.css" integrity="sha384-cg6SkqEOCV1NbJoCu11+bm0NvBRc8IYLRGXkmNrqUBfTjmMYwNKPWBTIKyw9mHNJ" crossorigin="anonymous">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
         <link rel="stylesheet" href="./css/auto-complete.css">
-        <style>
-            html, body {
-                width: 100%;
-                height: 100%;
-                margin: 0px;
-                border: 0;
-                /*  Disable scrollbars */
-                overflow: hidden;
-                /* No floating content on sides */
-                display: block;
-                background-color: black;
-            }
-
-            #canvas {
-                position: relative;
-                left: 0%;
-                top: 0px;
-                z-index: 1;
-                width: 100%;
-                height: 100%;
-            }
-
-            #labels_grid {
-                position: absolute;
-                left: 0px;
-                top: 0px;
-                z-index: 2;
-                pointer-events: none;
-            }
-
-            .ui {
-                position: absolute;
-                left: 0px;
-                top: 0px;
-                z-index: 10;
-                width: 15%;
-                height: 100%;
-
-                background-color: rgba(0, 0, 0, .5);
-                color: white;
-
-                overflow-y: scroll;
-                scrollbar-width: thin;
-            }
-
-            p {
-                margin: 0;
-                font: "Arial";
-                font-size: 0.875em;
-                font-style: normal;
-            }
-
-            h2 {
-                text-align: center;
-            }
-
-            .container {
-                border-top: 1px solid white;
-                border-bottom: 1px solid white;
-                margin: 10px 0px 10px 0px;
-                padding: 5px 0px 5px 0px;
-            }
-
-            #slider-handles {
-                width: 100%;
-                margin: 20px 0px 20px 0px;
-            }
-            .noUi-tooltip {
-                display: none;
-            }
-            .noUi-active .noUi-tooltip {
-                display: block;
-            }
-
-            .location {
-                display: inline-block;
-                width: 47%;
-            }
-		</style>
+        <link rel="stylesheet" href="./css/styles.css">
 	</head>
 	<body>
-		<div class="webgl_view">
-            <canvas id="canvas"></canvas>            
+        <div class="header">
+            <div class="home-menu pure-menu pure-menu-horizontal pure-menu-fixed">
+                <img class="pure-menu-heading" src="./img/aladin-logo.png" alt="Aladin-Lite v3">
+                <!--<a class="pure-menu-heading" href=""></a>-->
+                <!--<input type="search" placeholder="Search" />-->
+
+                <ul class="pure-menu-list">
+                    <li class="pure-menu-item"><a href="#" class="pure-menu-link">FoV</a></li>
+                </ul>
+            </div>
+        </div>
+		<!--<div class="webgl_view">-->
+        <canvas id="canvas"></canvas>
+
 			<!--<canvas id="labels_grid"></canvas>-->
             
-            <div class="ui">
+            <!--<div class="ui">
                 <h2>WebGL2 Aladin-Lite</h2>
                 <h3>Location</h3>
                 <div class="container">
@@ -152,7 +88,7 @@
                 <label for="enable-inertia">Mouse inertia:</label>
                 <input id="enable-inertia" type="checkbox" />
             </div>
-        </div>
+        </div>-->
         <script src='./js/auto-complete.js'></script>
 	<script type="text/javascript" src="index.js"></script></body>
 </html>
