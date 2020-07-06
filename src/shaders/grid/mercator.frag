@@ -18,17 +18,18 @@ uniform vec2 window_size;
 const float PI = 3.141592653589793f;
 
 vec2 world2clip_mercator(vec3 p) {
-    float theta = atan(p.x, p.z);
     float delta = asin(p.y);
+    float theta = atan(p.x, p.z);
 
     float x = -theta / PI;
+    //float y = log(tan(PI * 0.25f + delta * 0.5f)) / PI;
     float y = asinh(tan(delta / PI));
 
     return vec2(x, y);
 }
 
 vec3 clip2world_mercator(vec2 p) {
-    float theta = p.x * PI;
+    float theta = -p.x * PI;
     float delta = atan(sinh(p.y)) * PI;
 
     return vec3(-sin(theta) * cos(delta), sin(delta), cos(theta) * cos(delta));
@@ -37,10 +38,10 @@ vec3 clip2world_mercator(vec2 p) {
 float d_isolon(vec3 pos_model, float theta) {
     vec3 n = vec3(cos(theta), 0.0, -sin(theta));
     // Discard the (theta + PI) meridian
-    /*vec3 e_xz = vec3(-n.z, 0.0, n.x);
+    vec3 e_xz = vec3(-n.z, 0.0, n.x);
     if (dot(pos_model, e_xz) < 0.0) {
         return 1e3;
-    }*/
+    }
 
     float d = abs(dot(n, pos_model));
 
@@ -51,7 +52,7 @@ float d_isolon(vec3 pos_model, float theta) {
     // between the two
     vec2 h_clip = world2clip_mercator(h_world);
     
-    return length(pos_clip - h_clip) * 3.0;
+    return length(pos_clip - h_clip);
 }
 float d_isolat(vec3 pos_model, float delta) {
     float y = atan(pos_model.y, length(pos_model.xz));
