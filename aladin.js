@@ -82681,8 +82681,10 @@ let View = (function() {
                 view.dragging = false;
 
                 view.pinchZoomParameters.isPinching = true;
-                var fov = view.aladin.getFov();
-                view.pinchZoomParameters.initialFov = Math.max(fov[0], fov[1]);
+                //var fov = view.aladin.getFov();
+                //view.pinchZoomParameters.initialFov = Math.max(fov[0], fov[1]);
+                var fov = view.aladin.webglAPI.getFieldOfView();
+                view.pinchZoomParameters.initialFov = fov;
                 view.pinchZoomParameters.initialDistance = Math.sqrt(Math.pow(e.originalEvent.targetTouches[0].clientX - e.originalEvent.targetTouches[1].clientX, 2) + Math.pow(e.originalEvent.targetTouches[0].clientY - e.originalEvent.targetTouches[1].clientY, 2));
 
                 return;
