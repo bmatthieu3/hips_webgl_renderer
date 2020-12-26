@@ -83823,7 +83823,7 @@ let View = (function() {
     
     // Called for touchmove events
     View.prototype.setZoom = function(fovDegrees) {
-        if (fovDegrees<0 || (fovDegrees>180 && ! this.aladin.options.allowFullZoomout)) {
+        if (fovDegrees<0) {
             return;
         }
         // Erase the field of view state of the backend by
