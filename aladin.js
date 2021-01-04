@@ -77626,7 +77626,7 @@ let HpxImageSurvey = (function() {
     },
     {
         "id": "CDS/P/DSS2/red",
-        "url": "http://alasky.u-strasbg.fr/DSS/DSS2Merged",
+        "url": "https://alasky.u-strasbg.fr/DSS/DSS2Merged",
         "name": "DSS2 Red (F+R)",
         "maxOrder": 9,
         "tileSize": 512,
@@ -82087,7 +82087,7 @@ let View = (function() {
             this.aladin.webglAPI.resize(500, 400);
             this.aladin.webglAPI.setSimpleHiPS({
                 properties: {
-                    url: "http://alasky.u-strasbg.fr/DSS/DSS2Merged",
+                    url: "https://alasky.u-strasbg.fr/DSS/DSS2Merged",
             
                     maxOrder: 9,
                     frame: { label: "J2000", system: "J2000" },
