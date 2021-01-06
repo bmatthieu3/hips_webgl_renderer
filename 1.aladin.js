@@ -4,7 +4,7 @@
 /*!*********************************!*\
   !*** ./src/render/pkg/index.js ***!
   \*********************************/
-/*! exports provided: WebClient, __wbindgen_memory, __wbg_buffer_49131c283a06686f, __wbg_newwithbyteoffsetandlength_c0f38401daad5a22, __wbindgen_object_drop_ref, __wbg_new_9b295d24cf1d706f, __wbg_new_79f4487112eba5a7, __wbg_newwithbyteoffsetandlength_0515e4dbf41ebe10, __wbg_new_20cc9c1e8e319ac2, __wbg_newwithbyteoffsetandlength_17b60ac1a19c43e4, __wbg_new_066196c5e92c30d6, __wbg_createVertexArray_fd08eb7c8f8e86a3, __wbg_bindVertexArray_8bb02f8645a29e05, __wbg_createBuffer_7fadf474857a2122, __wbg_bindBuffer_6a7df3ea760a2c83, __wbg_bufferData_eb6e92d39c5a153c, __wbg_vertexAttribPointer_88010123ef756633, __wbg_enableVertexAttribArray_fafa57fbcd454495, __wbg_subarray_f5aa665f0873e6e8, __wbg_bufferSubData_9367b8c9fdec36a1, __wbg_useProgram_9523fdac78894a60, __wbg_uniform1i_a34df477d48c37e2, __wbg_uniform1f_4718a6fd4ea1bc6c, __wbg_drawElements_0376b48b08ac34a7, __wbindgen_json_serialize, __wbg_getParameter_d680f5c6d50aba30, __wbindgen_number_get, __wbindgen_cb_drop, __wbg_width_c44955d492197e44, __wbg_height_4e87e628e5b7c122, __wbindgen_object_clone_ref, __wbg_response_c6eaec6d637dbe7c, __wbg_length_2b13641a9d906653, __wbg_set_3bb960a9975f3cd2, __wbg_deleteVertexArray_b966baf643cbbf5b, __wbg_deleteBuffer_e06fcb6201291d2e, __wbg_deleteTexture_71c09d0186504319, __wbg_disableVertexAttribArray_30ea15bb3b3341be, __wbg_isArray_8719d1387c4e1aca, __wbg_length_079c4e509ec6d375, __wbg_get_27693110cb44e852, __wbg_setsrc_4e562fe2dd3f545a, __wbg_setonload_ab35a7a2495b1678, __wbg_setonerror_b91169e64312f1fa, __wbg_open_846d7f9565940fa1, __wbg_setonload_5c646c079962be08, __wbg_setonerror_2dd497bd9cb227d3, __wbg_send_85a5d32b3e0745ad, __wbg_activeTexture_9d96cecdacbe1a7d, __wbg_bindTexture_a03a7320443c8a4d, __wbg_texSubImage2D_650825336255aff4, __wbg_texParameteri_f3be7a9c7fc03dac, __wbg_texImage2D_9e8b631ff0bf6320, __wbg_log_9aa6786f4afc2ed4, __wbg_measureText_103eb7f7c233d6c2, __wbg_width_108a5d3de792f243, __wbg_vertexAttribDivisor_a85514b841f07b19, __wbg_performance_8594a974edffb1dc, __wbg_now_49847177a6d1d57e, __wbindgen_string_new, __wbg_createTexture_e172faa9d6a303c1, __wbg_texImage2D_917b0bb22a5467b7, __wbg_document_6cc8d0b87c0a99b9, __wbg_getElementsByClassName_de38b280ba469c93, __wbg_getwithindex_a8925dc3b15a59c7, __wbg_instanceof_HtmlCanvasElement_4f5b5ec6cd53ccf3, __wbg_parse_ba49950ce04b31a1, __wbg_getContext_e7747f5b022c18e9, __wbg_instanceof_WebGl2RenderingContext_836e46859b2055b5, __wbg_blendFuncSeparate_202782033cc0fb52, __wbg_enable_28a715ea384ce803, __wbg_cullFace_82d5cfe3fcb99968, __wbg_innerWidth_60241abd729ed26f, __wbg_innerHeight_2f860a67225f1fbd, __wbg_new_6c05171898e5da27, __wbg_setcrossOrigin_a309b136be1bfc64, __wbg_new_4f753605d5d80054, __wbg_setresponseType_a1d73d7ce6da2807, __wbg_createFramebuffer_1b4177e55ee28baa, __wbg_bindFramebuffer_9e33974abcd4cff4, __wbg_framebufferTexture2D_e7ccac9b20c947d3, __wbg_lineWidth_c0c91a7d97340c9a, __wbg_setAttribute_727bdb9763037624, __wbg_setwidth_5f26a8ba9dbfa0d0, __wbg_setheight_70f62727aa9383c2, __wbg_getContext_37ca0870acb096d9, __wbg_instanceof_CanvasRenderingContext2d_5b86ec94bce38d5b, __wbg_clearColor_5941bfbf220e0165, __wbg_clear_256f95c85e2d5b47, __wbg_blendFunc_2dc4d7ca3062653e, __wbg_disable_edb7c38f0be19a38, __wbg_viewport_30b14839e31d0b61, __wbg_scissor_9d616e9402e84ad4, __wbg_uniform2f_3bcd4901604aedef, __wbg_drawElementsInstanced_8d8af84227d0e1e7, __wbg_uniform4f_1a2d24f9cb947d76, __wbg_drawArrays_3a2dad7dfe033972, __wbg_clearRect_d61bc1791ebc06b1, __wbg_setfont_7fb9fae174edc509, __wbg_settextAlign_ef9d091f8d27eff3, __wbg_setfillStyle_2da87acf76dcbbcb, __wbg_save_6d43ca6041c1ddb6, __wbg_translate_458add1387a34577, __wbg_rotate_1fae86d712dcdfd3, __wbg_fillText_bd212fc8e99ff788, __wbg_restore_be383cadf1440d72, __wbg_canvas_c3b5bcef078680ac, __wbg_new_59cb74e423758ede, __wbg_stack_558ba5917b466edd, __wbg_error_4bb6c2a97407129a, __wbg_self_07b2f89e82ceb76d, __wbg_window_ba85d88572adc0dc, __wbg_globalThis_b9277fc37e201fe5, __wbg_global_e16303fe83e1d57f, __wbindgen_is_undefined, __wbg_newnoargs_f3b8a801d5d4b079, __wbg_call_8e95613cc6524977, __wbg_newwithbyteoffsetandlength_f73969c100aaf71d, __wbg_newwithbyteoffsetandlength_205200207c0c1946, __wbindgen_debug_string, __wbg_uniform1fv_93a60284c15dcd64, __wbg_uniformMatrix4fv_7a754e2c7af71be4, __wbg_uniform3f_f6756fdfc5833abe, __wbg_uniform1iv_418d8c1495df6187, __wbg_createProgram_8d6f13ab051f686a, __wbg_attachShader_1924aa4a49a31418, __wbg_linkProgram_a5fd2d3a29f244c0, __wbg_getProgramParameter_d2854e9210e85494, __wbindgen_boolean_get, __wbg_getProgramInfoLog_221be6701c636176, __wbg_getActiveUniform_f736b9cae4dcb0b0, __wbg_name_27b4012d3621bcc1, __wbg_getUniformLocation_d6e4f5bee8a84579, __wbg_createShader_bc89b940e81883dd, __wbg_shaderSource_1804c02eec34a9c2, __wbg_compileShader_18c92b61889a02b6, __wbg_getShaderParameter_f942fc2044b16ba0, __wbg_getShaderInfoLog_1071a8467544f43b, __wbg_texSubImage2D_d380a6efac0b626d, __wbindgen_throw, __wbindgen_rethrow, __wbg_instanceof_Window_adf3196bdc02b386, __wbindgen_closure_wrapper244, __wbindgen_closure_wrapper246 */
+/*! exports provided: WebClient, __wbindgen_memory, __wbg_buffer_49131c283a06686f, __wbg_newwithbyteoffsetandlength_c0f38401daad5a22, __wbindgen_object_drop_ref, __wbg_new_9b295d24cf1d706f, __wbg_new_79f4487112eba5a7, __wbg_newwithbyteoffsetandlength_0515e4dbf41ebe10, __wbg_new_20cc9c1e8e319ac2, __wbg_newwithbyteoffsetandlength_17b60ac1a19c43e4, __wbg_new_066196c5e92c30d6, __wbg_createVertexArray_fd08eb7c8f8e86a3, __wbg_bindVertexArray_8bb02f8645a29e05, __wbg_createBuffer_7fadf474857a2122, __wbg_bindBuffer_6a7df3ea760a2c83, __wbg_bufferData_eb6e92d39c5a153c, __wbg_vertexAttribPointer_88010123ef756633, __wbg_enableVertexAttribArray_fafa57fbcd454495, __wbg_subarray_f5aa665f0873e6e8, __wbg_bufferSubData_9367b8c9fdec36a1, __wbg_useProgram_9523fdac78894a60, __wbg_uniform1i_a34df477d48c37e2, __wbg_uniform1f_4718a6fd4ea1bc6c, __wbg_drawElements_0376b48b08ac34a7, __wbindgen_cb_drop, __wbg_width_c44955d492197e44, __wbg_height_4e87e628e5b7c122, __wbindgen_object_clone_ref, __wbg_response_c6eaec6d637dbe7c, __wbg_length_2b13641a9d906653, __wbg_set_3bb960a9975f3cd2, __wbg_deleteVertexArray_b966baf643cbbf5b, __wbg_deleteBuffer_e06fcb6201291d2e, __wbg_deleteTexture_71c09d0186504319, __wbg_disableVertexAttribArray_30ea15bb3b3341be, __wbg_isArray_8719d1387c4e1aca, __wbg_length_079c4e509ec6d375, __wbg_get_27693110cb44e852, __wbindgen_json_serialize, __wbg_setsrc_4e562fe2dd3f545a, __wbg_setonload_ab35a7a2495b1678, __wbg_setonerror_b91169e64312f1fa, __wbg_open_846d7f9565940fa1, __wbg_setonload_5c646c079962be08, __wbg_setonerror_2dd497bd9cb227d3, __wbg_send_85a5d32b3e0745ad, __wbg_activeTexture_9d96cecdacbe1a7d, __wbg_bindTexture_a03a7320443c8a4d, __wbg_texSubImage2D_650825336255aff4, __wbg_texParameteri_f3be7a9c7fc03dac, __wbg_texImage2D_9e8b631ff0bf6320, __wbg_log_9aa6786f4afc2ed4, __wbg_measureText_103eb7f7c233d6c2, __wbg_width_108a5d3de792f243, __wbg_vertexAttribDivisor_a85514b841f07b19, __wbg_performance_8594a974edffb1dc, __wbg_now_49847177a6d1d57e, __wbg_document_6cc8d0b87c0a99b9, __wbg_getElementsByClassName_de38b280ba469c93, __wbg_getwithindex_a8925dc3b15a59c7, __wbg_instanceof_HtmlCanvasElement_4f5b5ec6cd53ccf3, __wbg_parse_ba49950ce04b31a1, __wbg_getContext_e7747f5b022c18e9, __wbg_instanceof_WebGl2RenderingContext_836e46859b2055b5, __wbg_blendFuncSeparate_202782033cc0fb52, __wbg_enable_28a715ea384ce803, __wbg_cullFace_82d5cfe3fcb99968, __wbg_innerWidth_60241abd729ed26f, __wbindgen_number_get, __wbg_innerHeight_2f860a67225f1fbd, __wbg_new_6c05171898e5da27, __wbg_setcrossOrigin_a309b136be1bfc64, __wbg_new_4f753605d5d80054, __wbindgen_string_new, __wbg_setresponseType_a1d73d7ce6da2807, __wbg_createTexture_e172faa9d6a303c1, __wbg_texImage2D_917b0bb22a5467b7, __wbg_createFramebuffer_1b4177e55ee28baa, __wbg_bindFramebuffer_9e33974abcd4cff4, __wbg_framebufferTexture2D_e7ccac9b20c947d3, __wbg_lineWidth_c0c91a7d97340c9a, __wbg_setAttribute_727bdb9763037624, __wbg_setwidth_5f26a8ba9dbfa0d0, __wbg_setheight_70f62727aa9383c2, __wbg_getContext_37ca0870acb096d9, __wbg_instanceof_CanvasRenderingContext2d_5b86ec94bce38d5b, __wbg_clearColor_5941bfbf220e0165, __wbg_clear_256f95c85e2d5b47, __wbg_blendFunc_2dc4d7ca3062653e, __wbg_disable_edb7c38f0be19a38, __wbg_viewport_30b14839e31d0b61, __wbg_scissor_9d616e9402e84ad4, __wbg_uniform2f_3bcd4901604aedef, __wbg_drawElementsInstanced_8d8af84227d0e1e7, __wbg_uniform4f_1a2d24f9cb947d76, __wbg_drawArrays_3a2dad7dfe033972, __wbg_clearRect_d61bc1791ebc06b1, __wbg_setfont_7fb9fae174edc509, __wbg_settextAlign_ef9d091f8d27eff3, __wbg_setfillStyle_2da87acf76dcbbcb, __wbg_save_6d43ca6041c1ddb6, __wbg_translate_458add1387a34577, __wbg_rotate_1fae86d712dcdfd3, __wbg_fillText_bd212fc8e99ff788, __wbg_restore_be383cadf1440d72, __wbg_canvas_c3b5bcef078680ac, __wbg_new_59cb74e423758ede, __wbg_stack_558ba5917b466edd, __wbg_error_4bb6c2a97407129a, __wbg_self_07b2f89e82ceb76d, __wbg_window_ba85d88572adc0dc, __wbg_globalThis_b9277fc37e201fe5, __wbg_global_e16303fe83e1d57f, __wbindgen_is_undefined, __wbg_newnoargs_f3b8a801d5d4b079, __wbg_call_8e95613cc6524977, __wbg_newwithbyteoffsetandlength_f73969c100aaf71d, __wbg_newwithbyteoffsetandlength_205200207c0c1946, __wbindgen_debug_string, __wbg_uniform1fv_93a60284c15dcd64, __wbg_uniformMatrix4fv_7a754e2c7af71be4, __wbg_uniform3f_f6756fdfc5833abe, __wbg_uniform1iv_418d8c1495df6187, __wbg_createProgram_8d6f13ab051f686a, __wbg_attachShader_1924aa4a49a31418, __wbg_linkProgram_a5fd2d3a29f244c0, __wbg_getProgramParameter_d2854e9210e85494, __wbindgen_boolean_get, __wbg_getProgramInfoLog_221be6701c636176, __wbg_getActiveUniform_f736b9cae4dcb0b0, __wbg_name_27b4012d3621bcc1, __wbg_getUniformLocation_d6e4f5bee8a84579, __wbg_createShader_bc89b940e81883dd, __wbg_shaderSource_1804c02eec34a9c2, __wbg_compileShader_18c92b61889a02b6, __wbg_getShaderParameter_f942fc2044b16ba0, __wbg_getShaderInfoLog_1071a8467544f43b, __wbg_texSubImage2D_d380a6efac0b626d, __wbindgen_throw, __wbindgen_rethrow, __wbg_instanceof_Window_adf3196bdc02b386, __wbindgen_closure_wrapper230, __wbindgen_closure_wrapper232 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -59,12 +59,6 @@ __webpack_require__.r(__webpack_exports__);
 
 /* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbg_drawElements_0376b48b08ac34a7", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbg_drawElements_0376b48b08ac34a7"]; });
 
-/* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_json_serialize", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbindgen_json_serialize"]; });
-
-/* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbg_getParameter_d680f5c6d50aba30", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbg_getParameter_d680f5c6d50aba30"]; });
-
-/* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_number_get", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbindgen_number_get"]; });
-
 /* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_cb_drop", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbindgen_cb_drop"]; });
 
 /* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbg_width_c44955d492197e44", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbg_width_c44955d492197e44"]; });
@@ -92,6 +86,8 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbg_length_079c4e509ec6d375", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbg_length_079c4e509ec6d375"]; });
 
 /* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbg_get_27693110cb44e852", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbg_get_27693110cb44e852"]; });
+
+/* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_json_serialize", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbindgen_json_serialize"]; });
 
 /* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbg_setsrc_4e562fe2dd3f545a", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbg_setsrc_4e562fe2dd3f545a"]; });
 
@@ -129,12 +125,6 @@ __webpack_require__.r(__webpack_exports__);
 
 /* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbg_now_49847177a6d1d57e", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbg_now_49847177a6d1d57e"]; });
 
-/* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_string_new", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbindgen_string_new"]; });
-
-/* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbg_createTexture_e172faa9d6a303c1", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbg_createTexture_e172faa9d6a303c1"]; });
-
-/* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbg_texImage2D_917b0bb22a5467b7", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbg_texImage2D_917b0bb22a5467b7"]; });
-
 /* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbg_document_6cc8d0b87c0a99b9", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbg_document_6cc8d0b87c0a99b9"]; });
 
 /* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbg_getElementsByClassName_de38b280ba469c93", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbg_getElementsByClassName_de38b280ba469c93"]; });
@@ -157,6 +147,8 @@ __webpack_require__.r(__webpack_exports__);
 
 /* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbg_innerWidth_60241abd729ed26f", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbg_innerWidth_60241abd729ed26f"]; });
 
+/* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_number_get", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbindgen_number_get"]; });
+
 /* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbg_innerHeight_2f860a67225f1fbd", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbg_innerHeight_2f860a67225f1fbd"]; });
 
 /* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbg_new_6c05171898e5da27", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbg_new_6c05171898e5da27"]; });
@@ -165,7 +157,13 @@ __webpack_require__.r(__webpack_exports__);
 
 /* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbg_new_4f753605d5d80054", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbg_new_4f753605d5d80054"]; });
 
+/* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_string_new", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbindgen_string_new"]; });
+
 /* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbg_setresponseType_a1d73d7ce6da2807", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbg_setresponseType_a1d73d7ce6da2807"]; });
+
+/* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbg_createTexture_e172faa9d6a303c1", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbg_createTexture_e172faa9d6a303c1"]; });
+
+/* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbg_texImage2D_917b0bb22a5467b7", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbg_texImage2D_917b0bb22a5467b7"]; });
 
 /* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbg_createFramebuffer_1b4177e55ee28baa", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbg_createFramebuffer_1b4177e55ee28baa"]; });
 
@@ -295,9 +293,9 @@ __webpack_require__.r(__webpack_exports__);
 
 /* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbg_instanceof_Window_adf3196bdc02b386", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbg_instanceof_Window_adf3196bdc02b386"]; });
 
-/* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_closure_wrapper244", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbindgen_closure_wrapper244"]; });
+/* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_closure_wrapper230", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbindgen_closure_wrapper230"]; });
 
-/* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_closure_wrapper246", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbindgen_closure_wrapper246"]; });
+/* harmony reexport (safe) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_closure_wrapper232", function() { return _index_bg_js__WEBPACK_IMPORTED_MODULE_1__["__wbindgen_closure_wrapper232"]; });
 
 
 
@@ -308,7 +306,7 @@ __webpack_require__.r(__webpack_exports__);
 /*!************************************!*\
   !*** ./src/render/pkg/index_bg.js ***!
   \************************************/
-/*! exports provided: WebClient, __wbindgen_memory, __wbg_buffer_49131c283a06686f, __wbg_newwithbyteoffsetandlength_c0f38401daad5a22, __wbindgen_object_drop_ref, __wbg_new_9b295d24cf1d706f, __wbg_new_79f4487112eba5a7, __wbg_newwithbyteoffsetandlength_0515e4dbf41ebe10, __wbg_new_20cc9c1e8e319ac2, __wbg_newwithbyteoffsetandlength_17b60ac1a19c43e4, __wbg_new_066196c5e92c30d6, __wbg_createVertexArray_fd08eb7c8f8e86a3, __wbg_bindVertexArray_8bb02f8645a29e05, __wbg_createBuffer_7fadf474857a2122, __wbg_bindBuffer_6a7df3ea760a2c83, __wbg_bufferData_eb6e92d39c5a153c, __wbg_vertexAttribPointer_88010123ef756633, __wbg_enableVertexAttribArray_fafa57fbcd454495, __wbg_subarray_f5aa665f0873e6e8, __wbg_bufferSubData_9367b8c9fdec36a1, __wbg_useProgram_9523fdac78894a60, __wbg_uniform1i_a34df477d48c37e2, __wbg_uniform1f_4718a6fd4ea1bc6c, __wbg_drawElements_0376b48b08ac34a7, __wbindgen_json_serialize, __wbg_getParameter_d680f5c6d50aba30, __wbindgen_number_get, __wbindgen_cb_drop, __wbg_width_c44955d492197e44, __wbg_height_4e87e628e5b7c122, __wbindgen_object_clone_ref, __wbg_response_c6eaec6d637dbe7c, __wbg_length_2b13641a9d906653, __wbg_set_3bb960a9975f3cd2, __wbg_deleteVertexArray_b966baf643cbbf5b, __wbg_deleteBuffer_e06fcb6201291d2e, __wbg_deleteTexture_71c09d0186504319, __wbg_disableVertexAttribArray_30ea15bb3b3341be, __wbg_isArray_8719d1387c4e1aca, __wbg_length_079c4e509ec6d375, __wbg_get_27693110cb44e852, __wbg_setsrc_4e562fe2dd3f545a, __wbg_setonload_ab35a7a2495b1678, __wbg_setonerror_b91169e64312f1fa, __wbg_open_846d7f9565940fa1, __wbg_setonload_5c646c079962be08, __wbg_setonerror_2dd497bd9cb227d3, __wbg_send_85a5d32b3e0745ad, __wbg_activeTexture_9d96cecdacbe1a7d, __wbg_bindTexture_a03a7320443c8a4d, __wbg_texSubImage2D_650825336255aff4, __wbg_texParameteri_f3be7a9c7fc03dac, __wbg_texImage2D_9e8b631ff0bf6320, __wbg_log_9aa6786f4afc2ed4, __wbg_measureText_103eb7f7c233d6c2, __wbg_width_108a5d3de792f243, __wbg_vertexAttribDivisor_a85514b841f07b19, __wbg_performance_8594a974edffb1dc, __wbg_now_49847177a6d1d57e, __wbindgen_string_new, __wbg_createTexture_e172faa9d6a303c1, __wbg_texImage2D_917b0bb22a5467b7, __wbg_document_6cc8d0b87c0a99b9, __wbg_getElementsByClassName_de38b280ba469c93, __wbg_getwithindex_a8925dc3b15a59c7, __wbg_instanceof_HtmlCanvasElement_4f5b5ec6cd53ccf3, __wbg_parse_ba49950ce04b31a1, __wbg_getContext_e7747f5b022c18e9, __wbg_instanceof_WebGl2RenderingContext_836e46859b2055b5, __wbg_blendFuncSeparate_202782033cc0fb52, __wbg_enable_28a715ea384ce803, __wbg_cullFace_82d5cfe3fcb99968, __wbg_innerWidth_60241abd729ed26f, __wbg_innerHeight_2f860a67225f1fbd, __wbg_new_6c05171898e5da27, __wbg_setcrossOrigin_a309b136be1bfc64, __wbg_new_4f753605d5d80054, __wbg_setresponseType_a1d73d7ce6da2807, __wbg_createFramebuffer_1b4177e55ee28baa, __wbg_bindFramebuffer_9e33974abcd4cff4, __wbg_framebufferTexture2D_e7ccac9b20c947d3, __wbg_lineWidth_c0c91a7d97340c9a, __wbg_setAttribute_727bdb9763037624, __wbg_setwidth_5f26a8ba9dbfa0d0, __wbg_setheight_70f62727aa9383c2, __wbg_getContext_37ca0870acb096d9, __wbg_instanceof_CanvasRenderingContext2d_5b86ec94bce38d5b, __wbg_clearColor_5941bfbf220e0165, __wbg_clear_256f95c85e2d5b47, __wbg_blendFunc_2dc4d7ca3062653e, __wbg_disable_edb7c38f0be19a38, __wbg_viewport_30b14839e31d0b61, __wbg_scissor_9d616e9402e84ad4, __wbg_uniform2f_3bcd4901604aedef, __wbg_drawElementsInstanced_8d8af84227d0e1e7, __wbg_uniform4f_1a2d24f9cb947d76, __wbg_drawArrays_3a2dad7dfe033972, __wbg_clearRect_d61bc1791ebc06b1, __wbg_setfont_7fb9fae174edc509, __wbg_settextAlign_ef9d091f8d27eff3, __wbg_setfillStyle_2da87acf76dcbbcb, __wbg_save_6d43ca6041c1ddb6, __wbg_translate_458add1387a34577, __wbg_rotate_1fae86d712dcdfd3, __wbg_fillText_bd212fc8e99ff788, __wbg_restore_be383cadf1440d72, __wbg_canvas_c3b5bcef078680ac, __wbg_new_59cb74e423758ede, __wbg_stack_558ba5917b466edd, __wbg_error_4bb6c2a97407129a, __wbg_self_07b2f89e82ceb76d, __wbg_window_ba85d88572adc0dc, __wbg_globalThis_b9277fc37e201fe5, __wbg_global_e16303fe83e1d57f, __wbindgen_is_undefined, __wbg_newnoargs_f3b8a801d5d4b079, __wbg_call_8e95613cc6524977, __wbg_newwithbyteoffsetandlength_f73969c100aaf71d, __wbg_newwithbyteoffsetandlength_205200207c0c1946, __wbindgen_debug_string, __wbg_uniform1fv_93a60284c15dcd64, __wbg_uniformMatrix4fv_7a754e2c7af71be4, __wbg_uniform3f_f6756fdfc5833abe, __wbg_uniform1iv_418d8c1495df6187, __wbg_createProgram_8d6f13ab051f686a, __wbg_attachShader_1924aa4a49a31418, __wbg_linkProgram_a5fd2d3a29f244c0, __wbg_getProgramParameter_d2854e9210e85494, __wbindgen_boolean_get, __wbg_getProgramInfoLog_221be6701c636176, __wbg_getActiveUniform_f736b9cae4dcb0b0, __wbg_name_27b4012d3621bcc1, __wbg_getUniformLocation_d6e4f5bee8a84579, __wbg_createShader_bc89b940e81883dd, __wbg_shaderSource_1804c02eec34a9c2, __wbg_compileShader_18c92b61889a02b6, __wbg_getShaderParameter_f942fc2044b16ba0, __wbg_getShaderInfoLog_1071a8467544f43b, __wbg_texSubImage2D_d380a6efac0b626d, __wbindgen_throw, __wbindgen_rethrow, __wbg_instanceof_Window_adf3196bdc02b386, __wbindgen_closure_wrapper244, __wbindgen_closure_wrapper246 */
+/*! exports provided: WebClient, __wbindgen_memory, __wbg_buffer_49131c283a06686f, __wbg_newwithbyteoffsetandlength_c0f38401daad5a22, __wbindgen_object_drop_ref, __wbg_new_9b295d24cf1d706f, __wbg_new_79f4487112eba5a7, __wbg_newwithbyteoffsetandlength_0515e4dbf41ebe10, __wbg_new_20cc9c1e8e319ac2, __wbg_newwithbyteoffsetandlength_17b60ac1a19c43e4, __wbg_new_066196c5e92c30d6, __wbg_createVertexArray_fd08eb7c8f8e86a3, __wbg_bindVertexArray_8bb02f8645a29e05, __wbg_createBuffer_7fadf474857a2122, __wbg_bindBuffer_6a7df3ea760a2c83, __wbg_bufferData_eb6e92d39c5a153c, __wbg_vertexAttribPointer_88010123ef756633, __wbg_enableVertexAttribArray_fafa57fbcd454495, __wbg_subarray_f5aa665f0873e6e8, __wbg_bufferSubData_9367b8c9fdec36a1, __wbg_useProgram_9523fdac78894a60, __wbg_uniform1i_a34df477d48c37e2, __wbg_uniform1f_4718a6fd4ea1bc6c, __wbg_drawElements_0376b48b08ac34a7, __wbindgen_cb_drop, __wbg_width_c44955d492197e44, __wbg_height_4e87e628e5b7c122, __wbindgen_object_clone_ref, __wbg_response_c6eaec6d637dbe7c, __wbg_length_2b13641a9d906653, __wbg_set_3bb960a9975f3cd2, __wbg_deleteVertexArray_b966baf643cbbf5b, __wbg_deleteBuffer_e06fcb6201291d2e, __wbg_deleteTexture_71c09d0186504319, __wbg_disableVertexAttribArray_30ea15bb3b3341be, __wbg_isArray_8719d1387c4e1aca, __wbg_length_079c4e509ec6d375, __wbg_get_27693110cb44e852, __wbindgen_json_serialize, __wbg_setsrc_4e562fe2dd3f545a, __wbg_setonload_ab35a7a2495b1678, __wbg_setonerror_b91169e64312f1fa, __wbg_open_846d7f9565940fa1, __wbg_setonload_5c646c079962be08, __wbg_setonerror_2dd497bd9cb227d3, __wbg_send_85a5d32b3e0745ad, __wbg_activeTexture_9d96cecdacbe1a7d, __wbg_bindTexture_a03a7320443c8a4d, __wbg_texSubImage2D_650825336255aff4, __wbg_texParameteri_f3be7a9c7fc03dac, __wbg_texImage2D_9e8b631ff0bf6320, __wbg_log_9aa6786f4afc2ed4, __wbg_measureText_103eb7f7c233d6c2, __wbg_width_108a5d3de792f243, __wbg_vertexAttribDivisor_a85514b841f07b19, __wbg_performance_8594a974edffb1dc, __wbg_now_49847177a6d1d57e, __wbg_document_6cc8d0b87c0a99b9, __wbg_getElementsByClassName_de38b280ba469c93, __wbg_getwithindex_a8925dc3b15a59c7, __wbg_instanceof_HtmlCanvasElement_4f5b5ec6cd53ccf3, __wbg_parse_ba49950ce04b31a1, __wbg_getContext_e7747f5b022c18e9, __wbg_instanceof_WebGl2RenderingContext_836e46859b2055b5, __wbg_blendFuncSeparate_202782033cc0fb52, __wbg_enable_28a715ea384ce803, __wbg_cullFace_82d5cfe3fcb99968, __wbg_innerWidth_60241abd729ed26f, __wbindgen_number_get, __wbg_innerHeight_2f860a67225f1fbd, __wbg_new_6c05171898e5da27, __wbg_setcrossOrigin_a309b136be1bfc64, __wbg_new_4f753605d5d80054, __wbindgen_string_new, __wbg_setresponseType_a1d73d7ce6da2807, __wbg_createTexture_e172faa9d6a303c1, __wbg_texImage2D_917b0bb22a5467b7, __wbg_createFramebuffer_1b4177e55ee28baa, __wbg_bindFramebuffer_9e33974abcd4cff4, __wbg_framebufferTexture2D_e7ccac9b20c947d3, __wbg_lineWidth_c0c91a7d97340c9a, __wbg_setAttribute_727bdb9763037624, __wbg_setwidth_5f26a8ba9dbfa0d0, __wbg_setheight_70f62727aa9383c2, __wbg_getContext_37ca0870acb096d9, __wbg_instanceof_CanvasRenderingContext2d_5b86ec94bce38d5b, __wbg_clearColor_5941bfbf220e0165, __wbg_clear_256f95c85e2d5b47, __wbg_blendFunc_2dc4d7ca3062653e, __wbg_disable_edb7c38f0be19a38, __wbg_viewport_30b14839e31d0b61, __wbg_scissor_9d616e9402e84ad4, __wbg_uniform2f_3bcd4901604aedef, __wbg_drawElementsInstanced_8d8af84227d0e1e7, __wbg_uniform4f_1a2d24f9cb947d76, __wbg_drawArrays_3a2dad7dfe033972, __wbg_clearRect_d61bc1791ebc06b1, __wbg_setfont_7fb9fae174edc509, __wbg_settextAlign_ef9d091f8d27eff3, __wbg_setfillStyle_2da87acf76dcbbcb, __wbg_save_6d43ca6041c1ddb6, __wbg_translate_458add1387a34577, __wbg_rotate_1fae86d712dcdfd3, __wbg_fillText_bd212fc8e99ff788, __wbg_restore_be383cadf1440d72, __wbg_canvas_c3b5bcef078680ac, __wbg_new_59cb74e423758ede, __wbg_stack_558ba5917b466edd, __wbg_error_4bb6c2a97407129a, __wbg_self_07b2f89e82ceb76d, __wbg_window_ba85d88572adc0dc, __wbg_globalThis_b9277fc37e201fe5, __wbg_global_e16303fe83e1d57f, __wbindgen_is_undefined, __wbg_newnoargs_f3b8a801d5d4b079, __wbg_call_8e95613cc6524977, __wbg_newwithbyteoffsetandlength_f73969c100aaf71d, __wbg_newwithbyteoffsetandlength_205200207c0c1946, __wbindgen_debug_string, __wbg_uniform1fv_93a60284c15dcd64, __wbg_uniformMatrix4fv_7a754e2c7af71be4, __wbg_uniform3f_f6756fdfc5833abe, __wbg_uniform1iv_418d8c1495df6187, __wbg_createProgram_8d6f13ab051f686a, __wbg_attachShader_1924aa4a49a31418, __wbg_linkProgram_a5fd2d3a29f244c0, __wbg_getProgramParameter_d2854e9210e85494, __wbindgen_boolean_get, __wbg_getProgramInfoLog_221be6701c636176, __wbg_getActiveUniform_f736b9cae4dcb0b0, __wbg_name_27b4012d3621bcc1, __wbg_getUniformLocation_d6e4f5bee8a84579, __wbg_createShader_bc89b940e81883dd, __wbg_shaderSource_1804c02eec34a9c2, __wbg_compileShader_18c92b61889a02b6, __wbg_getShaderParameter_f942fc2044b16ba0, __wbg_getShaderInfoLog_1071a8467544f43b, __wbg_texSubImage2D_d380a6efac0b626d, __wbindgen_throw, __wbindgen_rethrow, __wbg_instanceof_Window_adf3196bdc02b386, __wbindgen_closure_wrapper230, __wbindgen_closure_wrapper232 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -337,9 +335,6 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_uniform1i_a34df477d48c37e2", function() { return __wbg_uniform1i_a34df477d48c37e2; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_uniform1f_4718a6fd4ea1bc6c", function() { return __wbg_uniform1f_4718a6fd4ea1bc6c; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_drawElements_0376b48b08ac34a7", function() { return __wbg_drawElements_0376b48b08ac34a7; });
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_json_serialize", function() { return __wbindgen_json_serialize; });
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_getParameter_d680f5c6d50aba30", function() { return __wbg_getParameter_d680f5c6d50aba30; });
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_number_get", function() { return __wbindgen_number_get; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_cb_drop", function() { return __wbindgen_cb_drop; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_width_c44955d492197e44", function() { return __wbg_width_c44955d492197e44; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_height_4e87e628e5b7c122", function() { return __wbg_height_4e87e628e5b7c122; });
@@ -354,6 +349,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_isArray_8719d1387c4e1aca", function() { return __wbg_isArray_8719d1387c4e1aca; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_length_079c4e509ec6d375", function() { return __wbg_length_079c4e509ec6d375; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_get_27693110cb44e852", function() { return __wbg_get_27693110cb44e852; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_json_serialize", function() { return __wbindgen_json_serialize; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_setsrc_4e562fe2dd3f545a", function() { return __wbg_setsrc_4e562fe2dd3f545a; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_setonload_ab35a7a2495b1678", function() { return __wbg_setonload_ab35a7a2495b1678; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_setonerror_b91169e64312f1fa", function() { return __wbg_setonerror_b91169e64312f1fa; });
@@ -372,9 +368,6 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_vertexAttribDivisor_a85514b841f07b19", function() { return __wbg_vertexAttribDivisor_a85514b841f07b19; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_performance_8594a974edffb1dc", function() { return __wbg_performance_8594a974edffb1dc; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_now_49847177a6d1d57e", function() { return __wbg_now_49847177a6d1d57e; });
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_string_new", function() { return __wbindgen_string_new; });
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_createTexture_e172faa9d6a303c1", function() { return __wbg_createTexture_e172faa9d6a303c1; });
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_texImage2D_917b0bb22a5467b7", function() { return __wbg_texImage2D_917b0bb22a5467b7; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_document_6cc8d0b87c0a99b9", function() { return __wbg_document_6cc8d0b87c0a99b9; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_getElementsByClassName_de38b280ba469c93", function() { return __wbg_getElementsByClassName_de38b280ba469c93; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_getwithindex_a8925dc3b15a59c7", function() { return __wbg_getwithindex_a8925dc3b15a59c7; });
@@ -386,11 +379,15 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_enable_28a715ea384ce803", function() { return __wbg_enable_28a715ea384ce803; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_cullFace_82d5cfe3fcb99968", function() { return __wbg_cullFace_82d5cfe3fcb99968; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_innerWidth_60241abd729ed26f", function() { return __wbg_innerWidth_60241abd729ed26f; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_number_get", function() { return __wbindgen_number_get; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_innerHeight_2f860a67225f1fbd", function() { return __wbg_innerHeight_2f860a67225f1fbd; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_new_6c05171898e5da27", function() { return __wbg_new_6c05171898e5da27; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_setcrossOrigin_a309b136be1bfc64", function() { return __wbg_setcrossOrigin_a309b136be1bfc64; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_new_4f753605d5d80054", function() { return __wbg_new_4f753605d5d80054; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_string_new", function() { return __wbindgen_string_new; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_setresponseType_a1d73d7ce6da2807", function() { return __wbg_setresponseType_a1d73d7ce6da2807; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_createTexture_e172faa9d6a303c1", function() { return __wbg_createTexture_e172faa9d6a303c1; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_texImage2D_917b0bb22a5467b7", function() { return __wbg_texImage2D_917b0bb22a5467b7; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_createFramebuffer_1b4177e55ee28baa", function() { return __wbg_createFramebuffer_1b4177e55ee28baa; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_bindFramebuffer_9e33974abcd4cff4", function() { return __wbg_bindFramebuffer_9e33974abcd4cff4; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_framebufferTexture2D_e7ccac9b20c947d3", function() { return __wbg_framebufferTexture2D_e7ccac9b20c947d3; });
@@ -455,8 +452,8 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_throw", function() { return __wbindgen_throw; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_rethrow", function() { return __wbindgen_rethrow; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbg_instanceof_Window_adf3196bdc02b386", function() { return __wbg_instanceof_Window_adf3196bdc02b386; });
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_closure_wrapper244", function() { return __wbindgen_closure_wrapper244; });
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_closure_wrapper246", function() { return __wbindgen_closure_wrapper246; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_closure_wrapper230", function() { return __wbindgen_closure_wrapper230; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "__wbindgen_closure_wrapper232", function() { return __wbindgen_closure_wrapper232; });
 /* harmony import */ var _index_bg_wasm__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./index_bg.wasm */ "./src/render/pkg/index_bg.wasm");
 
 
@@ -489,6 +486,12 @@ function takeObject(idx) {
     const ret = getObject(idx);
     dropObject(idx);
     return ret;
+}
+
+function _assertBoolean(n) {
+    if (typeof(n) !== 'boolean') {
+        throw new Error('expected a boolean argument');
+    }
 }
 
 let WASM_VECTOR_LEN = 0;
@@ -580,12 +583,6 @@ function getFloat64Memory0() {
         cachegetFloat64Memory0 = new Float64Array(_index_bg_wasm__WEBPACK_IMPORTED_MODULE_0__["memory"].buffer);
     }
     return cachegetFloat64Memory0;
-}
-
-function _assertBoolean(n) {
-    if (typeof(n) !== 'boolean') {
-        throw new Error('expected a boolean argument');
-    }
 }
 
 const lTextDecoder = typeof TextDecoder === 'undefined' ? (0, module.require)('util').TextDecoder : TextDecoder;
@@ -751,6 +748,24 @@ function __wbg_adapter_29(arg0, arg1, arg2) {
     }
 }
 
+let cachegetUint32Memory0 = null;
+function getUint32Memory0() {
+    if (cachegetUint32Memory0 === null || cachegetUint32Memory0.buffer !== _index_bg_wasm__WEBPACK_IMPORTED_MODULE_0__["memory"].buffer) {
+        cachegetUint32Memory0 = new Uint32Array(_index_bg_wasm__WEBPACK_IMPORTED_MODULE_0__["memory"].buffer);
+    }
+    return cachegetUint32Memory0;
+}
+
+function passArrayJsValueToWasm0(array, malloc) {
+    const ptr = malloc(array.length * 4);
+    const mem = getUint32Memory0();
+    for (let i = 0; i < array.length; i++) {
+        mem[ptr / 4 + i] = addHeapObject(array[i]);
+    }
+    WASM_VECTOR_LEN = array.length;
+    return ptr;
+}
+
 function getArrayF64FromWasm0(ptr, len) {
     return getFloat64Memory0().subarray(ptr / 8, ptr / 8 + len);
 }
@@ -876,28 +891,24 @@ class WebClient {
         _index_bg_wasm__WEBPACK_IMPORTED_MODULE_0__["webclient_set_grid_opacity"](this.ptr, alpha);
     }
     /**
-    * @param {any} hips
+    * @param {any[]} hipses
     */
-    setSimpleHiPS(hips) {
+    setHiPS(hipses) {
         if (this.ptr == 0) throw new Error('Attempt to use a moved value');
         _assertNum(this.ptr);
-        _index_bg_wasm__WEBPACK_IMPORTED_MODULE_0__["webclient_setSimpleHiPS"](this.ptr, addHeapObject(hips));
+        var ptr0 = passArrayJsValueToWasm0(hipses, _index_bg_wasm__WEBPACK_IMPORTED_MODULE_0__["__wbindgen_malloc"]);
+        var len0 = WASM_VECTOR_LEN;
+        _index_bg_wasm__WEBPACK_IMPORTED_MODULE_0__["webclient_setHiPS"](this.ptr, ptr0, len0);
     }
     /**
-    * @param {any} hips
+    * @param {any[]} hipses
     */
-    setCompositeHiPS(hips) {
+    setOverlayHiPS(hipses) {
         if (this.ptr == 0) throw new Error('Attempt to use a moved value');
         _assertNum(this.ptr);
-        _index_bg_wasm__WEBPACK_IMPORTED_MODULE_0__["webclient_setCompositeHiPS"](this.ptr, addHeapObject(hips));
-    }
-    /**
-    * @param {any} hips
-    */
-    setOverlaySimpleHiPS(hips) {
-        if (this.ptr == 0) throw new Error('Attempt to use a moved value');
-        _assertNum(this.ptr);
-        _index_bg_wasm__WEBPACK_IMPORTED_MODULE_0__["webclient_setOverlaySimpleHiPS"](this.ptr, addHeapObject(hips));
+        var ptr0 = passArrayJsValueToWasm0(hipses, _index_bg_wasm__WEBPACK_IMPORTED_MODULE_0__["__wbindgen_malloc"]);
+        var len0 = WASM_VECTOR_LEN;
+        _index_bg_wasm__WEBPACK_IMPORTED_MODULE_0__["webclient_setOverlayHiPS"](this.ptr, ptr0, len0);
     }
     /**
     */
@@ -905,14 +916,6 @@ class WebClient {
         if (this.ptr == 0) throw new Error('Attempt to use a moved value');
         _assertNum(this.ptr);
         _index_bg_wasm__WEBPACK_IMPORTED_MODULE_0__["webclient_removeOverlayHiPS"](this.ptr);
-    }
-    /**
-    * @param {any} hipses
-    */
-    setOverlayCompositeHiPS(hipses) {
-        if (this.ptr == 0) throw new Error('Attempt to use a moved value');
-        _assertNum(this.ptr);
-        _index_bg_wasm__WEBPACK_IMPORTED_MODULE_0__["webclient_setOverlayCompositeHiPS"](this.ptr, addHeapObject(hipses));
     }
     /**
     * @param {number} opacity
@@ -1301,30 +1304,6 @@ const __wbg_drawElements_0376b48b08ac34a7 = logError(function(arg0, arg1, arg2, 
     getObject(arg0).drawElements(arg1 >>> 0, arg2, arg3 >>> 0, arg4);
 });
 
-const __wbindgen_json_serialize = function(arg0, arg1) {
-    const obj = getObject(arg1);
-    var ret = JSON.stringify(obj === undefined ? null : obj);
-    var ptr0 = passStringToWasm0(ret, _index_bg_wasm__WEBPACK_IMPORTED_MODULE_0__["__wbindgen_malloc"], _index_bg_wasm__WEBPACK_IMPORTED_MODULE_0__["__wbindgen_realloc"]);
-    var len0 = WASM_VECTOR_LEN;
-    getInt32Memory0()[arg0 / 4 + 1] = len0;
-    getInt32Memory0()[arg0 / 4 + 0] = ptr0;
-};
-
-const __wbg_getParameter_d680f5c6d50aba30 = handleError(function(arg0, arg1) {
-    var ret = getObject(arg0).getParameter(arg1 >>> 0);
-    return addHeapObject(ret);
-});
-
-const __wbindgen_number_get = function(arg0, arg1) {
-    const obj = getObject(arg1);
-    var ret = typeof(obj) === 'number' ? obj : undefined;
-    if (!isLikeNone(ret)) {
-        _assertNum(ret);
-    }
-    getFloat64Memory0()[arg0 / 8 + 1] = isLikeNone(ret) ? 0 : ret;
-    getInt32Memory0()[arg0 / 4 + 0] = !isLikeNone(ret);
-};
-
 const __wbindgen_cb_drop = function(arg0) {
     const obj = takeObject(arg0).original;
     if (obj.cnt-- == 1) {
@@ -1400,6 +1379,15 @@ const __wbg_get_27693110cb44e852 = logError(function(arg0, arg1) {
     var ret = getObject(arg0)[arg1 >>> 0];
     return addHeapObject(ret);
 });
+
+const __wbindgen_json_serialize = function(arg0, arg1) {
+    const obj = getObject(arg1);
+    var ret = JSON.stringify(obj === undefined ? null : obj);
+    var ptr0 = passStringToWasm0(ret, _index_bg_wasm__WEBPACK_IMPORTED_MODULE_0__["__wbindgen_malloc"], _index_bg_wasm__WEBPACK_IMPORTED_MODULE_0__["__wbindgen_realloc"]);
+    var len0 = WASM_VECTOR_LEN;
+    getInt32Memory0()[arg0 / 4 + 1] = len0;
+    getInt32Memory0()[arg0 / 4 + 0] = ptr0;
+};
 
 const __wbg_setsrc_4e562fe2dd3f545a = logError(function(arg0, arg1, arg2) {
     getObject(arg0).src = getStringFromWasm0(arg1, arg2);
@@ -1477,20 +1465,6 @@ const __wbg_now_49847177a6d1d57e = logError(function(arg0) {
     return ret;
 });
 
-const __wbindgen_string_new = function(arg0, arg1) {
-    var ret = getStringFromWasm0(arg0, arg1);
-    return addHeapObject(ret);
-};
-
-const __wbg_createTexture_e172faa9d6a303c1 = logError(function(arg0) {
-    var ret = getObject(arg0).createTexture();
-    return isLikeNone(ret) ? 0 : addHeapObject(ret);
-});
-
-const __wbg_texImage2D_917b0bb22a5467b7 = handleError(function(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10) {
-    getObject(arg0).texImage2D(arg1 >>> 0, arg2, arg3, arg4, arg5, arg6, arg7 >>> 0, arg8 >>> 0, arg9 === 0 ? undefined : getArrayU8FromWasm0(arg9, arg10));
-});
-
 const __wbg_document_6cc8d0b87c0a99b9 = logError(function(arg0) {
     var ret = getObject(arg0).document;
     return isLikeNone(ret) ? 0 : addHeapObject(ret);
@@ -1545,6 +1519,16 @@ const __wbg_innerWidth_60241abd729ed26f = handleError(function(arg0) {
     return addHeapObject(ret);
 });
 
+const __wbindgen_number_get = function(arg0, arg1) {
+    const obj = getObject(arg1);
+    var ret = typeof(obj) === 'number' ? obj : undefined;
+    if (!isLikeNone(ret)) {
+        _assertNum(ret);
+    }
+    getFloat64Memory0()[arg0 / 8 + 1] = isLikeNone(ret) ? 0 : ret;
+    getInt32Memory0()[arg0 / 4 + 0] = !isLikeNone(ret);
+};
+
 const __wbg_innerHeight_2f860a67225f1fbd = handleError(function(arg0) {
     var ret = getObject(arg0).innerHeight;
     return addHeapObject(ret);
@@ -1564,8 +1548,22 @@ const __wbg_new_4f753605d5d80054 = handleError(function() {
     return addHeapObject(ret);
 });
 
+const __wbindgen_string_new = function(arg0, arg1) {
+    var ret = getStringFromWasm0(arg0, arg1);
+    return addHeapObject(ret);
+};
+
 const __wbg_setresponseType_a1d73d7ce6da2807 = logError(function(arg0, arg1) {
     getObject(arg0).responseType = takeObject(arg1);
+});
+
+const __wbg_createTexture_e172faa9d6a303c1 = logError(function(arg0) {
+    var ret = getObject(arg0).createTexture();
+    return isLikeNone(ret) ? 0 : addHeapObject(ret);
+});
+
+const __wbg_texImage2D_917b0bb22a5467b7 = handleError(function(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10) {
+    getObject(arg0).texImage2D(arg1 >>> 0, arg2, arg3, arg4, arg5, arg6, arg7 >>> 0, arg8 >>> 0, arg9 === 0 ? undefined : getArrayU8FromWasm0(arg9, arg10));
 });
 
 const __wbg_createFramebuffer_1b4177e55ee28baa = logError(function(arg0) {
@@ -1875,12 +1873,12 @@ const __wbg_instanceof_Window_adf3196bdc02b386 = logError(function(arg0) {
     return ret;
 });
 
-const __wbindgen_closure_wrapper244 = logError(function(arg0, arg1, arg2) {
+const __wbindgen_closure_wrapper230 = logError(function(arg0, arg1, arg2) {
     var ret = makeClosure(arg0, arg1, 9, __wbg_adapter_26);
     return addHeapObject(ret);
 });
 
-const __wbindgen_closure_wrapper246 = logError(function(arg0, arg1, arg2) {
+const __wbindgen_closure_wrapper232 = logError(function(arg0, arg1, arg2) {
     var ret = makeMutClosure(arg0, arg1, 9, __wbg_adapter_29);
     return addHeapObject(ret);
 });
@@ -1894,7 +1892,7 @@ const __wbindgen_closure_wrapper246 = logError(function(arg0, arg1, arg2) {
 /*!**************************************!*\
   !*** ./src/render/pkg/index_bg.wasm ***!
   \**************************************/
-/*! exports provided: memory, __wbg_webclient_free, webclient_new, webclient_update, webclient_render, webclient_setProjection, webclient_setLongitudeReversed, webclient_setGridColor, webclient_set_grid_opacity, webclient_setSimpleHiPS, webclient_setCompositeHiPS, webclient_setOverlaySimpleHiPS, webclient_removeOverlayHiPS, webclient_setOverlayCompositeHiPS, webclient_setOverlayOpacity, webclient_worldToScreen, webclient_screenToWorld, webclient_getFieldOfView, webclient_setFieldOfView, webclient_registerWheelEvent, webclient_projectLine, webclient_enableGrid, webclient_hideGridLabels, webclient_showGridLabels, webclient_disableGrid, webclient_getMaxFieldOfView, webclient_getCenter, webclient_getClipZoomFactor, webclient_moveToLocation, webclient_setCenter, webclient_releaseLeftButtonMouse, webclient_pressLeftMouseButton, webclient_goFromTo, webclient_addCatalog, webclient_setCatalogOpacity, webclient_setCatalogColormap, webclient_setCatalogKernelStrength, webclient_resize, __wbindgen_malloc, __wbindgen_realloc, __wbindgen_export_2, _dyn_core__ops__function__Fn_____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h79633fff863e5616, _dyn_core__ops__function__FnMut___A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h67c5af5818ec518c, __wbindgen_export_5, __wbindgen_free, __wbindgen_exn_store */
+/*! exports provided: memory, __wbg_webclient_free, webclient_new, webclient_update, webclient_render, webclient_setProjection, webclient_setLongitudeReversed, webclient_setGridColor, webclient_set_grid_opacity, webclient_setHiPS, webclient_setOverlayHiPS, webclient_removeOverlayHiPS, webclient_setOverlayOpacity, webclient_worldToScreen, webclient_screenToWorld, webclient_getFieldOfView, webclient_setFieldOfView, webclient_registerWheelEvent, webclient_projectLine, webclient_enableGrid, webclient_hideGridLabels, webclient_showGridLabels, webclient_disableGrid, webclient_getMaxFieldOfView, webclient_getCenter, webclient_getClipZoomFactor, webclient_moveToLocation, webclient_setCenter, webclient_releaseLeftButtonMouse, webclient_pressLeftMouseButton, webclient_goFromTo, webclient_addCatalog, webclient_setCatalogOpacity, webclient_setCatalogColormap, webclient_setCatalogKernelStrength, webclient_resize, __wbindgen_malloc, __wbindgen_realloc, __wbindgen_export_2, _dyn_core__ops__function__Fn_____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h79633fff863e5616, _dyn_core__ops__function__FnMut___A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h67c5af5818ec518c, __wbindgen_export_5, __wbindgen_free, __wbindgen_exn_store */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";

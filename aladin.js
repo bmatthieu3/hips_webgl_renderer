@@ -124,15 +124,6 @@
 /******/ 					"__wbg_drawElements_0376b48b08ac34a7": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
 /******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbg_drawElements_0376b48b08ac34a7"](p0i32,p1i32,p2i32,p3i32,p4i32);
 /******/ 					},
-/******/ 					"__wbindgen_json_serialize": function(p0i32,p1i32) {
-/******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbindgen_json_serialize"](p0i32,p1i32);
-/******/ 					},
-/******/ 					"__wbg_getParameter_d680f5c6d50aba30": function(p0i32,p1i32) {
-/******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbg_getParameter_d680f5c6d50aba30"](p0i32,p1i32);
-/******/ 					},
-/******/ 					"__wbindgen_number_get": function(p0i32,p1i32) {
-/******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbindgen_number_get"](p0i32,p1i32);
-/******/ 					},
 /******/ 					"__wbindgen_cb_drop": function(p0i32) {
 /******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbindgen_cb_drop"](p0i32);
 /******/ 					},
@@ -174,6 +165,9 @@
 /******/ 					},
 /******/ 					"__wbg_get_27693110cb44e852": function(p0i32,p1i32) {
 /******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbg_get_27693110cb44e852"](p0i32,p1i32);
+/******/ 					},
+/******/ 					"__wbindgen_json_serialize": function(p0i32,p1i32) {
+/******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbindgen_json_serialize"](p0i32,p1i32);
 /******/ 					},
 /******/ 					"__wbg_setsrc_4e562fe2dd3f545a": function(p0i32,p1i32,p2i32) {
 /******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbg_setsrc_4e562fe2dd3f545a"](p0i32,p1i32,p2i32);
@@ -229,15 +223,6 @@
 /******/ 					"__wbg_now_49847177a6d1d57e": function(p0i32) {
 /******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbg_now_49847177a6d1d57e"](p0i32);
 /******/ 					},
-/******/ 					"__wbindgen_string_new": function(p0i32,p1i32) {
-/******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbindgen_string_new"](p0i32,p1i32);
-/******/ 					},
-/******/ 					"__wbg_createTexture_e172faa9d6a303c1": function(p0i32) {
-/******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbg_createTexture_e172faa9d6a303c1"](p0i32);
-/******/ 					},
-/******/ 					"__wbg_texImage2D_917b0bb22a5467b7": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32,p8i32,p9i32,p10i32) {
-/******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbg_texImage2D_917b0bb22a5467b7"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32,p8i32,p9i32,p10i32);
-/******/ 					},
 /******/ 					"__wbg_document_6cc8d0b87c0a99b9": function(p0i32) {
 /******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbg_document_6cc8d0b87c0a99b9"](p0i32);
 /******/ 					},
@@ -271,6 +256,9 @@
 /******/ 					"__wbg_innerWidth_60241abd729ed26f": function(p0i32) {
 /******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbg_innerWidth_60241abd729ed26f"](p0i32);
 /******/ 					},
+/******/ 					"__wbindgen_number_get": function(p0i32,p1i32) {
+/******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbindgen_number_get"](p0i32,p1i32);
+/******/ 					},
 /******/ 					"__wbg_innerHeight_2f860a67225f1fbd": function(p0i32) {
 /******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbg_innerHeight_2f860a67225f1fbd"](p0i32);
 /******/ 					},
@@ -283,8 +271,17 @@
 /******/ 					"__wbg_new_4f753605d5d80054": function() {
 /******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbg_new_4f753605d5d80054"]();
 /******/ 					},
+/******/ 					"__wbindgen_string_new": function(p0i32,p1i32) {
+/******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbindgen_string_new"](p0i32,p1i32);
+/******/ 					},
 /******/ 					"__wbg_setresponseType_a1d73d7ce6da2807": function(p0i32,p1i32) {
 /******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbg_setresponseType_a1d73d7ce6da2807"](p0i32,p1i32);
+/******/ 					},
+/******/ 					"__wbg_createTexture_e172faa9d6a303c1": function(p0i32) {
+/******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbg_createTexture_e172faa9d6a303c1"](p0i32);
+/******/ 					},
+/******/ 					"__wbg_texImage2D_917b0bb22a5467b7": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32,p8i32,p9i32,p10i32) {
+/******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbg_texImage2D_917b0bb22a5467b7"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32,p8i32,p9i32,p10i32);
 /******/ 					},
 /******/ 					"__wbg_createFramebuffer_1b4177e55ee28baa": function(p0i32) {
 /******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbg_createFramebuffer_1b4177e55ee28baa"](p0i32);
@@ -478,11 +475,11 @@
 /******/ 					"__wbg_instanceof_Window_adf3196bdc02b386": function(p0i32) {
 /******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbg_instanceof_Window_adf3196bdc02b386"](p0i32);
 /******/ 					},
-/******/ 					"__wbindgen_closure_wrapper244": function(p0i32,p1i32,p2i32) {
-/******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbindgen_closure_wrapper244"](p0i32,p1i32,p2i32);
+/******/ 					"__wbindgen_closure_wrapper230": function(p0i32,p1i32,p2i32) {
+/******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbindgen_closure_wrapper230"](p0i32,p1i32,p2i32);
 /******/ 					},
-/******/ 					"__wbindgen_closure_wrapper246": function(p0i32,p1i32,p2i32) {
-/******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbindgen_closure_wrapper246"](p0i32,p1i32,p2i32);
+/******/ 					"__wbindgen_closure_wrapper232": function(p0i32,p1i32,p2i32) {
+/******/ 						return installedModules["./src/render/pkg/index_bg.js"].exports["__wbindgen_closure_wrapper232"](p0i32,p1i32,p2i32);
 /******/ 					}
 /******/ 				},
 /******/ 				"./snippets/webgl-59ec32a320fb2ac3/catalog.js": {
@@ -599,7 +596,7 @@
 /******/ 				promises.push(installedWasmModuleData);
 /******/ 			else {
 /******/ 				var importObject = wasmImportObjects[wasmModuleId]();
-/******/ 				var req = fetch(__webpack_require__.p + "" + {"./src/render/pkg/index_bg.wasm":"47d7e9a76ee003727b4b","./node_modules/@fxpineau/healpix/healpix_bg.wasm":"4b971868181910368ee1"}[wasmModuleId] + ".module.wasm");
+/******/ 				var req = fetch(__webpack_require__.p + "" + {"./src/render/pkg/index_bg.wasm":"55825135b30f32558267","./node_modules/@fxpineau/healpix/healpix_bg.wasm":"4b971868181910368ee1"}[wasmModuleId] + ".module.wasm");
 /******/ 				var promise;
 /******/ 				if(importObject instanceof Promise && typeof WebAssembly.compileStreaming === 'function') {
 /******/ 					promise = Promise.all([WebAssembly.compileStreaming(req), importObject]).then(function(items) {
@@ -82353,28 +82350,30 @@ let View = (function() {
             };
             this.aladin.webglAPI = new _Aladin_js__WEBPACK_IMPORTED_MODULE_0__["Aladin"].wasmLibs.webgl.WebClient(shaders, resources);
             this.aladin.webglAPI.resize(500, 400);
-            this.aladin.webglAPI.setSimpleHiPS({
-                properties: {
-                    url: "https://alasky.u-strasbg.fr/DSS/DSS2Merged",
-            
-                    maxOrder: 9,
-                    frame: { label: "J2000", system: "J2000" },
-                    tileSize: 512,
-                    format: {
-                        FITSImage: {
-                            bitpix: 16,
+            this.aladin.webglAPI.setHiPS([
+                {
+                    properties: {
+                        url: "https://alasky.u-strasbg.fr/DSS/DSS2Merged",
+                
+                        maxOrder: 9,
+                        frame: { label: "J2000", system: "J2000" },
+                        tileSize: 512,
+                        format: {
+                            FITSImage: {
+                                bitpix: 16,
+                            }
+                        },
+                        minCutout: 500,
+                        maxCutout: 25000,
+                    },
+                    color: {
+                        Grayscale2Colormap: {
+                            colormap: "RedTemperature",
+                            transfer: "sqrt"
                         }
                     },
-                    minCutout: 500,
-                    maxCutout: 25000,
-                },
-                color: {
-                    Grayscale2Colormap: {
-                        colormap: "RedTemperature",
-                        transfer: "sqrt"
-                    }
-                },
-            });
+                }
+            ]);
 
             this.location = location;
             this.fovDiv = fovDiv;
