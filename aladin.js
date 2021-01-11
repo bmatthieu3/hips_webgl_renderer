@@ -73779,15 +73779,15 @@ let Aladin = (function () {
     // @old
     Aladin.prototype.setImageSurvey = function (imageSurvey) {
         this.view.setImageSurvey(imageSurvey);
-        this.updateSurveysDropdownList(_HpxImageSurvey_js__WEBPACK_IMPORTED_MODULE_16__["HpxImageSurvey"].getAvailableSurveys());
+        /*this.updateSurveysDropdownList(HpxImageSurvey.getAvailableSurveys());
         if (this.options.log) {
             var id = imageSurvey;
             if (typeof imageSurvey !== "string") {
                 id = imageSurvey.rootUrl;
             }
 
-            _Logger_js__WEBPACK_IMPORTED_MODULE_8__["Logger"].log("changeImageSurvey", id);
-        }
+            Logger.log("changeImageSurvey", id);
+        }*/
     };
     // @api
     Aladin.prototype.setBaseImageLayer = Aladin.prototype.setImageSurvey;
@@ -73803,17 +73803,19 @@ let Aladin = (function () {
 
 
     Aladin.prototype.increaseZoom = function (step) {
-        if (!step) {
-            step = 5;
-        }
-        this.view.setZoomLevel(this.view.zoomLevel + step);
+        //if (!step) {
+        //    step = 5;
+        //}
+        //this.view.setZoomLevel(this.view.zoomLevel + step);
+        this.view.increaseZoom();
     };
 
     Aladin.prototype.decreaseZoom = function (step) {
-        if (!step) {
-            step = 5;
-        }
-        this.view.setZoomLevel(this.view.zoomLevel - step);
+        //if (!step) {
+        //    step = 5;
+        //}
+        //this.view.setZoomLevel(this.view.zoomLevel - step);
+        this.view.decreaseZoom();
     };
 
 
@@ -73891,6 +73893,8 @@ let Aladin = (function () {
         for (var k = 0; k < _ColorMap_js__WEBPACK_IMPORTED_MODULE_20__["ColorMap"].MAPS_NAMES.length; k++) {
             cmSelect.append($("<option />").text(_ColorMap_js__WEBPACK_IMPORTED_MODULE_20__["ColorMap"].MAPS_NAMES[k]));
         }
+        console.log(self.getBaseImageLayer())
+        console.log(self.getBaseImageLayer().getColorMap())
         cmSelect.val(self.getBaseImageLayer().getColorMap().mapName);
 
 
@@ -76890,7 +76894,8 @@ let HiPSDefinition = (function() {
 
     // cache (at the source code level) of the list of HiPS
     // this is the result to a query to http://alasky.u-strasbg.fr/MocServer/query?dataproduct_type=image&client_application=AladinLite&fmt=json&fields=ID,obs_title,client_sort_key,client_application,hips_service_url*,hips_order,hips_tile_format,hips_frame
-    var AL_CACHE_CLASS_LEVEL = [{
+    var AL_CACHE_CLASS_LEVEL = [
+    /*{
     "ID": "CDS/P/2MASS/color",
     "obs_title": "2MASS color J (1.23 microns), H (1.66 microns), K (2.16 microns)",
     "client_sort_key": "04-001-00",
@@ -77056,7 +77061,7 @@ let HiPSDefinition = (function() {
     "hips_service_url": "http://alasky.unistra.fr/AllWISE/RGB-W4-W2-W1",
     "hips_service_url_1": "http://alaskybis.unistra.fr/AllWISE/RGB-W4-W2-W1",
     "hips_service_url_2": "https://alaskybis.unistra.fr/AllWISE/RGB-W4-W2-W1"
-},/* {
+}, {
     "ID": "IPAC/P/GLIMPSE360",
     "obs_title": "GLIMPSE360: Spitzer's Infrared Milky Way",
     "client_sort_key": "04-03-0",
@@ -77065,7 +77070,7 @@ let HiPSDefinition = (function() {
     "hips_frame": "equatorial",
     "hips_tile_format": "jpeg",
     "hips_service_url": "http://www.spitzer.caltech.edu/glimpse360/aladin/data"
-},*/ {
+}, {
     "ID": "JAXA/P/MAXI_SSC_SUM",
     "hips_tile_format": "png",
     "hips_frame": "equatorial",
@@ -77117,7 +77122,9 @@ let HiPSDefinition = (function() {
     "hips_service_url_1": "http://alasky.u-strasbg.fr/SSC/xcatdb_P_XMM_PN_color",
     "hips_service_url_2": "http://alaskybis.u-strasbg.fr/SSC/xcatdb_P_XMM_PN_color",
     "hips_service_url_3": "https://alaskybis.u-strasbg.fr/SSC/xcatdb_P_XMM_PN_color"
-}];
+}
+*/
+];
 
     var listHipsProperties = []; // this variable stores our current knowledge
 
@@ -77478,18 +77485,15 @@ __webpack_require__.r(__webpack_exports__);
 
 
 let HpxImageSurvey = (function() {
-
-
     /** Constructor
      * cooFrame and maxOrder can be set to null
      * They will be determined by reading the properties file
      *  
      */
-
-
     let HpxImageSurvey = function(rootURL, options, callback) {
         // Use the url for retrieving the HiPS properties
         // remove final slash
+        console.log(rootURL);
         if (rootURL.slice(-1) === '/') {
             this.rootUrl = rootURL.substr(0, rootURL.length-1);
         }
@@ -77504,8 +77508,10 @@ let HpxImageSurvey = (function() {
         if (_Utils_js__WEBPACK_IMPORTED_MODULE_1__["Utils"].isHttpsContext() && ( /u-strasbg.fr/i.test(this.rootUrl) || /unistra.fr/i.test(this.rootUrl)  ) ) {
             this.rootUrl = this.rootUrl.replace('http://', 'https://');
         }
-
+        console.log("ROOT URL", this.rootUrl);
         _HiPSDefinition_js__WEBPACK_IMPORTED_MODULE_0__["HiPSDefinition"].fromURL(this.rootUrl, (hipsDefinition) => {
+            console.log("HiPS def", hipsDefinition);
+
             this.FromHiPSDefinition(hipsDefinition, options);
 
             if (callback) {
@@ -77605,32 +77611,56 @@ let HpxImageSurvey = (function() {
     	this.alpha = 0.0; // opacity value between 0 and 1 (if this layer is an opacity layer)
     	this.allskyTextureSize = 0;
         this.lastUpdateDateNeededTiles = 0;
+        this.id = hipsDefinition.id;
 
         var found = false;
+        console.log("surveys", HpxImageSurvey.SURVEYS);
         for (var k=0; k<HpxImageSurvey.SURVEYS.length; k++) {
             if (HpxImageSurvey.SURVEYS[k].id==this.id) {
                 found = true;
             }
         }
         if (! found) {
-            let imageSurveyInfo = {
-                "url": this.rootUrl,
-                "maxOrder": this.maxOrder,
-                "frame": this.cooFrame,
-                "format": this.imgFormat,
-                "tileSize": this.tileSize,
-                // FITS HiPS specific
-                "minCutout": this.minCutout,
-                "maxCutout": this.maxCutout,
-                "bitpix": this.bitpix,
-                "isColor": this.isColor
+            let format = {
+                Image: this.imgFormat
             };
+            let color = {
+                color: "Color"
+            };
+            if (this.imgFormat == 'fits') {
+                format = {
+                    FITSImage: {
+                        bitpix: this.bitpix
+                    }
+                }
+                color = {
+                    Grayscale2Colormap: {
+                        colormap: "BlackWhiteLinear",
+                        transfer: "asinh"
+                    }
+                }
+            }
+            console.log("zef", format, color);
+
+            let imageSurveyInfo = {
+                properties: {
+                    url: this.rootUrl,
+            
+                    maxOrder: this.maxOrder,
+                    frame: this.cooFrame,
+                    tileSize: this.tileSize,
+                    format: format,
+                    minCutout: this.minCutout,
+                    maxCutout: this.maxCutout,
+                },
+                color: color,
+            };
+            console.log("created ", imageSurveyInfo)
 
             HpxImageSurvey.SURVEYS.push(imageSurveyInfo);
         } else {
             console.log("found ", this.id)
         }
-
         HpxImageSurvey.SURVEYS_OBJECTS[this.id] = this;
     }
 
@@ -77698,225 +77728,30 @@ let HpxImageSurvey = (function() {
     HpxImageSurvey.SURVEYS_OBJECTS = {};
     HpxImageSurvey.SURVEYS = [
         {
-        "id": "CDS/P/Coronelli",
-        "url": "http://alasky.u-strasbg.fr/CDS_P_Coronelli",
-        "maxOrder": 4,
-        "tileSize": 512,
-        "frame": _CooFrameEnum_js__WEBPACK_IMPORTED_MODULE_4__["CooFrameEnum"].J2000,
-        "format": "jpeg",
-        "name": "Coronelli",
-        "minCutout": 0, // Ce sont des valeurs par défaut pour les HiPS qui n'ont pas de FITS
-        "maxCutout": 1, // valeur par défaut aussi
-        "bitpix": 0, // valeur par défaut aussi
-    },
-    {
-        "id": "CDS/P/2MASS/color",
-        "url": "http://alasky.u-strasbg.fr/2MASS/Color",
-        "name": "2MASS colored",
-        "maxOrder": 9,
-        "tileSize": 512,
-        "frame": _CooFrameEnum_js__WEBPACK_IMPORTED_MODULE_4__["CooFrameEnum"].J2000,
-        "format": "jpeg",
-        "minCutout": 0,
-        "maxCutout": 1,
-        "bitpix": 0,
-    },
-    {
-        "id": "CDS/P/DSS2/color",
-        "url": "http://alasky.u-strasbg.fr/DSS/DSSColor",
-        "name": "DSS colored",
-        "maxOrder": 9,
-        "frame": _CooFrameEnum_js__WEBPACK_IMPORTED_MODULE_4__["CooFrameEnum"].J2000,
-        "format": "jpeg",
-        "tileSize": 512,
-        "minCutout": 0,
-        "maxCutout": 1,
-        "bitpix": 0,
-    },
-    {
-        "id": "CDS/P/DSS2/red",
-        "url": "http://alasky.u-strasbg.fr/DSS/DSS2Merged",
-        "name": "DSS2 Red (F+R)",
-        "maxOrder": 9,
-        "tileSize": 512,
-        "frame": _CooFrameEnum_js__WEBPACK_IMPORTED_MODULE_4__["CooFrameEnum"].J2000,
-        "format": "jpeg fits",
-        "minCutout": 0,
-        "maxCutout": 1,
-        "bitpix": 0,
-    },
-    {
-        "id": "CDS/P/PanSTARRS/DR1/g",
-        "url": "http://alasky.u-strasbg.fr/Pan-STARRS/DR1/g",
-        "name": "PanSTARRS DR1 g",
-        "maxOrder": 11,
-        "frame": _CooFrameEnum_js__WEBPACK_IMPORTED_MODULE_4__["CooFrameEnum"].J2000,
-        "tileSize": 512,
-        "format": "jpeg fits",
-        "minCutout": 0,
-        "maxCutout": 1,
-        "bitpix": 0,
-    },
-    {
-        "id": "CDS/P/PanSTARRS/DR1/color-z-zg-g",
-        "url": "http://alasky.u-strasbg.fr/Pan-STARRS/DR1/color-z-zg-g",
-        "name": "PanSTARRS DR1 color",
-        "maxOrder": 11,
-        "tileSize": 512,
-        "frame": _CooFrameEnum_js__WEBPACK_IMPORTED_MODULE_4__["CooFrameEnum"].J2000,
-        "format": "jpeg",
-        "minCutout": 0,
-        "maxCutout": 1,
-        "bitpix": 0,
-    },
-    {
-        "id": "CDS/P/DECaPS/DR1/color",
-        "url": "http://alasky.u-strasbg.fr/DECaPS/DR1/color",
-        "name": "DECaPS DR1 color",
-        "maxOrder": 11,
-        "frame": _CooFrameEnum_js__WEBPACK_IMPORTED_MODULE_4__["CooFrameEnum"].J2000,
-        "format": "jpeg png",
-        "tileSize": 512,
-        "minCutout": 0,
-        "maxCutout": 1,
-        "bitpix": 0,
-    },
-    {
-        "id": "CDS/P/Fermi/color",
-        "url": "http://alasky.u-strasbg.fr/Fermi/Color",
-        "name": "Fermi color",
-        "maxOrder": 3,
-        "frame": _CooFrameEnum_js__WEBPACK_IMPORTED_MODULE_4__["CooFrameEnum"].J2000,
-        "format": "jpeg",
-        "tileSize": 512,
-        "minCutout": 0,
-        "maxCutout": 1,
-        "bitpix": 0,
-    },
-    {
-        "id": "CDS/P/Finkbeiner",
-        "url": "http://alasky.u-strasbg.fr/FinkbeinerHalpha",
-        "maxOrder": 3,
-        "frame": _CooFrameEnum_js__WEBPACK_IMPORTED_MODULE_4__["CooFrameEnum"].GAL,
-        "format": "jpeg fits",
-        "tileSize": 128,
-        "name": "Halpha",
-        "minCutout": 0,
-        "maxCutout": 10,
-        "bitpix": 0,
-    },
-    {
-        "id": "CDS/P/GALEXGR6/AIS/color",
-        "url": "http://alasky.unistra.fr/GALEX/GR6-03-2014/AIS-Color",
-        "name": "GALEX Allsky Imaging Survey colored",
-        "maxOrder": 8,
-        "tileSize": 512,
-        "frame": _CooFrameEnum_js__WEBPACK_IMPORTED_MODULE_4__["CooFrameEnum"].J2000,
-        "format": "jpeg",
-        "minCutout": 0,
-        "maxCutout": 1,
-        "bitpix": 0,
-    },
-    {
-        "id": "CDS/P/Mellinger/color",
-        "url": "http://alasky.u-strasbg.fr/MellingerRGB",
-        "name": "Mellinger colored",
-        "maxOrder": 4,
-        "tileSize": 512,
-        "frame": _CooFrameEnum_js__WEBPACK_IMPORTED_MODULE_4__["CooFrameEnum"].GAL,
-        "format": "jpeg",
-        "minCutout": 0,
-        "maxCutout": 1,
-        "bitpix": 0,
-    },
-    {
-        "id": "CDS/P/SDSS9/color",
-        "url": "http://alasky.u-strasbg.fr/SDSS/DR9/color",
-        "name": "SDSS9 colored",
-        "maxOrder": 10,
-        "tileSize": 512,
-        "frame": _CooFrameEnum_js__WEBPACK_IMPORTED_MODULE_4__["CooFrameEnum"].J2000,
-        "format": "jpeg",
-        "minCutout": 0,
-        "maxCutout": 1,
-        "bitpix": 0,
-    },
-    {
-        "id": "CDS/P/SPITZER/color",
-        "url": "http://alasky.u-strasbg.fr/SpitzerI1I2I4color",
-        "name": "IRAC color I1,I2,I4 - (GLIMPSE, SAGE, SAGE-SMC, SINGS)",
-        "maxOrder": 9,
-        "tileSize": 512,
-        "frame": _CooFrameEnum_js__WEBPACK_IMPORTED_MODULE_4__["CooFrameEnum"].GAL,
-        "format": "jpeg",
-        "minCutout": 0,
-        "maxCutout": 1,
-        "bitpix": 0,
-    },
-    {
-        "id": "CDS/P/VTSS/Ha",
-        "url": "http://alasky.u-strasbg.fr/VTSS/Ha",
-        "maxOrder": 3,
-        "tileSize": 512,
-        "frame": _CooFrameEnum_js__WEBPACK_IMPORTED_MODULE_4__["CooFrameEnum"].GAL,
-        "format": "png jpeg fits",
-        "name": "VTSS-Ha",
-        "minCutout": 0,
-        "maxCutout": 1,
-        "bitpix": 0,
-    },
-    /*{
-        "id": "CDS/P/XMM/EPIC",
-        "url": "http://saada.u-strasbg.fr/xmmallsky",
-        "name": "XMM-Newton stacked EPIC images (no phot. normalization)",
-        "maxOrder": 7,
-        "tileSize": 512,
-        "frame": CooFrameEnum.J2000,
-        "format": "png fits",
-        "minCutout": 0,
-        "maxCutout": 1,
-        "bitpix": 0,
-    },*/
-    {
-        "id": "CDS/P/XMM/PN/color",
-        "url": "http://saada.unistra.fr/PNColor",
-        "name": "XMM PN colored",
-        "maxOrder": 7,
-        "tileSize": 512,
-        "frame": _CooFrameEnum_js__WEBPACK_IMPORTED_MODULE_4__["CooFrameEnum"].J2000,
-        "format": "png jpeg",
-        "minCutout": 0,
-        "maxCutout": 1,
-        "bitpix": 0,
-    },
-    {
-        "id": "CDS/P/allWISE/color",
-        "url": "http://alasky.u-strasbg.fr/AllWISE/RGB-W4-W2-W1/",
-        "name": "AllWISE color",
-        "maxOrder": 8,
-        "tileSize": 512,
-        "frame": _CooFrameEnum_js__WEBPACK_IMPORTED_MODULE_4__["CooFrameEnum"].J2000,
-        "format": "jpeg",
-        "minCutout": 0,
-        "maxCutout": 1,
-        "bitpix": 0,
-    },
-    /*{
-        "id": "CDS/P/GLIMPSE360",
-        "url": "http://www.spitzer.caltech.edu/glimpse360/aladin/data",
-        "name": "GLIMPSE360",
-        "maxOrder": 9,
-        "tileSize": 512,
-        "frame": CooFrameEnum.J2000,
-        "format": "jpeg",
-        "minCutout": 0,
-        "maxCutout": 1,
-        "bitpix": 0,
-    }*/
-  ];
+            id: "CDS/P/DSS2/red",
+            properties: {
+                url: "https://alasky.u-strasbg.fr/DSS/DSS2Merged",
+        
+                maxOrder: 9,
+                frame: { label: "J2000", system: "J2000" },
+                tileSize: 512,
+                format: {
+                    FITSImage: {
+                        bitpix: 16,
+                    }
+                },
+                minCutout: 500,
+                maxCutout: 25000,
+            },
+            color: {
+                Grayscale2Colormap: {
+                    colormap: "RedTemperature",
+                    transfer: "sqrt"
+                }
+            },
+        },
+    ];
 
-
-    
     HpxImageSurvey.getAvailableSurveys = function() {
     	return HpxImageSurvey.SURVEYS;
     };
@@ -77936,18 +77771,18 @@ let HpxImageSurvey = (function() {
             let hpxImageSurvey = HpxImageSurvey.SURVEYS_OBJECTS[id];
             if (callback) {
                 let imageSurveyInfo = hpxImageSurvey.getSurveyInfo();
-                console.log("found survey: ", imageSurveyInfo)
+                //console.log("found survey: ", imageSurveyInfo)
                 callback(imageSurveyInfo);
             }
             return hpxImageSurvey;
         }
         var surveyInfo = HpxImageSurvey.getSurveyInfoFromId(id);
         if (surveyInfo) {
-            var options = {};
-            if ( surveyInfo.format && surveyInfo.format.indexOf('jpeg')<0 && surveyInfo.format.indexOf('png')>=0 ) {
+            /*var options = {};
+            if ( surveyInfo.properties.format && surveyInfo.properties.format.indexOf('jpeg')<0 && surveyInfo.properties.format.indexOf('png')>=0 ) {
                 options.imgFormat = 'png';
-            }
-            return new HpxImageSurvey(surveyInfo.url, options, callback);
+            }*/
+            return new HpxImageSurvey(surveyInfo.properties.url, callback);
         }
 
         return null;
@@ -82350,30 +82185,7 @@ let View = (function() {
             };
             this.aladin.webglAPI = new _Aladin_js__WEBPACK_IMPORTED_MODULE_0__["Aladin"].wasmLibs.webgl.WebClient(shaders, resources);
             this.aladin.webglAPI.resize(500, 400);
-            this.aladin.webglAPI.setHiPS([
-                {
-                    properties: {
-                        url: "https://alasky.u-strasbg.fr/DSS/DSS2Merged",
-                
-                        maxOrder: 9,
-                        frame: { label: "J2000", system: "J2000" },
-                        tileSize: 512,
-                        format: {
-                            FITSImage: {
-                                bitpix: 16,
-                            }
-                        },
-                        minCutout: 500,
-                        maxCutout: 25000,
-                    },
-                    color: {
-                        Grayscale2Colormap: {
-                            colormap: "RedTemperature",
-                            transfer: "sqrt"
-                        }
-                    },
-                }
-            ]);
+            //this.aladin.webglAPI.setHiPS(aladin.survey);
 
             this.location = location;
             this.fovDiv = fovDiv;
@@ -83907,7 +83719,17 @@ let View = (function() {
         //this.setZoomLevel(zoomLevel);
         this.updateZoomState();
     };
-    
+
+    View.prototype.increaseZoom = function() {
+        for (let i = 0; i < 5; i++) {
+            this.aladin.webglAPI.registerWheelEvent(0.01);
+        }
+    }
+    View.prototype.decreaseZoom = function() {
+        for (let i = 0; i < 5; i++) {
+            this.aladin.webglAPI.registerWheelEvent(-0.01);
+        }
+    }
     View.prototype.setShowGrid = function(showGrid) {
         this.showGrid = showGrid;
         this.requestRedraw();
@@ -84072,30 +83894,69 @@ let View = (function() {
         if (! imageSurvey) {
             return;
         }
-        
+        //this.imageSurvey = imageSurvey;
+        //this.aladin.webglAPI.setHiPS(imageSurvey);
+
         // reset canvas to "untaint" canvas if needed
         // we test if the previous base image layer was using CORS or not
         if ($.support.cors && this.imageSurvey && ! this.imageSurvey.useCors) {
             this.untaintCanvases();
         }
         var newImageSurvey;
+        console.log("sdfsdf", imageSurvey);
         if (typeof imageSurvey == "string") {
             // imageSurvey is an ID
-            newImageSurvey = _HpxImageSurvey_js__WEBPACK_IMPORTED_MODULE_3__["HpxImageSurvey"].getSurveyFromId(imageSurvey, (imageSurveyProperties) => {
+            /*newImageSurvey = HpxImageSurvey.getSurveyFromId(imageSurvey, (imageSurveyP) => {
+                console.log(imageSurveyP)
                 //this.aladin.webglAPI.setImageSurvey(imageSurveyProperties);
+                this.aladin.webglAPI.setHiPS(imageSurveyP);
             });
+            console.log(newImageSurvey);
             if (newImageSurvey) {
                 this.imageSurvey = newImageSurvey;
             } else {
                 throw imageSurvey + ' id not a valid image survey ID';
+            }*/
+            let newImageSurveyInfo = _HpxImageSurvey_js__WEBPACK_IMPORTED_MODULE_3__["HpxImageSurvey"].getSurveyInfoFromId(imageSurvey);
+            console.log("ddd", newImageSurveyInfo)
+
+            if (newImageSurveyInfo != undefined) {
+                console.log("dddd", newImageSurveyInfo)
+
+                if (newImageSurveyInfo.properties) {
+                    newImageSurvey = new _HpxImageSurvey_js__WEBPACK_IMPORTED_MODULE_3__["HpxImageSurvey"](newImageSurveyInfo.properties.url, {}, (aa) => {
+                        //console.log(newImageSurvey);
+                        console.log("bb", aa);
+                        this.aladin.webglAPI.setHiPS([newImageSurveyInfo]);
+                    });
+                } else {
+                    newImageSurvey = new _HpxImageSurvey_js__WEBPACK_IMPORTED_MODULE_3__["HpxImageSurvey"](newImageSurveyInfo.url, {}, (aa) => {
+                        //console.log(newImageSurvey);
+                        console.log("cc", aa);
+
+                        this.aladin.webglAPI.setHiPS([newlyImageSurveyCreatedInfo]);
+                    });
+                }
+            } else {
+                throw imageSurvey + ' id not a valid image survey ID';
             }
+
         }
         else {
+            let imageSurveyP = imageSurvey[0];
+            newImageSurvey = new _HpxImageSurvey_js__WEBPACK_IMPORTED_MODULE_3__["HpxImageSurvey"](imageSurveyP.properties.url);
+            this.aladin.webglAPI.setHiPS(imageSurvey);
+
             // image survey is an HpxImageSurvey so it is in HpxImageSurvey.SURVEYS list
-            newImageSurvey = imageSurvey;
+            //newImageSurvey = imageSurvey;
+            console.log(newImageSurvey)
             console.log("exist already", newImageSurvey.getSurveyInfo());
             //this.aladin.webglAPI.setImageSurvey(newImageSurvey.getSurveyInfo());
         }
+        // else {
+        // newImageSurvey = imageSurvey;
+        // console.log("exist already", newImageSurvey.getSurveyInfo());
+        // }
 
         // TODO: this is a temporary fix for issue https://github.com/cds-astro/aladin-lite/issues/16
         // ideally, instead of creating a new TileBuffer object,
@@ -84112,14 +83973,14 @@ let View = (function() {
         var self = this;
         newImageSurvey.init(this, function() {
             //self.imageSurvey = newImageSurvey;
-            self.computeNorder();
+            //self.computeNorder();
             newImageSurvey.isReady = true;
-            self.requestRedraw();
-            self.updateObjectsLookup();
+            //self.requestRedraw();
+            //self.updateObjectsLookup();
             
-            /*if (callback) {
-                callback();
-            }*/
+            //if (callback) {
+            //    callback();
+            //}
         });
     };
     
