@@ -72979,8 +72979,9 @@ let DiscoveryTree = (function () {
             <input v-model="message" placeholder="edit me" /></div>`
         })
 
+
         // activate Vue on the <div> that contains the component
-        new Vue({
+        let vue = new Vue({
             el: '#ui',
             data: {
               view: aladin,
@@ -73040,16 +73041,18 @@ let DiscoveryTree = (function () {
                     // Verify the validity of the tile width
                     if (metadata.hips_tile_width) {
                         let hipsTileWidth = parseInt(metadata.hips_tile_width);
-                        console.log(hipsTileWidth);
                         let isPowerOfTwo = hipsTileWidth && !(hipsTileWidth & (hipsTileWidth - 1));
-                        console.log(isPowerOfTwo);
 
                         if (isPowerOfTwo === true) {
                             tileSize = hipsTileWidth;
                         }
                     }
                     let url = metadata.hips_service_url;
-                    if (url.startsWith('http://')) {
+                    if (url.startsWith('http://alasky')) {
+                        // From alasky one can directly use the https access
+                        url = url.replace('http', 'https');
+                    } else {
+                        // Pass by a proxy for extern http urls
                         url = 'https://alasky.u-strasbg.fr/cgi/JSONProxy?url=' + url;
                     }
                     let survey = {
@@ -73067,8 +73070,6 @@ let DiscoveryTree = (function () {
                         },
                         color: color
                     };
-
-                    //console.log(JSON.stringify(survey));
 
                     aladin.webglAPI.setHiPS([survey]);
                 },
@@ -78472,15 +78473,11 @@ let URLBuilder = (function() {
             console.log(target)
             if (target && (typeof target  === "object")) {
                 if ('ra' in target && 'dec' in target) {
-                    console.log("ee", target)
-
                     var coo = new _libs_astro_coo_js__WEBPACK_IMPORTED_MODULE_0__["Coo"](target.ra, target.dec, 7);
-                    console.log("ee", coo)
 
                     target = coo.format('s');
                 }
             }
-            console.log("ta", target)
 
             var maxNbSources = 1e5;
             if (options && options.hasOwnProperty('limit') && _Utils_js__WEBPACK_IMPORTED_MODULE_1__["Utils"].isNumber(options.limit)) {
