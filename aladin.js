@@ -596,7 +596,7 @@
 /******/ 				promises.push(installedWasmModuleData);
 /******/ 			else {
 /******/ 				var importObject = wasmImportObjects[wasmModuleId]();
-/******/ 				var req = fetch(__webpack_require__.p + "" + {"./src/render/pkg/index_bg.wasm":"4086d3366c5908450c63","./node_modules/@fxpineau/healpix/healpix_bg.wasm":"4b971868181910368ee1"}[wasmModuleId] + ".module.wasm");
+/******/ 				var req = fetch(__webpack_require__.p + "" + {"./src/render/pkg/index_bg.wasm":"5356500f6a4b87bdeb6f","./node_modules/@fxpineau/healpix/healpix_bg.wasm":"4b971868181910368ee1"}[wasmModuleId] + ".module.wasm");
 /******/ 				var promise;
 /******/ 				if(importObject instanceof Promise && typeof WebAssembly.compileStreaming === 'function') {
 /******/ 					promise = Promise.all([WebAssembly.compileStreaming(req), importObject]).then(function(items) {
@@ -69943,7 +69943,6 @@ let Aladin = (function () {
             }
         }
 
-        console.log("sdsss", this.view);
         this.view.fixLayoutDimensions();
 
         // force call to zoomChanged callback
@@ -70592,6 +70591,18 @@ let Aladin = (function () {
         layerBox.append(hpxGridCb).append('<label for="displayHpxGrid">HEALPix grid</label><br/>');
         hpxGridCb.change(function () {
             self.showHealpixGrid($(this).is(':checked'));
+        });
+
+        // Equatorial grid plot
+        checked = '';
+        if (this.view.showGrid) {
+            checked = 'checked="checked"';
+        }
+        var equatorialGridCb = $('<input type="checkbox" ' + checked + ' id="displayEquatorialGrid"/>');
+        layerBox.append(equatorialGridCb).append('<label for="displayEquatorialGrid">Equatorial grid</label><br/>');
+        equatorialGridCb.change(function () {
+            let isChecked = $(this).is(':checked');
+            self.view.setShowGrid(isChecked);
         });
 
 
@@ -80018,13 +80029,13 @@ let View = (function() {
         }
         
         // redraw coordinates grid
-        if (this.showGrid) {
+        /*if (this.showGrid) {
             if (this.cooGrid==null) {
                 this.cooGrid = new CooGrid();
             }
             
             this.cooGrid.redraw(this.gridCtx, this.projection, this.cooFrame, this.width, this.height, this.largestDim, this.zoomFactor, this.fov);
-        }
+        }*/
          
 
 
@@ -80526,6 +80537,11 @@ let View = (function() {
     }
     View.prototype.setShowGrid = function(showGrid) {
         this.showGrid = showGrid;
+        if (showGrid) {
+            this.aladin.webglAPI.enableGrid();
+        } else {
+            this.aladin.webglAPI.disableGrid();
+        }
         this.requestRedraw();
     };
 

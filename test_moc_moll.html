@@ -89,12 +89,10 @@
         var aladin;
         A.init.then(() => {
             // Start up Aladin Lite
-            aladin = A.aladin('#aladin-lite-div', {fov: 360, survey: surveys["P/DSS2/color"]});
+            aladin = A.aladin('#aladin-lite-div', {fov: 360, survey: surveys["P/DSS2/color"], showCooGrid: true});
             aladin.setProjection('mollweide');
-            //console.log("sdfsdfsdf, ", surveys['P/DSS2/color']);
-            //aladin.setImageSurvey(surveys['P/DSS2/color']);
 
-            var moc = A.MOCFromJSON(json, {color: 'magenta', lineWidth: 1});
+            var moc = A.MOCFromJSON(json, {color: 'magenta', lineWidth: 1, opacity: 0.6});
             aladin.addMOC(moc);
 
             var self = aladin;
