@@ -73048,9 +73048,13 @@ let DiscoveryTree = (function () {
                             tileSize = hipsTileWidth;
                         }
                     }
+                    let url = metadata.hips_service_url;
+                    if (url.startsWith('http://')) {
+                        url = 'https://alasky.u-strasbg.fr/cgi/JSONProxy?url=' + url;
+                    }
                     let survey = {
                         properties: {
-                            url: metadata.hips_service_url,
+                            url: url,
                             maxOrder:  parseInt(metadata.hips_order),
                             frame: {
                                 label: "J2000",
