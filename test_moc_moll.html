@@ -9,8 +9,8 @@
 
     <!-- Aladin Lite container at requested dimensions -->
     <script src="https://unpkg.com/vue"></script>
-    <script src="https://unpkg.com/discovery-tree@1.0.6/dist/discovery-tree.umd.min.js"></script>
-    <link rel="stylesheet" href="https://unpkg.com/discovery-tree@1.0.6/dist/discovery-tree.css" />
+    <script src="https://unpkg.com/discovery-tree@1.0.7/dist/discovery-tree.umd.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/discovery-tree@1.0.7/dist/discovery-tree.css" />
 
     <style>
       /* Place the components */
@@ -35,14 +35,13 @@
     <!--<input id="glimpse" type="radio" name="survey" value="P/GLIMPSE360"><label for="glimpse">GLIMPSE 360<label>--> 
 
     <script type="text/javascript" src="./aladin.js" charset="utf-8"></script>
-
     <!-- Creation of Aladin Lite instance with initial parameters -->
     <script type="text/javascript">
         let surveys = {
-            "P/DSS2/color": {"properties":{"url":"http://alasky.u-strasbg.fr/DSS/DSSColor","maxOrder":9,"frame":{"label":"J2000","system":"J2000"},"tileSize":512,"format":{"Image":{"format":"jpeg"}},"minCutout":null,"maxCutout":null},"color":"Color"}, 
-            "P/DSS2/blue": {"properties":{"url":"http://alasky.u-strasbg.fr/DSS/DSS2-blue-XJ-S","maxOrder":9,"frame":{"label":"J2000","system":"J2000"},"tileSize":512,"format":{"FITSImage":{"bitpix":16}},"minCutout":4286,"maxCutout":19959},"color":{"Grayscale2Color":{"color":[1,1,1],"k":1,"transfer":"asinh"}}},
-            "P/2MASS/color": {"properties":{"url":"http://alasky.u-strasbg.fr/2MASS/Color","maxOrder":9,"frame":{"label":"J2000","system":"J2000"},"tileSize":512,"format":{"Image":{"format":"jpeg"}},"minCutout":null,"maxCutout":null},"color":"Color"},
-            "P/allWISE/color": {"properties":{"url":"http://alasky.u-strasbg.fr/AllWISE/RGB-W4-W2-W1","maxOrder":8,"frame":{"label":"J2000","system":"J2000"},"tileSize":512,"format":{"Image":{"format":"jpeg"}},"minCutout":0,"maxCutout":3},"color":"Color"},
+            "P/DSS2/color": {"properties":{"url":"https://alasky.u-strasbg.fr/cgi/JSONProxy?url=http://alasky.u-strasbg.fr/DSS/DSSColor","maxOrder":9,"frame":{"label":"J2000","system":"J2000"},"tileSize":512,"format":{"Image":{"format":"jpeg"}},"minCutout":null,"maxCutout":null},"color":"Color"}, 
+            "P/DSS2/blue": {"properties":{"url":"https://alasky.u-strasbg.fr/cgi/JSONProxy?url=http://alasky.u-strasbg.fr/DSS/DSS2-blue-XJ-S","maxOrder":9,"frame":{"label":"J2000","system":"J2000"},"tileSize":512,"format":{"FITSImage":{"bitpix":16}},"minCutout":4286,"maxCutout":19959},"color":{"Grayscale2Color":{"color":[1,1,1],"k":1,"transfer":"asinh"}}},
+            "P/2MASS/color": {"properties":{"url":"https://alasky.u-strasbg.fr/cgi/JSONProxy?url=http://alasky.u-strasbg.fr/2MASS/Color","maxOrder":9,"frame":{"label":"J2000","system":"J2000"},"tileSize":512,"format":{"Image":{"format":"jpeg"}},"minCutout":null,"maxCutout":null},"color":"Color"},
+            "P/allWISE/color": {"properties":{"url":"https://alasky.u-strasbg.fr/cgi/JSONProxy?url=http://alasky.u-strasbg.fr/AllWISE/RGB-W4-W2-W1","maxOrder":8,"frame":{"label":"J2000","system":"J2000"},"tileSize":512,"format":{"Image":{"format":"jpeg"}},"minCutout":0,"maxCutout":3},"color":"Color"},
         };
 
         var json = {
