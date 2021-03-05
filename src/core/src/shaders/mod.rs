@@ -35,7 +35,7 @@ impl Colormap {
             "IDLCBGnBu",
             "IDLCBYIGnBu",
             "IDLCBBrBG",
-            "BlackWhiteLinear"
+            "BlackWhiteLinear",
         ]
     }
 
