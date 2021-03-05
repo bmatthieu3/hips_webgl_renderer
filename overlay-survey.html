@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html>
 <head>
@@ -7,39 +6,33 @@
 
 <link rel="stylesheet" href="https://aladin.u-strasbg.fr/AladinLite/api/v2/latest/aladin.min.css" />
 
-
 </head>
 <body>
 
 <script src="https://code.jquery.com/jquery-1.10.1.min.js"></script>
-
 
 <div id="aladin-lite-div" style="width: 500px; height: 400px"></div>
 <div id='aladin-statsDiv'></div>
 <script type="text/javascript" src="./aladin.js" charset="utf-8"></script>
 
 <script type="text/javascript">
-
-
     let aladin;
     A.init.then(() => {
         // Start up Aladin Lite
-        aladin = A.aladin('#aladin-lite-div', {fov: 360, survey: "P/DSS2/color", showCooGrid: true});
-        var overlay = A.graphicOverlay({color: '#ee2345', lineWidth: 2});
-        aladin.addOverlay(overlay);
-        overlay.add(A.polyline([
-            [100.29452158, 0.14978110],
-            [2.29452158, 59.14978110],
-            [10.12683778, 56.53733116],
-            [14.1772154, 60.7167403],
-            [21.45396446, 60.23528403],
-            [28.59885697, 63.67010079]
-        ]));
+        aladin = A.aladin('#aladin-lite-div', {survey: 'P/Mellinger/color', fov: 110, target: '0 0', showCooGrid: true});
+        (async () => {
+            let vtss = await A.createImageSurvey("https://alasky.u-strasbg.fr/VTSS/Ha");
+            vtss.properties.format = {
+                Image: { format: 'png' }
+            };
+            vtss.color = "Color";
+            aladin.setImageSurvey(vtss, "overlay");
+            aladin.setOpacityLayer(1.0, "overlay");
+
+        })();
+
+        //aladin.setOverlayImageLayer(aladin.createImageSurvey('VTSS', 'VTSS', '', 'galactic', 3, {imgFormat: 'png'}));
     });
-
-
-
-
 </script>
 </body>
 </html>

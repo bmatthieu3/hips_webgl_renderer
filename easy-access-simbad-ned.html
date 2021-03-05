@@ -4,7 +4,7 @@
 
 <link rel="stylesheet" href="https://aladin.u-strasbg.fr/AladinLite/api/v2/latest/aladin.min.css" />
 <link rel="stylesheet" href="https://unpkg.com/discovery-tree@1.0.10/dist/discovery-tree.css" />
-<!--<link rel="stylesheet" href="./layers.css" />-->
+<link rel="stylesheet" href="./layers.css" />
 </head>
 <body>
 
@@ -25,6 +25,7 @@
 <div id="aladin-lite-div" style="width: 1024px; height: 768px">
   <div id="ui" class="ui">
     <!--<discovery-tree id="discovery-tree" :fov="getFovCorners()" :center="getCenter()"></discovery-tree>-->
+    <layers id="layers"></layers>
   </div>
 </div>
 
@@ -36,6 +37,10 @@
   A.init.then(() => {
       // Start up Aladin Lite
       aladin = A.aladin('#aladin-lite-div', {target: 'M51', fov: 180, survey: 'P/DSS2/color', fullScreen: true});
+
+
+    aladin.addCatalog(A.catalogFromSimbad('M 82', 0.1, {onClick: 'showTable'}));
+    aladin.addCatalog(A.catalogFromNED('09 55 52.4 +69 40 47', 0.1, {onClick: 'showPopup', shape: 'plus'}));
   });
 </script>
 

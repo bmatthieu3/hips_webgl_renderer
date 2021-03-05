@@ -20,12 +20,17 @@
         left: 4px;
         z-index: 20;
       }
+
+      #aladin-lite-div {
+        width: 1024px;
+        height: 768px;
+      }
     </style>
-    
-    <div id="aladin-lite-div" style="width: 1024px; height: 768px">
-      <div id="ui" class="ui">
-        <discovery-tree ref="dt" id="discovery-tree" :fov="getFovCorners()" :center="getCenter()"></discovery-tree>
-      </div>
+
+    <div id="aladin-lite-div">
+        <div id="ui">
+            <discovery-tree ref="dt" id="discovery-tree" :fov="getFovCorners()" :center="getCenter()"></discovery-tree>
+        </div>
     </div>
 
     <input id="DSS" type="radio" name="survey" value='P/DSS2/Color' checked><label for="DSS">DSS color<label>
@@ -89,7 +94,7 @@
         var aladin;
         A.init.then(() => {
             // Start up Aladin Lite
-            aladin = A.aladin('#aladin-lite-div', {fov: 360, survey: surveys["P/DSS2/color"], showCooGrid: true});
+            aladin = A.aladin('#aladin-lite-div', {fov: 360, survey: "P/DSS2/color", showCooGrid: true});
             aladin.setProjection('mollweide');
 
             var moc = A.MOCFromJSON(json, {color: 'magenta', lineWidth: 1, opacity: 0.6});
@@ -97,23 +102,16 @@
 
             var self = aladin;
             document.getElementById("DSS").onclick = function() {
-                console.log(surveys["P/DSS2/color"]);
-                self.setImageSurvey(surveys["P/DSS2/color"]);
+                self.setBaseImageSurvey(surveys["P/DSS2/color"]);
             };
             document.getElementById("DSS-blue").onclick = function() {
-                self.setImageSurvey(surveys["P/DSS2/blue"]);
+                self.setBaseImageSurvey(surveys["P/DSS2/blue"]);
             };
             document.getElementById("2MASS").onclick = function() {
-                self.setImageSurvey(surveys["P/2MASS/color"]);
+                self.setBaseImageSurvey(surveys["P/2MASS/color"]);
             };
             document.getElementById("allwise").onclick = function() {
-                self.setImageSurvey(surveys["P/allWISE/color"]);
+                self.setBaseImageSurvey(surveys["P/allWISE/color"]);
             };
         });
-
-
-
-
-
-
     </script>
