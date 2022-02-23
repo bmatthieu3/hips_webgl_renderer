@@ -37,7 +37,7 @@ __webpack_require__.r(__webpack_exports__);
   \**********************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision lowp float;\nlayout (location = 0) in vec2 offset;\nlayout (location = 1) in vec2 uv;\n\nlayout (location = 2) in vec3 center;\nlayout (location = 3) in vec2 center_lonlat;\n\nuniform float current_time;\nuniform mat4 model;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nout vec2 out_uv;\nout vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0f));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_aitoff(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.f, 1.f);\n\n    out_uv = uv;\n    out_p = p;\n}"
+module.exports = "precision lowp float;\n\nattribute vec2 offset;\nattribute vec2 uv;\nattribute vec3 center;\n\nuniform float current_time;\nuniform mat4 model;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nvarying vec2 out_uv;\nvarying vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_aitoff(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.0, 1.0);\n\n    out_uv = uv;\n    out_p = p;\n}"
 
 /***/ }),
 
@@ -47,7 +47,7 @@ module.exports = "#version 300 es\nprecision lowp float;\nlayout (location = 0) 
   \*******************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision lowp float;\nlayout (location = 0) in vec2 offset;\nlayout (location = 1) in vec2 uv;\n\nlayout (location = 2) in vec3 center;\nlayout (location = 3) in vec2 center_lonlat;\n\nuniform float current_time;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nout vec2 out_uv;\nout vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0f));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_arc(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.f, 1.f);\n\n    out_uv = uv;\n    out_p = p;\n}"
+module.exports = "precision lowp float;\nattribute vec2 offset;\nattribute vec2 uv;\nattribute vec3 center;\n\nuniform float current_time;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nvarying vec2 out_uv;\nvarying vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_arc(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.0, 1.0);\n\n    out_uv = uv;\n    out_p = p;\n}"
 
 /***/ }),
 
@@ -57,7 +57,7 @@ module.exports = "#version 300 es\nprecision lowp float;\nlayout (location = 0) 
   \***********************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision lowp float;\n\nin vec2 out_uv;\nin vec3 out_p;\n\nout vec4 color;\n\nuniform sampler2D kernel_texture;\nuniform float max_density; // max number of sources in a kernel sized HEALPix cell at the current depth\nuniform float fov;\nuniform float strength;\nvoid main() {\n    color = texture(kernel_texture, out_uv) / max(log2(fov*100.0), 1.0);\n    color.r *= strength;\n}"
+module.exports = "precision lowp float;\n\nvarying vec2 out_uv;\nvarying vec3 out_p;\n\nuniform sampler2D kernel_texture;\nuniform float fov;\nuniform float strength;\nvoid main() {\n    vec4 color = texture2D(kernel_texture, out_uv) / max(log2(fov*100.0), 1.0);\n    color.r *= strength;\n\n    gl_FragColor = color;\n}"
 
 /***/ }),
 
@@ -67,7 +67,7 @@ module.exports = "#version 300 es\nprecision lowp float;\n\nin vec2 out_uv;\nin 
   \************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision lowp float;\nlayout (location = 0) in vec2 offset;\nlayout (location = 1) in vec2 uv;\n\nlayout (location = 2) in vec3 center;\nlayout (location = 3) in vec2 center_lonlat;\n\nuniform float current_time;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nout vec2 out_uv;\nout vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0f));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_mercator(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.f, 1.f);\n\n    out_uv = uv;\n    out_p = p;\n}"
+module.exports = "precision lowp float;\n\nattribute vec2 offset;\nattribute in vec2 uv;\nattribute in vec3 center;\n\nuniform float current_time;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nvarying vec2 out_uv;\nvarying vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_mercator(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.0, 1.0);\n\n    out_uv = uv;\n    out_p = p;\n}"
 
 /***/ }),
 
@@ -77,7 +77,7 @@ module.exports = "#version 300 es\nprecision lowp float;\nlayout (location = 0) 
   \*************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision lowp float;\nlayout (location = 0) in vec2 offset;\nlayout (location = 1) in vec2 uv;\n\nlayout (location = 2) in vec3 center;\nlayout (location = 3) in vec2 center_lonlat;\n\nuniform float current_time;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nout vec2 out_uv;\nout vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0f));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_mollweide(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.f, 1.f);\n\n    out_uv = uv;\n    out_p = p;\n}"
+module.exports = "precision lowp float;\nattribute vec2 offset;\nattribute vec2 uv;\nattribute vec3 center;\n\nuniform float current_time;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nout vec2 out_uv;\nout vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_mollweide(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.0, 1.0);\n\n    out_uv = uv;\n    out_p = p;\n}"
 
 /***/ }),
 
@@ -87,7 +87,7 @@ module.exports = "#version 300 es\nprecision lowp float;\nlayout (location = 0) 
   \*********************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision lowp float;\n\nin vec2 out_uv;\nin vec3 out_p;\n\nout vec4 color;\n\nuniform sampler2D kernel_texture;\nuniform float max_density; // max number of sources in a kernel sized HEALPix cell at the current depth\nuniform float fov;\nuniform float strength;\nvoid main() {\n    if (out_p.z < 0.f) {\n        discard;\n    }\n\n    color = texture(kernel_texture, out_uv) / max(log2(fov*100.0), 1.0);\n    color.r *= strength;\n}"
+module.exports = "precision lowp float;\n\nvarying vec2 out_uv;\nvarying vec3 out_p;\n\nuniform sampler2D kernel_texture;\nuniform float fov;\nuniform float strength;\nvoid main() {\n    if (out_p.z < 0.0) {\n        discard;\n    }\n\n    vec4 color = texture2D(kernel_texture, out_uv).rgba / max(log2(fov*100.0), 1.0);\n    color.r *= strength;\n\n    gl_FragColor = color;\n}"
 
 /***/ }),
 
@@ -97,7 +97,7 @@ module.exports = "#version 300 es\nprecision lowp float;\n\nin vec2 out_uv;\nin 
   \*********************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision lowp float;\nlayout (location = 0) in vec2 offset;\nlayout (location = 1) in vec2 uv;\n\nlayout (location = 2) in vec3 center;\nlayout (location = 3) in vec2 center_lonlat;\n\n\nuniform float current_time;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nout vec2 out_uv;\nout vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0f));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_orthographic(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.f, 1.f);\n\n    out_uv = uv;\n    out_p = p;\n}"
+module.exports = "precision lowp float;\nattribute vec3 center;\nattribute vec2 offset;\nattribute vec2 uv;\n\nuniform float current_time;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nvarying vec2 out_uv;\nvarying vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_orthographic(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.0, 1.0);\n\n    out_uv = uv;\n    out_p = p;\n}"
 
 /***/ }),
 
@@ -107,7 +107,7 @@ module.exports = "#version 300 es\nprecision lowp float;\nlayout (location = 0) 
   \*******************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision lowp float;\n\nlayout (location = 0) in vec2 offset;\nlayout (location = 1) in vec2 uv;\nlayout (location = 2) in vec3 center;\nlayout (location = 3) in vec2 center_lonlat;\n\nuniform float current_time;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nout vec2 out_uv;\nout vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0f));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_gnomonic(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.f, 1.f);\n\n    out_uv = uv;\n    out_p = p;\n}"
+module.exports = "precision lowp float;\n\nattribute vec2 offset;\nattribute vec2 uv;\nattribute vec3 center;\nattribute vec2 center_lonlat;\n\nuniform float current_time;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nvarying vec2 out_uv;\nvarying vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_gnomonic(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.0, 1.0);\n\n    out_uv = uv;\n    out_p = p;\n}"
 
 /***/ }),
 
@@ -117,7 +117,7 @@ module.exports = "#version 300 es\nprecision lowp float;\n\nlayout (location = 0
   \*************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision lowp float;\nprecision lowp sampler2D;\n\nin vec2 out_uv;\nout vec4 color;\n\nuniform sampler2D texture_fbo;\nuniform float alpha;\n\nuniform sampler2D colormaps;\nuniform int num_colormaps;\nuniform int colormap_id;\n// can be either 0 or 1\nuniform int reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, float(reversed));\n    float id = (float(colormap_id) + 0.5) / float(num_colormaps);\n\n    return texture2D(colormaps, vec2(x, id));\n}\n\n\nvoid main() {\n    float opacity = texture(texture_fbo, out_uv).r;\n\n    float o = smoothstep(0.f, 0.1f, opacity);\n\n    color = colormap_f(opacity);\n    color.a = o * alpha;\n}"
+module.exports = "precision lowp float;\nprecision lowp sampler2D;\n\nvarying vec2 out_uv;\n\nuniform sampler2D texture_fbo;\nuniform float alpha;\n\nuniform sampler2D colormaps;\nuniform float num_colormaps;\nuniform float colormap_id;\n// can be either 0 or 1\nuniform float reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, reversed);\n    float id = (colormap_id + 0.5) / num_colormaps;\n\n    return texture2D(colormaps, vec2(x, id));\n}\n\n\nvoid main() {\n    float opacity = texture2D(texture_fbo, out_uv).r;\n\n    float o = smoothstep(0.0, 0.1, opacity);\n\n    vec4 color = colormap_f(opacity);\n    color.a = o * alpha;\n\n    gl_FragColor = color;\n}"
 
 /***/ }),
 
@@ -127,7 +127,7 @@ module.exports = "#version 300 es\nprecision lowp float;\nprecision lowp sampler
   \*************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision lowp float;\nprecision lowp sampler2D;\n\nlayout (location = 0) in vec2 position;\nlayout (location = 1) in vec2 uv;\n\nout vec2 out_uv;\n\nvoid main() {\n    gl_Position = vec4(position, 0.f, 1.f);\n    out_uv = uv;\n}"
+module.exports = "precision lowp float;\nprecision lowp sampler2D;\n\nattribute vec2 position;\nattribute vec2 uv;\n\nvarying vec2 out_uv;\n\nvoid main() {\n    gl_Position = vec4(position, 0.0, 1.0);\n    out_uv = uv;\n}"
 
 /***/ }),
 
@@ -227,7 +227,7 @@ module.exports = "precision mediump float;\n\nvarying vec2 pos_clip;\n\nuniform 
   \*****************************************************************/
 /***/ ((module) => {
 
-module.exports = "precision mediump float;\nprecision mediump int;\n\nattribute vec2 ndc_pos;\nattribute vec3 uv_start;\nattribute vec3 uv_end;\nattribute float time_tile_received;\nattribute float m0;\nattribute float m1;\n\nvarying vec3 frag_uv_start;\nvarying vec3 frag_uv_end;\nvarying float frag_blending_factor;\nvarying float m_start;\nvarying float m_end;\n\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\n\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    /*\n    vec3 world_pos = vec3(inv_model * vec4(position, 1.f));\n    world_pos = check_inversed_longitude(world_pos);\n\n    vec2 ndc_pos = world2clip_aitoff(world_pos) / (ndc_to_clip * czf);\n    */\n    gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n\n    frag_blending_factor = min((current_time - time_tile_received) / 500.0, 1.0);\n    m_start = m0;\n    m_end = m1;\n}"
+module.exports = "precision mediump float;\nprecision mediump int;\n\nattribute vec3 position;\nattribute vec3 uv_start;\nattribute vec3 uv_end;\nattribute float time_tile_received;\nattribute float m0;\nattribute float m1;\n\nvarying vec3 frag_uv_start;\nvarying vec3 frag_uv_end;\nvarying float frag_blending_factor;\nvarying float m_start;\nvarying float m_end;\n\nuniform float czf;\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\n\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    \n    vec3 world_pos = vec3(inv_model * vec4(position, 1.0));\n    world_pos = check_inversed_longitude(world_pos);\n\n    vec2 ndc_pos = world2clip_aitoff(world_pos) / (ndc_to_clip * czf);\n    \n    gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n\n    frag_blending_factor = min((current_time - time_tile_received) / 500.0, 1.0);\n    m_start = m0;\n    m_end = m1;\n}"
 
 /***/ }),
 
@@ -237,7 +237,7 @@ module.exports = "precision mediump float;\nprecision mediump int;\n\nattribute 
   \**************************************************************/
 /***/ ((module) => {
 
-module.exports = "precision mediump float;\nprecision mediump int;\n\nattribute vec2 ndc_pos;\nattribute vec3 uv_start;\nattribute vec3 uv_end;\nattribute float time_tile_received;\nattribute float m0;\nattribute float m1;\n\nvarying vec3 frag_uv_start;\nvarying vec3 frag_uv_end;\nvarying float frag_blending_factor;\nvarying float m_start;\nvarying float m_end;\n\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\n\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    /*\n    vec3 world_pos = vec3(inv_model * vec4(position, 1.f));\n    world_pos = check_inversed_longitude(world_pos);\n\n    vec2 ndc_pos = world2clip_arc(world_pos) / (ndc_to_clip * czf);\n    */\n    gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n\n    frag_blending_factor = min((current_time - time_tile_received) / 500.0, 1.0);\n    m_start = m0;\n    m_end = m1;\n}"
+module.exports = "precision mediump float;\nprecision mediump int;\n\nattribute vec3 position;\nattribute vec3 uv_start;\nattribute vec3 uv_end;\nattribute float time_tile_received;\nattribute float m0;\nattribute float m1;\n\nvarying vec3 frag_uv_start;\nvarying vec3 frag_uv_end;\nvarying float frag_blending_factor;\nvarying float m_start;\nvarying float m_end;\n\nuniform float czf;\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\n\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 world_pos = vec3(inv_model * vec4(position, 1.0));\n    world_pos = check_inversed_longitude(world_pos);\n\n    vec2 ndc_pos = world2clip_arc(world_pos) / (ndc_to_clip * czf);\n    \n    gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n\n    frag_blending_factor = min((current_time - time_tile_received) / 500.0, 1.0);\n    m_start = m0;\n    m_end = m1;\n}"
 
 /***/ }),
 
@@ -247,7 +247,7 @@ module.exports = "precision mediump float;\nprecision mediump int;\n\nattribute 
   \****************************************************************/
 /***/ ((module) => {
 
-module.exports = "precision mediump float;\nprecision mediump sampler2D;\nprecision mediump int;\n\nvarying vec3 frag_uv_start;\nvarying vec3 frag_uv_end;\nvarying float frag_blending_factor;\nvarying float m_start;\nvarying float m_end;\n\nuniform float opacity;\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform int num_colormaps;\nuniform int colormap_id;\n// can be either 0 or 1\nuniform int reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, float(reversed));\n    float id = (float(colormap_id) + 0.5) / float(num_colormaps);\n\n    return texture2D(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture2D(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture2D(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture2D(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 1.0, 1.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nvoid main() {\n    vec4 color_start = get_color_from_texture(frag_uv_start);\n    vec4 color_end = get_color_from_texture(frag_uv_end);\n\n    vec4 out_frag_color = mix(color_start, color_end, frag_blending_factor);\n    out_frag_color.a = opacity * out_frag_color.a;\n\n    gl_FragColor = out_frag_color;\n}"
+module.exports = "precision mediump float;\nprecision mediump sampler2D;\nprecision mediump int;\n\nvarying vec3 frag_uv_start;\nvarying vec3 frag_uv_end;\nvarying float frag_blending_factor;\nvarying float m_start;\nvarying float m_end;\n\nuniform float opacity;\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform float num_colormaps;\nuniform float colormap_id;\n// can be either 0 or 1\nuniform float reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, reversed);\n    float id = (colormap_id + 0.5) / num_colormaps;\n\n    return texture2D(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture2D(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture2D(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture2D(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 1.0, 1.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nvoid main() {\n    vec4 color_start = get_color_from_texture(frag_uv_start);\n    vec4 color_end = get_color_from_texture(frag_uv_end);\n\n    vec4 out_frag_color = mix(color_start, color_end, frag_blending_factor);\n    out_frag_color.a = opacity * out_frag_color.a;\n\n    gl_FragColor = out_frag_color;\n}"
 
 /***/ }),
 
@@ -257,7 +257,7 @@ module.exports = "precision mediump float;\nprecision mediump sampler2D;\nprecis
   \*******************************************************************/
 /***/ ((module) => {
 
-module.exports = "precision mediump float;\nprecision mediump int;\n\nattribute vec2 ndc_pos;\nattribute vec3 uv_start;\nattribute vec3 uv_end;\nattribute float time_tile_received;\nattribute float m0;\nattribute float m1;\n\nvarying vec3 frag_uv_start;\nvarying vec3 frag_uv_end;\nvarying float frag_blending_factor;\nvarying float m_start;\nvarying float m_end;\n\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\n\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    /*\n    vec3 world_pos = vec3(inv_model * vec4(position, 1.f));\n    world_pos = check_inversed_longitude(world_pos);\n\n    vec2 ndc_pos = world2clip_gnomonic(world_pos) / (ndc_to_clip * czf);\n    */\n    gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n\n    frag_blending_factor = min((current_time - time_tile_received) / 500.0, 1.0);\n    m_start = m0;\n    m_end = m1;\n}"
+module.exports = "precision mediump float;\nprecision mediump int;\n\nattribute vec3 position;\nattribute vec3 uv_start;\nattribute vec3 uv_end;\nattribute float time_tile_received;\nattribute float m0;\nattribute float m1;\n\nvarying vec3 frag_uv_start;\nvarying vec3 frag_uv_end;\nvarying float frag_blending_factor;\nvarying float m_start;\nvarying float m_end;\n\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\nuniform float czf;\n\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 world_pos = vec3(inv_model * vec4(position, 1.0));\n    world_pos = check_inversed_longitude(world_pos);\n\n    vec2 ndc_pos = world2clip_gnomonic(world_pos) / (ndc_to_clip * czf);\n    gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n\n    frag_blending_factor = min((current_time - time_tile_received) / 500.0, 1.0);\n    m_start = m0;\n    m_end = m1;\n}"
 
 /***/ }),
 
@@ -267,7 +267,7 @@ module.exports = "precision mediump float;\nprecision mediump int;\n\nattribute 
   \*****************************************************************************/
 /***/ ((module) => {
 
-module.exports = "precision mediump float;\nprecision mediump sampler2D;\nprecision mediump int;\n\n\nvarying vec3 frag_uv_start;\nvarying vec3 frag_uv_end;\nvarying float frag_blending_factor;\nvarying float m_start;\nvarying float m_end;\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform int num_colormaps;\nuniform int colormap_id;\n// can be either 0 or 1\nuniform int reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, float(reversed));\n    float id = (float(colormap_id) + 0.5) / float(num_colormaps);\n\n    return texture2D(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture2D(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture2D(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture2D(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 1.0, 1.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform float opacity;\n\nvec4 get_color(vec3 uv, float empty) {\n    vec4 color = mix(get_color_from_grayscale_texture(uv), vec4(0.0), empty);\n    return color;\n}\n\nvoid main() {\n    vec4 color_start = get_color(frag_uv_start, m_start);\n    vec4 color_end = get_color(frag_uv_end, m_end);\n\n    vec4 out_frag_color = mix(color_start, color_end, frag_blending_factor);\n    out_frag_color.a = out_frag_color.a * opacity;\n\n    gl_FragColor = out_frag_color;\n}\n\n"
+module.exports = "precision mediump float;\nprecision mediump sampler2D;\nprecision mediump int;\n\n\nvarying vec3 frag_uv_start;\nvarying vec3 frag_uv_end;\nvarying float frag_blending_factor;\nvarying float m_start;\nvarying float m_end;\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform float num_colormaps;\nuniform float colormap_id;\n// can be either 0 or 1\nuniform float reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, reversed);\n    float id = (colormap_id + 0.5) / num_colormaps;\n\n    return texture2D(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture2D(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture2D(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture2D(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 1.0, 1.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform float opacity;\n\nvec4 get_color(vec3 uv, float empty) {\n    vec4 color = mix(get_color_from_grayscale_texture(uv), vec4(0.0), empty);\n    return color;\n}\n\nvoid main() {\n    vec4 color_start = get_color(frag_uv_start, m_start);\n    vec4 color_end = get_color(frag_uv_end, m_end);\n\n    vec4 out_frag_color = mix(color_start, color_end, frag_blending_factor);\n    out_frag_color.a = out_frag_color.a * opacity;\n\n    gl_FragColor = out_frag_color;\n}\n\n"
 
 /***/ }),
 
@@ -277,7 +277,7 @@ module.exports = "precision mediump float;\nprecision mediump sampler2D;\nprecis
   \********************************************************************************/
 /***/ ((module) => {
 
-module.exports = "precision mediump float;\nprecision mediump sampler2D;\nprecision mediump int;\n\nvarying vec3 frag_uv_start;\nvarying vec3 frag_uv_end;\nvarying float frag_blending_factor;\nvarying float m_start;\nvarying float m_end;\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform int num_colormaps;\nuniform int colormap_id;\n// can be either 0 or 1\nuniform int reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, float(reversed));\n    float id = (float(colormap_id) + 0.5) / float(num_colormaps);\n\n    return texture2D(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture2D(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture2D(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture2D(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 1.0, 1.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform float opacity;\n\nvec4 get_color(vec3 uv, float empty) {\n    vec4 c = get_colormap_from_grayscale_texture(uv);\n    vec4 color = mix(c, vec4(0.0), empty);\n    return color;\n}\n\nvoid main() {\n    vec4 color_start = get_color(frag_uv_start, m_start);\n    vec4 color_end = get_color(frag_uv_end, m_end);\n\n    vec4 out_frag_color = mix(color_start, color_end, frag_blending_factor);\n    out_frag_color.a = out_frag_color.a * opacity;\n\n    gl_FragColor = out_frag_color;\n}"
+module.exports = "precision mediump float;\nprecision mediump sampler2D;\nprecision mediump int;\n\nvarying vec3 frag_uv_start;\nvarying vec3 frag_uv_end;\nvarying float frag_blending_factor;\nvarying float m_start;\nvarying float m_end;\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform float num_colormaps;\nuniform float colormap_id;\n// can be either 0 or 1\nuniform float reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, reversed);\n    float id = (colormap_id + 0.5) / num_colormaps;\n\n    return texture2D(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture2D(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture2D(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture2D(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 1.0, 1.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform float opacity;\n\nvec4 get_color(vec3 uv, float empty) {\n    vec4 c = get_colormap_from_grayscale_texture(uv);\n    vec4 color = mix(c, vec4(0.0), empty);\n    return color;\n}\n\nvoid main() {\n    vec4 color_start = get_color(frag_uv_start, m_start);\n    vec4 color_end = get_color(frag_uv_end, m_end);\n\n    vec4 out_frag_color = mix(color_start, color_end, frag_blending_factor);\n    out_frag_color.a = out_frag_color.a * opacity;\n\n    gl_FragColor = out_frag_color;\n}"
 
 /***/ }),
 
@@ -287,7 +287,7 @@ module.exports = "precision mediump float;\nprecision mediump sampler2D;\nprecis
   \*******************************************************************/
 /***/ ((module) => {
 
-module.exports = "precision mediump float;\nprecision mediump int;\n\nattribute vec2 ndc_pos;\nattribute vec3 uv_start;\nattribute vec3 uv_end;\nattribute float time_tile_received;\nattribute float m0;\nattribute float m1;\n\nvarying vec3 frag_uv_start;\nvarying vec3 frag_uv_end;\nvarying float frag_blending_factor;\nvarying float m_start;\nvarying float m_end;\n\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\n\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    /*\n    vec3 world_pos = vec3(inv_model * vec4(position, 1.f));\n    world_pos = check_inversed_longitude(world_pos);\n\n    vec2 ndc_pos = world2clip_mercator(world_pos) / (ndc_to_clip * czf);\n    */\n    gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n\n    frag_blending_factor = min((current_time - time_tile_received) / 500.0, 1.0);\n    m_start = m0;\n    m_end = m1;\n}"
+module.exports = "precision mediump float;\nprecision mediump int;\n\nattribute vec3 position;\nattribute vec3 uv_start;\nattribute vec3 uv_end;\nattribute float time_tile_received;\nattribute float m0;\nattribute float m1;\n\nvarying vec3 frag_uv_start;\nvarying vec3 frag_uv_end;\nvarying float frag_blending_factor;\nvarying float m_start;\nvarying float m_end;\n\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\nuniform float czf;\n\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    \n    vec3 world_pos = vec3(inv_model * vec4(position, 1.0));\n    world_pos = check_inversed_longitude(world_pos);\n\n    vec2 ndc_pos = world2clip_mercator(world_pos) / (ndc_to_clip * czf);\n    \n    gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n\n    frag_blending_factor = min((current_time - time_tile_received) / 500.0, 1.0);\n    m_start = m0;\n    m_end = m1;\n}"
 
 /***/ }),
 
@@ -297,7 +297,7 @@ module.exports = "precision mediump float;\nprecision mediump int;\n\nattribute 
   \********************************************************************/
 /***/ ((module) => {
 
-module.exports = "precision mediump float;\nprecision mediump int;\n\nattribute vec2 ndc_pos;\nattribute vec3 uv_start;\nattribute vec3 uv_end;\nattribute float time_tile_received;\nattribute float m0;\nattribute float m1;\n\nvarying vec3 frag_uv_start;\nvarying vec3 frag_uv_end;\nvarying float frag_blending_factor;\nvarying float m_start;\nvarying float m_end;\n\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\n\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    /*\n    vec3 world_pos = vec3(inv_model * vec4(position, 1.f));\n    world_pos = check_inversed_longitude(world_pos);\n\n    vec2 ndc_pos = world2clip_mollweide(world_pos) / (ndc_to_clip * czf);\n    */\n    gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n\n    frag_blending_factor = min((current_time - time_tile_received) / 500.0, 1.0);\n    m_start = m0;\n    m_end = m1;\n}"
+module.exports = "precision mediump float;\nprecision mediump int;\n\nattribute vec3 position;\nattribute vec3 uv_start;\nattribute vec3 uv_end;\nattribute float time_tile_received;\nattribute float m0;\nattribute float m1;\n\nvarying vec3 frag_uv_start;\nvarying vec3 frag_uv_end;\nvarying float frag_blending_factor;\nvarying float m_start;\nvarying float m_end;\n\nuniform float czf;\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\n\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 world_pos = vec3(inv_model * vec4(position, 1.0));\n    world_pos = check_inversed_longitude(world_pos);\n\n    vec2 ndc_pos = world2clip_mollweide(world_pos) / (ndc_to_clip * czf);\n    \n    gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n\n    frag_blending_factor = min((current_time - time_tile_received) / 500.0, 1.0);\n    m_start = m0;\n    m_end = m1;\n}"
 
 /***/ }),
 
@@ -307,7 +307,7 @@ module.exports = "precision mediump float;\nprecision mediump int;\n\nattribute 
   \****************************************************************/
 /***/ ((module) => {
 
-module.exports = "precision mediump float;\nprecision mediump int;\n\nattribute vec2 ndc_pos;\nattribute vec3 uv_start;\nattribute vec3 uv_end;\nattribute float time_tile_received;\nattribute float m0;\nattribute float m1;\n\nvarying vec3 frag_uv_start;\nvarying vec3 frag_uv_end;\nvarying float frag_blending_factor;\nvarying float m_start;\nvarying float m_end;\n\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\n\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    /*\n    vec3 world_pos = vec3(inv_model * vec4(position, 1.f));\n    world_pos = check_inversed_longitude(world_pos);\n\n    vec2 ndc_pos = world2clip_orthographic(world_pos) / (ndc_to_clip * czf);\n    */\n    gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n\n    frag_blending_factor = min((current_time - time_tile_received) / 500.0, 1.0);\n    m_start = m0;\n    m_end = m1;\n}"
+module.exports = "precision mediump float;\nprecision mediump int;\n\nattribute vec3 position;\nattribute vec3 uv_start;\nattribute vec3 uv_end;\nattribute float time_tile_received;\nattribute float m0;\nattribute float m1;\n\nvarying vec3 frag_uv_start;\nvarying vec3 frag_uv_end;\nvarying float frag_blending_factor;\nvarying float m_start;\nvarying float m_end;\n\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\nuniform float czf;\n\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.0;\n    if (alpha > 1e-3) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.0 * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nconst int max_iter = 10;\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    for (int k = 0; k < max_iter; k++) {\n        phi = phi - f / (1.0 + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        if (abs(f) <= 1e-6) {\n            break;\n        }\n    }\n\n    phi = phi * 0.5;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5 * sin(phi);\n\n    return vec2(x, y);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    \n    vec3 world_pos = vec3(inv_model * vec4(position, 1.0));\n    world_pos = check_inversed_longitude(world_pos);\n\n    vec2 ndc_pos = world2clip_orthographic(world_pos) / (ndc_to_clip * czf);\n    \n    gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n\n    frag_blending_factor = min((current_time - time_tile_received) / 500.0, 1.0);\n    m_start = m0;\n    m_end = m1;\n}"
 
 /***/ }),
 
@@ -317,7 +317,7 @@ module.exports = "precision mediump float;\nprecision mediump int;\n\nattribute 
   \***************************************************************/
 /***/ ((module) => {
 
-module.exports = "precision highp float;\nprecision highp sampler2D;\nprecision highp int;\n\nvarying vec3 out_vert_pos;\nvarying vec2 out_clip_pos;\n\nuniform int user_action;\n\nstruct Tile {\n    int uniq; // Healpix cell\n    int texture_idx; // Index in the texture buffer\n    float start_time; // Absolute time that the load has been done in ms\n    float empty;\n};\n\nuniform int current_depth;\nuniform Tile textures_tiles[192];\nuniform int num_tiles;\n\nuniform float current_time; // current time in ms\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform int num_colormaps;\nuniform int colormap_id;\n// can be either 0 or 1\nuniform int reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, float(reversed));\n    float id = (float(colormap_id) + 0.5) / float(num_colormaps);\n\n    return texture2D(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture2D(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture2D(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture2D(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 1.0, 1.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\nconst float TWICE_PI = 6.28318530718;\nconst float PI = 3.141592653589793;\n\nstruct HashDxDy {\n    int idx;\n    float dx;\n    float dy;\n};\n\nuniform sampler2D u_ang2pixd;\nHashDxDy hash_with_dxdy(vec2 radec) {\n    vec2 uv = vec2(radec.x/TWICE_PI, radec.y/PI) + 0.5;\n    vec3 v = texture2D(u_ang2pixd, uv).rgb;\n\n    return HashDxDy(\n        int(v.x),\n        v.y,\n        v.z\n    );\n}\n\nuniform float opacity;\n\nTile get_tile(int idx) {\n    for(int i = 0; i < 12; i++) {\n        if( i == idx ) {\n            return textures_tiles[i];\n        }\n    }\n}\n\nTile binary_search_tile(int uniq) {\n    int l = 0;\n    int r = 11;\n    for (int v = 0; v <= 5; v++) {\n        int mid = (l + r) / 2;\n\n        Tile tile = get_tile(mid);\n        if(tile.uniq == uniq) {\n            return tile;\n        } else if(tile.uniq < uniq) {\n            l = mid + 1;\n        } else {\n            r = mid - 1;\n        }\n\n        // before exiting the loop\n        if (l >= r) {\n            return get_tile(l);\n        }\n    }\n}\n\nvec4 get_tile_color(vec3 pos) {\n    float delta = asin(pos.y);\n    float theta = atan(pos.x, pos.z);\n    HashDxDy result = hash_with_dxdy(vec2(theta, delta));\n\n    int idx = result.idx;\n    vec2 uv = vec2(result.dy, result.dx);\n    //return vec4(uv, 1.0, 1.0);\n\n    int uniq = 16 + idx; \n    Tile tile = binary_search_tile(uniq);\n\n    int idx_texture = tile.texture_idx / 64;\n    int off = tile.texture_idx - idx_texture * 64;\n\n    int idx_row = off / 8; // in [0; 7]\n    int idx_col = off - idx_row * 8; // in [0; 7]\n\n    vec2 offset = (vec2(idx_col, idx_row) + uv) * 0.125;\n    vec3 UV = vec3(offset.x, offset.y, 0.0);\n    \n    vec4 color = get_color_from_texture(UV);\n    color.a *= (1.0 - float(tile.empty));\n    return color;\n}\n\nuniform sampler2D position_tex;\nuniform mat4 model;\nvoid main() {\n    //if(current_depth < 2) {\n    vec2 uv = out_clip_pos * 0.5 + 0.5;\n    vec3 n = texture2D(position_tex, uv).rgb;\n    /*} else {\n        float x = out_clip_pos.x;\n        float y = out_clip_pos.y;\n        float x2 = x*x;\n        float y2 = y*y;\n        float x4 = x2*x2;\n        float y4 = y2*y2;\n\n        n = vec3(\n            -x,\n            y,\n            -0.5*x2 - 0.5*y2 + 1.0\n        );\n    }*/\n\n    vec3 frag_pos = vec3(model * vec4(n, 1.0));\n\n    // Get the HEALPix cell idx and the uv in the texture\n    vec4 c = get_tile_color(frag_pos);\n    gl_FragColor = vec4(c.rgb, c.a * opacity);\n}"
+module.exports = "precision highp float;\nprecision highp sampler2D;\nprecision highp int;\n\nvarying vec3 out_vert_pos;\nvarying vec2 out_clip_pos;\n\nuniform int user_action;\n\nstruct Tile {\n    int uniq; // Healpix cell\n    int texture_idx; // Index in the texture buffer\n    float start_time; // Absolute time that the load has been done in ms\n    float empty;\n};\n\nuniform int current_depth;\nuniform Tile textures_tiles[192];\nuniform int num_tiles;\n\nuniform float current_time; // current time in ms\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform float num_colormaps;\nuniform float colormap_id;\n// can be either 0 or 1\nuniform float reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, reversed);\n    float id = (colormap_id + 0.5) / num_colormaps;\n\n    return texture2D(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture2D(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture2D(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture2D(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 1.0, 1.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\nconst float TWICE_PI = 6.28318530718;\nconst float PI = 3.141592653589793;\n\nstruct HashDxDy {\n    int idx;\n    float dx;\n    float dy;\n};\n\nuniform sampler2D u_ang2pixd;\nHashDxDy hash_with_dxdy(vec2 radec) {\n    vec2 uv = vec2(radec.x/TWICE_PI, radec.y/PI) + 0.5;\n    vec3 v = texture2D(u_ang2pixd, uv).rgb;\n\n    return HashDxDy(\n        int(v.x),\n        v.y,\n        v.z\n    );\n}\n\nuniform float opacity;\n\nTile get_tile(int idx) {\n    for(int i = 0; i < 12; i++) {\n        if( i == idx ) {\n            return textures_tiles[i];\n        }\n    }\n}\n\nTile binary_search_tile(int uniq) {\n    int l = 0;\n    int r = 11;\n    for (int v = 0; v <= 5; v++) {\n        int mid = (l + r) / 2;\n\n        Tile tile = get_tile(mid);\n        if(tile.uniq == uniq) {\n            return tile;\n        } else if(tile.uniq < uniq) {\n            l = mid + 1;\n        } else {\n            r = mid - 1;\n        }\n\n        // before exiting the loop\n        if (l >= r) {\n            return get_tile(l);\n        }\n    }\n}\n\nvec4 get_tile_color(vec3 pos) {\n    float delta = asin(pos.y);\n    float theta = atan(pos.x, pos.z);\n    HashDxDy result = hash_with_dxdy(vec2(theta, delta));\n\n    int idx = result.idx;\n    vec2 uv = vec2(result.dy, result.dx);\n    //return vec4(uv, 1.0, 1.0);\n\n    int uniq = 16 + idx; \n    Tile tile = binary_search_tile(uniq);\n\n    int idx_texture = tile.texture_idx / 64;\n    int off = tile.texture_idx - idx_texture * 64;\n\n    int idx_row = off / 8; // in [0; 7]\n    int idx_col = off - idx_row * 8; // in [0; 7]\n\n    vec2 offset = (vec2(idx_col, idx_row) + uv) * 0.125;\n    vec3 UV = vec3(offset.x, offset.y, 0.0);\n    \n    vec4 color = get_color_from_texture(UV);\n    color.a *= (1.0 - float(tile.empty));\n    return color;\n}\n\nuniform sampler2D position_tex;\nuniform mat4 model;\nvoid main() {\n    //if(current_depth < 2) {\n    vec2 uv = out_clip_pos * 0.5 + 0.5;\n    vec3 n = texture2D(position_tex, uv).rgb;\n    /*} else {\n        float x = out_clip_pos.x;\n        float y = out_clip_pos.y;\n        float x2 = x*x;\n        float y2 = y*y;\n        float x4 = x2*x2;\n        float y4 = y2*y2;\n\n        n = vec3(\n            -x,\n            y,\n            -0.5*x2 - 0.5*y2 + 1.0\n        );\n    }*/\n\n    vec3 frag_pos = vec3(model * vec4(n, 1.0));\n\n    // Get the HEALPix cell idx and the uv in the texture\n    vec4 c = get_tile_color(frag_pos);\n    gl_FragColor = vec4(c.rgb, c.a * opacity);\n}"
 
 /***/ }),
 
@@ -327,7 +327,7 @@ module.exports = "precision highp float;\nprecision highp sampler2D;\nprecision 
   \****************************************************************************/
 /***/ ((module) => {
 
-module.exports = "precision mediump float;\nprecision mediump sampler2D;\nprecision mediump int;\n\nvarying vec3 out_vert_pos;\nvarying vec2 out_clip_pos;\n\nuniform int user_action;\n\nstruct Tile {\n    int uniq; // Healpix cell\n    int texture_idx; // Index in the texture buffer\n    float start_time; // Absolute time that the load has been done in ms\n    float empty;\n};\n\nuniform int current_depth;\nuniform Tile textures_tiles[192];\nuniform int num_tiles;\n\nuniform float current_time; // current time in ms\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform int num_colormaps;\nuniform int colormap_id;\n// can be either 0 or 1\nuniform int reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, float(reversed));\n    float id = (float(colormap_id) + 0.5) / float(num_colormaps);\n\n    return texture2D(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture2D(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture2D(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture2D(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 1.0, 1.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\nconst float TWICE_PI = 6.28318530718;\nconst float PI = 3.141592653589793;\n\nstruct HashDxDy {\n    int idx;\n    float dx;\n    float dy;\n};\n\nuniform sampler2D u_ang2pixd;\nHashDxDy hash_with_dxdy(vec2 radec) {\n    vec2 uv = vec2(radec.x/TWICE_PI, radec.y/PI) + 0.5;\n    vec3 v = texture2D(u_ang2pixd, uv).rgb;\n\n    return HashDxDy(\n        int(v.x),\n        v.y,\n        v.z\n    );\n}\n\nuniform float opacity;\n\nTile get_tile(int idx) {\n    for(int i = 0; i < 12; i++) {\n        if( i == idx ) {\n            return textures_tiles[i];\n        }\n    }\n}\n\nTile binary_search_tile(int uniq) {\n    int l = 0;\n    int r = 11;\n    for (int v = 0; v <= 5; v++) {\n        int mid = (l + r) / 2;\n\n        Tile tile = get_tile(mid);\n        if(tile.uniq == uniq) {\n            return tile;\n        } else if(tile.uniq < uniq) {\n            l = mid + 1;\n        } else {\n            r = mid - 1;\n        }\n\n        // before exiting the loop\n        if (l >= r) {\n            return get_tile(l);\n        }\n    }\n}\n\nvec4 get_tile_color(vec3 pos) {\n    float delta = asin(pos.y);\n    float theta = atan(pos.x, pos.z);\n    HashDxDy result = hash_with_dxdy(vec2(theta, delta));\n\n    int idx = result.idx;\n    vec2 uv = vec2(clamp(result.dy, 0.0, 1.0), result.dx);\n    int uniq = 16 + idx; \n    Tile tile = binary_search_tile(uniq);\n\n    int idx_texture = tile.texture_idx / 64;\n    int off = tile.texture_idx - idx_texture * 64;\n\n    int idx_row = off / 8; // in [0; 7]\n    int idx_col = off - idx_row * 8; // in [0; 7]\n\n    vec2 offset = (vec2(float(idx_col), float(idx_row)) + uv)*0.125;\n    vec3 UV = vec3(offset, float(idx_texture));\n\n    vec4 color = get_color_from_grayscale_texture(UV);\n    color.a *= (1.0 - float(tile.empty));\n    return color;\n}\n\nuniform sampler2D position_tex;\nuniform mat4 model;\nvoid main() {\n    vec2 uv = out_clip_pos * 0.5 + 0.5;\n    vec3 n = texture2D(position_tex, uv).rgb;\n\n    vec3 frag_pos = vec3(model * vec4(n, 1.0));\n\n    vec4 c = get_tile_color(frag_pos);\n    c.a = c.a * opacity;\n    gl_FragColor = c;\n}"
+module.exports = "precision mediump float;\nprecision mediump sampler2D;\nprecision mediump int;\n\nvarying vec3 out_vert_pos;\nvarying vec2 out_clip_pos;\n\nuniform int user_action;\n\nstruct Tile {\n    int uniq; // Healpix cell\n    int texture_idx; // Index in the texture buffer\n    float start_time; // Absolute time that the load has been done in ms\n    float empty;\n};\n\nuniform int current_depth;\nuniform Tile textures_tiles[192];\nuniform int num_tiles;\n\nuniform float current_time; // current time in ms\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform float num_colormaps;\nuniform float colormap_id;\n// can be either 0 or 1\nuniform float reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, reversed);\n    float id = (colormap_id + 0.5) / num_colormaps;\n\n    return texture2D(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture2D(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture2D(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture2D(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 1.0, 1.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\nconst float TWICE_PI = 6.28318530718;\nconst float PI = 3.141592653589793;\n\nstruct HashDxDy {\n    int idx;\n    float dx;\n    float dy;\n};\n\nuniform sampler2D u_ang2pixd;\nHashDxDy hash_with_dxdy(vec2 radec) {\n    vec2 uv = vec2(radec.x/TWICE_PI, radec.y/PI) + 0.5;\n    vec3 v = texture2D(u_ang2pixd, uv).rgb;\n\n    return HashDxDy(\n        int(v.x),\n        v.y,\n        v.z\n    );\n}\n\nuniform float opacity;\n\nTile get_tile(int idx) {\n    for(int i = 0; i < 12; i++) {\n        if( i == idx ) {\n            return textures_tiles[i];\n        }\n    }\n}\n\nTile binary_search_tile(int uniq) {\n    int l = 0;\n    int r = 11;\n    for (int v = 0; v <= 5; v++) {\n        int mid = (l + r) / 2;\n\n        Tile tile = get_tile(mid);\n        if(tile.uniq == uniq) {\n            return tile;\n        } else if(tile.uniq < uniq) {\n            l = mid + 1;\n        } else {\n            r = mid - 1;\n        }\n\n        // before exiting the loop\n        if (l >= r) {\n            return get_tile(l);\n        }\n    }\n}\n\nvec4 get_tile_color(vec3 pos) {\n    float delta = asin(pos.y);\n    float theta = atan(pos.x, pos.z);\n    HashDxDy result = hash_with_dxdy(vec2(theta, delta));\n\n    int idx = result.idx;\n    vec2 uv = vec2(clamp(result.dy, 0.0, 1.0), result.dx);\n    int uniq = 16 + idx; \n    Tile tile = binary_search_tile(uniq);\n\n    int idx_texture = tile.texture_idx / 64;\n    int off = tile.texture_idx - idx_texture * 64;\n\n    int idx_row = off / 8; // in [0; 7]\n    int idx_col = off - idx_row * 8; // in [0; 7]\n\n    vec2 offset = (vec2(float(idx_col), float(idx_row)) + uv)*0.125;\n    vec3 UV = vec3(offset, float(idx_texture));\n\n    vec4 color = get_color_from_grayscale_texture(UV);\n    color.a *= (1.0 - float(tile.empty));\n    return color;\n}\n\nuniform sampler2D position_tex;\nuniform mat4 model;\nvoid main() {\n    vec2 uv = out_clip_pos * 0.5 + 0.5;\n    vec3 n = texture2D(position_tex, uv).rgb;\n\n    vec3 frag_pos = vec3(model * vec4(n, 1.0));\n\n    vec4 c = get_tile_color(frag_pos);\n    c.a = c.a * opacity;\n    gl_FragColor = c;\n}"
 
 /***/ }),
 
@@ -337,7 +337,7 @@ module.exports = "precision mediump float;\nprecision mediump sampler2D;\nprecis
   \*******************************************************************************/
 /***/ ((module) => {
 
-module.exports = "precision mediump float;\nprecision mediump sampler2D;\nprecision mediump int;\n\nvarying vec3 out_vert_pos;\nvarying vec2 out_clip_pos;\n\nuniform int user_action;\n\nstruct Tile {\n    int uniq; // Healpix cell\n    int texture_idx; // Index in the texture buffer\n    float start_time; // Absolute time that the load has been done in ms\n    float empty;\n};\n\nuniform int current_depth;\nuniform Tile textures_tiles[192];\nuniform int num_tiles;\n\nuniform float current_time; // current time in ms\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform int num_colormaps;\nuniform int colormap_id;\n// can be either 0 or 1\nuniform int reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, float(reversed));\n    float id = (float(colormap_id) + 0.5) / float(num_colormaps);\n\n    return texture2D(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture2D(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture2D(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture2D(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 1.0, 1.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\nconst float TWICE_PI = 6.28318530718;\nconst float PI = 3.141592653589793;\n\nstruct HashDxDy {\n    int idx;\n    float dx;\n    float dy;\n};\n\nuniform sampler2D u_ang2pixd;\nHashDxDy hash_with_dxdy(vec2 radec) {\n    vec2 uv = vec2(radec.x/TWICE_PI, radec.y/PI) + 0.5;\n    vec3 v = texture2D(u_ang2pixd, uv).rgb;\n\n    return HashDxDy(\n        int(v.x),\n        v.y,\n        v.z\n    );\n}\n\nuniform float opacity;\n\nTile get_tile(int idx) {\n    for(int i = 0; i < 12; i++) {\n        if( i == idx ) {\n            return textures_tiles[i];\n        }\n    }\n}\n\nTile binary_search_tile(int uniq) {\n    int l = 0;\n    int r = 11;\n    for (int v = 0; v <= 5; v++) {\n        int mid = (l + r) / 2;\n\n        Tile tile = get_tile(mid);\n        if(tile.uniq == uniq) {\n            return tile;\n        } else if(tile.uniq < uniq) {\n            l = mid + 1;\n        } else {\n            r = mid - 1;\n        }\n\n        // before exiting the loop\n        if (l >= r) {\n            return get_tile(l);\n        }\n    }\n}\n\nvec4 get_tile_color(vec3 pos) {\n    float delta = asin(pos.y);\n    float theta = atan(pos.x, pos.z);\n    HashDxDy result = hash_with_dxdy(vec2(theta, delta));\n\n    int idx = result.idx;\n    vec2 uv = vec2(clamp(result.dy, 0.0, 1.0), result.dx);\n    int uniq = 16 + idx; \n    Tile tile = binary_search_tile(uniq);\n\n    int idx_texture = tile.texture_idx / 64;\n    int off = tile.texture_idx - idx_texture * 64;\n\n    int idx_row = off / 8; // in [0; 7]\n    int idx_col = off - idx_row * 8; // in [0; 7]\n\n    vec2 offset = (vec2(float(idx_col), float(idx_row)) + uv)*0.125;\n    vec3 UV = vec3(offset, float(idx_texture));\n\n    vec4 c = get_colormap_from_grayscale_texture(UV);\n    // handle empty tiles\n    vec4 color = mix(c, vec4(0.0), tile.empty);\n    return color;\n}\n\nconst float duration = 500.0; // 500ms\nuniform int max_depth; // max depth of the HiPS\n\nuniform sampler2D position_tex;\nuniform mat4 model;\nvoid main() {\n    vec2 uv = out_clip_pos * 0.5 + 0.5;\n    vec3 n = texture2D(position_tex, uv).rgb;\n\n    vec3 frag_pos = vec3(model * vec4(n, 1.0));\n\n    vec4 c = get_tile_color(frag_pos);\n    c.a = c.a * opacity;\n\n    gl_FragColor = c;\n}"
+module.exports = "precision mediump float;\nprecision mediump sampler2D;\nprecision mediump int;\n\nvarying vec3 out_vert_pos;\nvarying vec2 out_clip_pos;\n\nuniform int user_action;\n\nstruct Tile {\n    int uniq; // Healpix cell\n    int texture_idx; // Index in the texture buffer\n    float start_time; // Absolute time that the load has been done in ms\n    float empty;\n};\n\nuniform int current_depth;\nuniform Tile textures_tiles[192];\nuniform int num_tiles;\n\nuniform float current_time; // current time in ms\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform float num_colormaps;\nuniform float colormap_id;\n// can be either 0 or 1\nuniform float reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, reversed);\n    float id = (colormap_id + 0.5) / num_colormaps;\n\n    return texture2D(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh(float x) {\n    return log(x + sqrt(x*x + 1.0));\n}\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture2D(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture2D(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture2D(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 1.0, 1.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    vec3 uv = UV;\n    // FITS data pixels are reversed along the y axis\n    if (tex_storing_fits == 1) {\n        uv = reverse_uv(uv);\n    }\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\nconst float TWICE_PI = 6.28318530718;\nconst float PI = 3.141592653589793;\n\nstruct HashDxDy {\n    int idx;\n    float dx;\n    float dy;\n};\n\nuniform sampler2D u_ang2pixd;\nHashDxDy hash_with_dxdy(vec2 radec) {\n    vec2 uv = vec2(radec.x/TWICE_PI, radec.y/PI) + 0.5;\n    vec3 v = texture2D(u_ang2pixd, uv).rgb;\n\n    return HashDxDy(\n        int(v.x),\n        v.y,\n        v.z\n    );\n}\n\nuniform float opacity;\n\nTile get_tile(int idx) {\n    for(int i = 0; i < 12; i++) {\n        if( i == idx ) {\n            return textures_tiles[i];\n        }\n    }\n}\n\nTile binary_search_tile(int uniq) {\n    int l = 0;\n    int r = 11;\n    for (int v = 0; v <= 5; v++) {\n        int mid = (l + r) / 2;\n\n        Tile tile = get_tile(mid);\n        if(tile.uniq == uniq) {\n            return tile;\n        } else if(tile.uniq < uniq) {\n            l = mid + 1;\n        } else {\n            r = mid - 1;\n        }\n\n        // before exiting the loop\n        if (l >= r) {\n            return get_tile(l);\n        }\n    }\n}\n\nvec4 get_tile_color(vec3 pos) {\n    float delta = asin(pos.y);\n    float theta = atan(pos.x, pos.z);\n    HashDxDy result = hash_with_dxdy(vec2(theta, delta));\n\n    int idx = result.idx;\n    vec2 uv = vec2(clamp(result.dy, 0.0, 1.0), result.dx);\n    int uniq = 16 + idx; \n    Tile tile = binary_search_tile(uniq);\n\n    int idx_texture = tile.texture_idx / 64;\n    int off = tile.texture_idx - idx_texture * 64;\n\n    int idx_row = off / 8; // in [0; 7]\n    int idx_col = off - idx_row * 8; // in [0; 7]\n\n    vec2 offset = (vec2(float(idx_col), float(idx_row)) + uv)*0.125;\n    vec3 UV = vec3(offset, float(idx_texture));\n\n    vec4 c = get_colormap_from_grayscale_texture(UV);\n    // handle empty tiles\n    vec4 color = mix(c, vec4(0.0), tile.empty);\n    return color;\n}\n\nuniform sampler2D position_tex;\nuniform mat4 model;\nvoid main() {\n    vec2 uv = out_clip_pos * 0.5 + 0.5;\n    vec3 n = texture2D(position_tex, uv).rgb;\n\n    vec3 frag_pos = vec3(model * vec4(n, 1.0));\n\n    vec4 c = get_tile_color(frag_pos);\n    c.a = c.a * opacity;\n\n    gl_FragColor = c;\n}"
 
 /***/ }),
 
@@ -357,7 +357,7 @@ module.exports = "precision highp float;\nprecision highp int;\n\nattribute vec2
   \**********************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision lowp float;\nlayout (location = 0) in vec2 offset;\nlayout (location = 1) in vec2 uv;\n\nlayout (location = 2) in vec3 center;\nlayout (location = 3) in vec2 center_lonlat;\n\nuniform float current_time;\nuniform mat4 model;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nout vec2 out_uv;\nout vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0f));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_aitoff(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.f, 1.f);\n\n    out_uv = uv;\n    out_p = p;\n}"
+module.exports = "#version 300 es\nprecision lowp float;\nlayout (location = 0) in vec2 offset;\nlayout (location = 1) in vec2 uv;\nlayout (location = 2) in vec3 center;\n\nuniform float current_time;\nuniform mat4 model;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nout vec2 out_uv;\nout vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0f));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_aitoff(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.f, 1.f);\n\n    out_uv = uv;\n    out_p = p;\n}"
 
 /***/ }),
 
@@ -367,7 +367,7 @@ module.exports = "#version 300 es\nprecision lowp float;\nlayout (location = 0) 
   \*******************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision lowp float;\nlayout (location = 0) in vec2 offset;\nlayout (location = 1) in vec2 uv;\n\nlayout (location = 2) in vec3 center;\nlayout (location = 3) in vec2 center_lonlat;\n\nuniform float current_time;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nout vec2 out_uv;\nout vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0f));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_arc(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.f, 1.f);\n\n    out_uv = uv;\n    out_p = p;\n}"
+module.exports = "#version 300 es\nprecision lowp float;\nlayout (location = 0) in vec2 offset;\nlayout (location = 1) in vec2 uv;\nlayout (location = 2) in vec3 center;\n\nuniform float current_time;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nout vec2 out_uv;\nout vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0f));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_arc(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.f, 1.f);\n\n    out_uv = uv;\n    out_p = p;\n}"
 
 /***/ }),
 
@@ -387,7 +387,7 @@ module.exports = "#version 300 es\nprecision lowp float;\n\nin vec2 out_uv;\nin 
   \************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision lowp float;\nlayout (location = 0) in vec2 offset;\nlayout (location = 1) in vec2 uv;\n\nlayout (location = 2) in vec3 center;\nlayout (location = 3) in vec2 center_lonlat;\n\nuniform float current_time;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nout vec2 out_uv;\nout vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0f));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_mercator(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.f, 1.f);\n\n    out_uv = uv;\n    out_p = p;\n}"
+module.exports = "#version 300 es\nprecision lowp float;\nlayout (location = 0) in vec2 offset;\nlayout (location = 1) in vec2 uv;\nlayout (location = 2) in vec3 center;\n\nuniform float current_time;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nout vec2 out_uv;\nout vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0f));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_mercator(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.f, 1.f);\n\n    out_uv = uv;\n    out_p = p;\n}"
 
 /***/ }),
 
@@ -397,7 +397,7 @@ module.exports = "#version 300 es\nprecision lowp float;\nlayout (location = 0) 
   \*************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision lowp float;\nlayout (location = 0) in vec2 offset;\nlayout (location = 1) in vec2 uv;\n\nlayout (location = 2) in vec3 center;\nlayout (location = 3) in vec2 center_lonlat;\n\nuniform float current_time;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nout vec2 out_uv;\nout vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0f));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_mollweide(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.f, 1.f);\n\n    out_uv = uv;\n    out_p = p;\n}"
+module.exports = "#version 300 es\nprecision lowp float;\nlayout (location = 0) in vec2 offset;\nlayout (location = 1) in vec2 uv;\nlayout (location = 2) in vec3 center;\n\nuniform float current_time;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nout vec2 out_uv;\nout vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0f));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_mollweide(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.f, 1.f);\n\n    out_uv = uv;\n    out_p = p;\n}"
 
 /***/ }),
 
@@ -417,7 +417,7 @@ module.exports = "#version 300 es\nprecision lowp float;\n\nin vec2 out_uv;\nin 
   \*********************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision lowp float;\nlayout (location = 0) in vec2 offset;\nlayout (location = 1) in vec2 uv;\n\nlayout (location = 2) in vec3 center;\nlayout (location = 3) in vec2 center_lonlat;\n\n\nuniform float current_time;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nout vec2 out_uv;\nout vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0f));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_orthographic(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.f, 1.f);\n\n    out_uv = uv;\n    out_p = p;\n}"
+module.exports = "#version 300 es\nprecision lowp float;\nlayout (location = 0) in vec2 offset;\nlayout (location = 1) in vec2 uv;\nlayout (location = 2) in vec3 center;\n\nuniform float current_time;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nout vec2 out_uv;\nout vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0f));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_orthographic(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.f, 1.f);\n\n    out_uv = uv;\n    out_p = p;\n}"
 
 /***/ }),
 
@@ -427,7 +427,7 @@ module.exports = "#version 300 es\nprecision lowp float;\nlayout (location = 0) 
   \*******************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision lowp float;\n\nlayout (location = 0) in vec2 offset;\nlayout (location = 1) in vec2 uv;\nlayout (location = 2) in vec3 center;\nlayout (location = 3) in vec2 center_lonlat;\n\nuniform float current_time;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nout vec2 out_uv;\nout vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0f));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_gnomonic(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.f, 1.f);\n\n    out_uv = uv;\n    out_p = p;\n}"
+module.exports = "#version 300 es\nprecision lowp float;\n\nlayout (location = 0) in vec2 offset;\nlayout (location = 1) in vec2 uv;\nlayout (location = 2) in vec3 center;\n\nuniform float current_time;\nuniform mat4 inv_model;\n\nuniform vec2 ndc_to_clip;\nuniform float czf;\nuniform vec2 kernel_size;\n\nout vec2 out_uv;\nout vec3 out_p;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 p = vec3(inv_model * vec4(center, 1.0f));\n    p = check_inversed_longitude(p);\n\n    vec2 center_pos_clip_space = world2clip_gnomonic(p);\n\n    vec2 pos_clip_space = center_pos_clip_space;\n    gl_Position = vec4((pos_clip_space / (ndc_to_clip * czf)) + offset * kernel_size , 0.f, 1.f);\n\n    out_uv = uv;\n    out_p = p;\n}"
 
 /***/ }),
 
@@ -437,7 +437,7 @@ module.exports = "#version 300 es\nprecision lowp float;\n\nlayout (location = 0
   \*************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision lowp float;\nprecision lowp sampler2D;\n\nin vec2 out_uv;\nout vec4 color;\n\nuniform sampler2D texture_fbo;\nuniform float alpha;\n\nuniform sampler2D colormaps;\nuniform int num_colormaps;\nuniform int colormap_id;\n// can be either 0 or 1\nuniform int reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, float(reversed));\n    float id = (float(colormap_id) + 0.5) / float(num_colormaps);\n\n    return texture(colormaps, vec2(x, id));\n}\n\n\nvoid main() {\n    float opacity = texture(texture_fbo, out_uv).r;\n\n    float o = smoothstep(0.f, 0.1f, opacity);\n\n    color = colormap_f(opacity);\n    color.a = o * alpha;\n}"
+module.exports = "#version 300 es\nprecision lowp float;\nprecision lowp sampler2D;\n\nin vec2 out_uv;\nout vec4 color;\n\nuniform sampler2D texture_fbo;\nuniform float alpha;\n\nuniform sampler2D colormaps;\nuniform float num_colormaps;\nuniform float colormap_id;\n// can be either 0 or 1\nuniform float reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, reversed);\n    float id = (colormap_id + 0.5) / num_colormaps;\n\n    return texture(colormaps, vec2(x, id));\n}\n\n\nvoid main() {\n    float opacity = texture(texture_fbo, out_uv).r;\n\n    float o = smoothstep(0.f, 0.1f, opacity);\n\n    color = colormap_f(opacity);\n    color.a = o * alpha;\n}"
 
 /***/ }),
 
@@ -547,7 +547,7 @@ module.exports = "#version 300 es\nprecision highp float;\n\nout vec4 c;\nin vec
   \*****************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision highp float;\nprecision mediump int;\n\nlayout (location = 0) in vec2 lonlat;\nlayout (location = 1) in vec2 ndc_pos;\nlayout (location = 2) in vec3 uv_start;\nlayout (location = 3) in vec3 uv_end;\nlayout (location = 4) in float time_tile_received;\nlayout (location = 5) in float m0;\nlayout (location = 6) in float m1;\n\nout vec3 frag_uv_start;\nout vec3 frag_uv_end;\nout float frag_blending_factor;\nout float m_start;\nout float m_end;\n\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\n//uniform float czf;\n\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    /*\n    vec3 world_pos = vec3(inv_model * vec4(position, 1.f));\n    world_pos = check_inversed_longitude(world_pos);\n\n    gl_Position = vec4(world2clip_aitoff(world_pos) / (ndc_to_clip * czf), 0.0, 1.0);\n    */\n    gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n    frag_blending_factor = min((current_time - time_tile_received) / 500.f, 1.f);\n    m_start = m0;\n    m_end = m1;\n}"
+module.exports = "#version 300 es\nprecision highp float;\nprecision mediump int;\n\nlayout (location = 0) in vec3 position;\nlayout (location = 1) in vec3 uv_start;\nlayout (location = 2) in vec3 uv_end;\nlayout (location = 3) in float time_tile_received;\nlayout (location = 4) in float m0;\nlayout (location = 5) in float m1;\n\nout vec3 frag_uv_start;\nout vec3 frag_uv_end;\nout float frag_blending_factor;\nout float m_start;\nout float m_end;\n\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\nuniform float czf;\n\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    \n    vec3 world_pos = vec3(inv_model * vec4(position, 1.f));\n    world_pos = check_inversed_longitude(world_pos);\n\n    gl_Position = vec4(world2clip_aitoff(world_pos) / (ndc_to_clip * czf), 0.0, 1.0);\n    \n    //gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n    frag_blending_factor = min((current_time - time_tile_received) / 500.f, 1.f);\n    m_start = m0;\n    m_end = m1;\n}"
 
 /***/ }),
 
@@ -557,7 +557,7 @@ module.exports = "#version 300 es\nprecision highp float;\nprecision mediump int
   \**************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision highp float;\nprecision mediump int;\n\nlayout (location = 0) in vec2 lonlat;\n//layout (location = 1) in vec3 position;\nlayout (location = 1) in vec2 ndc_pos;\nlayout (location = 2) in vec3 uv_start;\nlayout (location = 3) in vec3 uv_end;\nlayout (location = 4) in float time_tile_received;\nlayout (location = 5) in float m0;\nlayout (location = 6) in float m1;\n\nout vec3 frag_uv_start;\nout vec3 frag_uv_end;\nout float frag_blending_factor;\nout float m_start;\nout float m_end;\n\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\n//uniform float czf;\n\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    /*\n    vec3 world_pos = vec3(inv_model * vec4(position, 1.f));\n    world_pos = check_inversed_longitude(world_pos);\n\n    gl_Position = vec4(world2clip_arc(world_pos) / (ndc_to_clip * czf), 0.0, 1.0);\n    */\n    gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n    frag_blending_factor = min((current_time - time_tile_received) / 500.f, 1.f);\n    m_start = m0;\n    m_end = m1;\n}"
+module.exports = "#version 300 es\nprecision highp float;\nprecision mediump int;\n\nlayout (location = 0) in vec3 position;\nlayout (location = 1) in vec3 uv_start;\nlayout (location = 2) in vec3 uv_end;\nlayout (location = 3) in float time_tile_received;\nlayout (location = 4) in float m0;\nlayout (location = 5) in float m1;\n\nout vec3 frag_uv_start;\nout vec3 frag_uv_end;\nout float frag_blending_factor;\nout float m_start;\nout float m_end;\n\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\nuniform float czf;\n\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    \n    vec3 world_pos = vec3(inv_model * vec4(position, 1.f));\n    world_pos = check_inversed_longitude(world_pos);\n\n    gl_Position = vec4(world2clip_arc(world_pos) / (ndc_to_clip * czf), 0.0, 1.0);\n    \n    //gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n    frag_blending_factor = min((current_time - time_tile_received) / 500.f, 1.f);\n    m_start = m0;\n    m_end = m1;\n}"
 
 /***/ }),
 
@@ -567,7 +567,7 @@ module.exports = "#version 300 es\nprecision highp float;\nprecision mediump int
   \****************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp isampler2D;\nprecision mediump int;\n\nin vec3 frag_uv_start;\nin vec3 frag_uv_end;\nin float frag_blending_factor;\nin float m_start;\nin float m_end;\n\nout vec4 out_frag_color;\nuniform float opacity;\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform int num_colormaps;\nuniform int colormap_id;\n// can be either 0 or 1\nuniform int reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, float(reversed));\n    float id = (float(colormap_id) + 0.5) / float(num_colormaps);\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 0.0, 0.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nvoid main() {\n    vec4 color_start = get_color_from_texture(frag_uv_start);\n    color_start.a *= (1.0 - m_start);\n\n    vec4 color_end = get_color_from_texture(frag_uv_end);\n    color_end.a *= (1.0 - m_end);\n\n    out_frag_color = mix(color_start, color_end, frag_blending_factor);\n    out_frag_color.a = opacity * out_frag_color.a;\n}"
+module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp isampler2D;\nprecision mediump int;\n\nin vec3 frag_uv_start;\nin vec3 frag_uv_end;\nin float frag_blending_factor;\nin float m_start;\nin float m_end;\n\nout vec4 out_frag_color;\nuniform float opacity;\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform float num_colormaps;\nuniform float colormap_id;\n// can be either 0 or 1\nuniform float reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, reversed);\n    float id = (colormap_id + 0.5) / num_colormaps;\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 0.0, 0.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nvoid main() {\n    vec4 color_start = get_color_from_texture(frag_uv_start);\n    color_start.a *= (1.0 - m_start);\n\n    vec4 color_end = get_color_from_texture(frag_uv_end);\n    color_end.a *= (1.0 - m_end);\n\n    out_frag_color = mix(color_start, color_end, frag_blending_factor);\n    out_frag_color.a = opacity * out_frag_color.a;\n}"
 
 /***/ }),
 
@@ -577,7 +577,7 @@ module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampl
   \*******************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision highp float;\nprecision mediump int;\n\nlayout (location = 0) in vec2 lonlat;\n//layout (location = 1) in vec3 position;\nlayout (location = 1) in vec2 ndc_pos;\nlayout (location = 2) in vec3 uv_start;\nlayout (location = 3) in vec3 uv_end;\nlayout (location = 4) in float time_tile_received;\nlayout (location = 5) in float m0;\nlayout (location = 6) in float m1;\n\nout vec3 frag_uv_start;\nout vec3 frag_uv_end;\nout float frag_blending_factor;\nout float m_start;\nout float m_end;\n\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\n//uniform float czf;\n\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    /*\n    vec3 world_pos = vec3(inv_model * vec4(position, 1.f));\n    world_pos = check_inversed_longitude(world_pos);\n\n    gl_Position = vec4(world2clip_gnomonic(world_pos) / (ndc_to_clip * czf), 0.0, 1.0);\n    */\n    gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n    frag_blending_factor = min((current_time - time_tile_received) / 500.f, 1.f);\n    m_start = m0;\n    m_end = m1;\n}"
+module.exports = "#version 300 es\nprecision highp float;\nprecision mediump int;\n\nlayout (location = 0) in vec3 position;\nlayout (location = 1) in vec3 uv_start;\nlayout (location = 2) in vec3 uv_end;\nlayout (location = 3) in float time_tile_received;\nlayout (location = 4) in float m0;\nlayout (location = 5) in float m1;\n\nout vec3 frag_uv_start;\nout vec3 frag_uv_end;\nout float frag_blending_factor;\nout float m_start;\nout float m_end;\n\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\nuniform float czf;\n\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    \n    vec3 world_pos = vec3(inv_model * vec4(position, 1.f));\n    world_pos = check_inversed_longitude(world_pos);\n\n    gl_Position = vec4(world2clip_gnomonic(world_pos) / (ndc_to_clip * czf), 0.0, 1.0);\n    \n    //gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n    frag_blending_factor = min((current_time - time_tile_received) / 500.f, 1.f);\n    m_start = m0;\n    m_end = m1;\n}"
 
 /***/ }),
 
@@ -587,7 +587,7 @@ module.exports = "#version 300 es\nprecision highp float;\nprecision mediump int
   \*****************************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp isampler2D;\nprecision mediump int;\n\nin vec3 frag_uv_start;\nin vec3 frag_uv_end;\nin float frag_blending_factor;\nin float m_start;\nin float m_end;\n\nout vec4 out_frag_color;\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform int num_colormaps;\nuniform int colormap_id;\n// can be either 0 or 1\nuniform int reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, float(reversed));\n    float id = (float(colormap_id) + 0.5) / float(num_colormaps);\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 0.0, 0.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform float opacity;\n\nvec4 get_color(vec3 uv, float empty) {\n    vec4 color = mix(get_color_from_grayscale_texture(uv), vec4(0.0), empty);\n    return color;\n}\n\nvoid main() {\n    vec4 color_start = get_color(frag_uv_start, m_start);\n    vec4 color_end = get_color(frag_uv_end, m_end);\n    /*vec4 color_start = get_color_from_grayscale_texture(frag_uv_start);\n    color_start.a *= (1.0 - m_start);\n    vec4 color_end = get_color_from_grayscale_texture(frag_uv_end);\n    color_end.a *= (1.0 - m_end);*/\n\n    out_frag_color = mix(color_start, color_end, frag_blending_factor);\n    out_frag_color.a = out_frag_color.a * opacity;\n}\n\n"
+module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp isampler2D;\nprecision mediump int;\n\nin vec3 frag_uv_start;\nin vec3 frag_uv_end;\nin float frag_blending_factor;\nin float m_start;\nin float m_end;\n\nout vec4 out_frag_color;\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform float num_colormaps;\nuniform float colormap_id;\n// can be either 0 or 1\nuniform float reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, reversed);\n    float id = (colormap_id + 0.5) / num_colormaps;\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 0.0, 0.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform float opacity;\n\nvec4 get_color(vec3 uv, float empty) {\n    vec4 color = mix(get_color_from_grayscale_texture(uv), vec4(0.0), empty);\n    return color;\n}\n\nvoid main() {\n    vec4 color_start = get_color(frag_uv_start, m_start);\n    vec4 color_end = get_color(frag_uv_end, m_end);\n    /*vec4 color_start = get_color_from_grayscale_texture(frag_uv_start);\n    color_start.a *= (1.0 - m_start);\n    vec4 color_end = get_color_from_grayscale_texture(frag_uv_end);\n    color_end.a *= (1.0 - m_end);*/\n\n    out_frag_color = mix(color_start, color_end, frag_blending_factor);\n    out_frag_color.a = out_frag_color.a * opacity;\n}\n\n"
 
 /***/ }),
 
@@ -597,7 +597,7 @@ module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampl
   \*******************************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp isampler2D;\nprecision mediump int;\n\nin vec3 frag_uv_start;\nin vec3 frag_uv_end;\nin float frag_blending_factor;\nin float m_start;\nin float m_end;\n\nout vec4 out_frag_color;\n\n//const int MAX_NUM_TEX = 3;\nuniform isampler2D tex1;\nuniform isampler2D tex2;\nuniform isampler2D tex3;\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform int num_colormaps;\nuniform int colormap_id;\n// can be either 0 or 1\nuniform int reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, float(reversed));\n    float id = (float(colormap_id) + 0.5) / float(num_colormaps);\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nivec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return ivec4(0, 0, 0, 1);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform float opacity;\n\nvec4 get_color(vec3 uv, float empty) {\n    vec4 color = mix(get_color_from_grayscale_texture(uv), vec4(0.0), empty);\n    return color;\n}\n\nvoid main() {\n    vec4 color_start = get_color(frag_uv_start, m_start);\n    vec4 color_end = get_color(frag_uv_end, m_end);\n    /*vec4 color_start = get_color_from_grayscale_texture(frag_uv_start);\n    color_start.a *= (1.0 - m_start);\n    vec4 color_end = get_color_from_grayscale_texture(frag_uv_end);\n    color_end.a *= (1.0 - m_end);*/\n\n    out_frag_color = mix(color_start, color_end, frag_blending_factor);\n    out_frag_color.a = out_frag_color.a * opacity;\n}"
+module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp isampler2D;\nprecision mediump int;\n\nin vec3 frag_uv_start;\nin vec3 frag_uv_end;\nin float frag_blending_factor;\nin float m_start;\nin float m_end;\n\nout vec4 out_frag_color;\n\n//const int MAX_NUM_TEX = 3;\nuniform isampler2D tex1;\nuniform isampler2D tex2;\nuniform isampler2D tex3;\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform float num_colormaps;\nuniform float colormap_id;\n// can be either 0 or 1\nuniform float reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, reversed);\n    float id = (colormap_id + 0.5) / num_colormaps;\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nivec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return ivec4(0, 0, 0, 1);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform float opacity;\n\nvec4 get_color(vec3 uv, float empty) {\n    vec4 color = mix(get_color_from_grayscale_texture(uv), vec4(0.0), empty);\n    return color;\n}\n\nvoid main() {\n    vec4 color_start = get_color(frag_uv_start, m_start);\n    vec4 color_end = get_color(frag_uv_end, m_end);\n    /*vec4 color_start = get_color_from_grayscale_texture(frag_uv_start);\n    color_start.a *= (1.0 - m_start);\n    vec4 color_end = get_color_from_grayscale_texture(frag_uv_end);\n    color_end.a *= (1.0 - m_end);*/\n\n    out_frag_color = mix(color_start, color_end, frag_blending_factor);\n    out_frag_color.a = out_frag_color.a * opacity;\n}"
 
 /***/ }),
 
@@ -607,7 +607,7 @@ module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampl
   \*******************************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp isampler2D;\nprecision highp usampler2D;\nprecision mediump int;\n\nin vec3 frag_uv_start;\nin vec3 frag_uv_end;\nin float frag_blending_factor;\nin float m_start;\nin float m_end;\n\nout vec4 out_frag_color;\n\n//const int MAX_NUM_TEX = 3;\nuniform usampler2D tex1;\nuniform usampler2D tex2;\nuniform usampler2D tex3;\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform int num_colormaps;\nuniform int colormap_id;\n// can be either 0 or 1\nuniform int reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, float(reversed));\n    float id = (float(colormap_id) + 0.5) / float(num_colormaps);\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nuvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return uvec4(0, 0, 0, 1);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform float opacity;\n\nvec4 get_color(vec3 uv, float empty) {\n    vec4 color = mix(get_color_from_grayscale_texture(uv), vec4(0.0), empty);\n    return color;\n}\n\nvoid main() {\n    vec4 color_start = get_color(frag_uv_start, m_start);\n    vec4 color_end = get_color(frag_uv_end, m_end);\n    /*vec4 color_start = get_color_from_grayscale_texture(frag_uv_start);\n    color_start.a *= (1.0 - m_start);\n    vec4 color_end = get_color_from_grayscale_texture(frag_uv_end);\n    color_end.a *= (1.0 - m_end);*/\n\n    out_frag_color = mix(color_start, color_end, frag_blending_factor);\n    out_frag_color.a = out_frag_color.a * opacity;\n}"
+module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp isampler2D;\nprecision highp usampler2D;\nprecision mediump int;\n\nin vec3 frag_uv_start;\nin vec3 frag_uv_end;\nin float frag_blending_factor;\nin float m_start;\nin float m_end;\n\nout vec4 out_frag_color;\n\n//const int MAX_NUM_TEX = 3;\nuniform usampler2D tex1;\nuniform usampler2D tex2;\nuniform usampler2D tex3;\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform float num_colormaps;\nuniform float colormap_id;\n// can be either 0 or 1\nuniform float reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, reversed);\n    float id = (colormap_id + 0.5) / num_colormaps;\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nuvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return uvec4(0, 0, 0, 1);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform float opacity;\n\nvec4 get_color(vec3 uv, float empty) {\n    vec4 color = mix(get_color_from_grayscale_texture(uv), vec4(0.0), empty);\n    return color;\n}\n\nvoid main() {\n    vec4 color_start = get_color(frag_uv_start, m_start);\n    vec4 color_end = get_color(frag_uv_end, m_end);\n    /*vec4 color_start = get_color_from_grayscale_texture(frag_uv_start);\n    color_start.a *= (1.0 - m_start);\n    vec4 color_end = get_color_from_grayscale_texture(frag_uv_end);\n    color_end.a *= (1.0 - m_end);*/\n\n    out_frag_color = mix(color_start, color_end, frag_blending_factor);\n    out_frag_color.a = out_frag_color.a * opacity;\n}"
 
 /***/ }),
 
@@ -617,7 +617,7 @@ module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampl
   \********************************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp isampler2D;\nprecision mediump int;\n\nin vec3 frag_uv_start;\nin vec3 frag_uv_end;\nin float frag_blending_factor;\nin float m_start;\nin float m_end;\n\nout vec4 out_frag_color;\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform int num_colormaps;\nuniform int colormap_id;\n// can be either 0 or 1\nuniform int reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, float(reversed));\n    float id = (float(colormap_id) + 0.5) / float(num_colormaps);\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 0.0, 0.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform float opacity;\n\nvec4 get_color(vec3 uv, float empty) {\n    vec4 c = get_colormap_from_grayscale_texture(uv);\n    vec4 color = mix(c, vec4(0.0), empty);\n    return color;\n}\n\nvoid main() {\n    //vec4 color_start = get_color(frag_uv_start, m_start);\n    //vec4 color_end = get_color(frag_uv_end, m_end);\n    vec4 color_start = get_colormap_from_grayscale_texture(frag_uv_start);\n    color_start.a *= (1.0 - m_start);\n    vec4 color_end = get_colormap_from_grayscale_texture(frag_uv_end);\n    color_end.a *= (1.0 - m_end);\n\n    out_frag_color = mix(color_start, color_end, frag_blending_factor);\n    out_frag_color.a = out_frag_color.a * opacity;\n}"
+module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp isampler2D;\nprecision mediump int;\n\nin vec3 frag_uv_start;\nin vec3 frag_uv_end;\nin float frag_blending_factor;\nin float m_start;\nin float m_end;\n\nout vec4 out_frag_color;\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform float num_colormaps;\nuniform float colormap_id;\n// can be either 0 or 1\nuniform float reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, reversed);\n    float id = (colormap_id + 0.5) / num_colormaps;\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 0.0, 0.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform float opacity;\n\nvec4 get_color(vec3 uv, float empty) {\n    vec4 c = get_colormap_from_grayscale_texture(uv);\n    vec4 color = mix(c, vec4(0.0), empty);\n    return color;\n}\n\nvoid main() {\n    //vec4 color_start = get_color(frag_uv_start, m_start);\n    //vec4 color_end = get_color(frag_uv_end, m_end);\n    vec4 color_start = get_colormap_from_grayscale_texture(frag_uv_start);\n    color_start.a *= (1.0 - m_start);\n    vec4 color_end = get_colormap_from_grayscale_texture(frag_uv_end);\n    color_end.a *= (1.0 - m_end);\n\n    out_frag_color = mix(color_start, color_end, frag_blending_factor);\n    out_frag_color.a = out_frag_color.a * opacity;\n}"
 
 /***/ }),
 
@@ -627,7 +627,7 @@ module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampl
   \**********************************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp isampler2D;\nprecision mediump int;\n\nin vec3 frag_uv_start;\nin vec3 frag_uv_end;\nin float frag_blending_factor;\nin float m_start;\nin float m_end;\n\nout vec4 out_frag_color;\n\n//const int MAX_NUM_TEX = 3;\nuniform isampler2D tex1;\nuniform isampler2D tex2;\nuniform isampler2D tex3;\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform int num_colormaps;\nuniform int colormap_id;\n// can be either 0 or 1\nuniform int reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, float(reversed));\n    float id = (float(colormap_id) + 0.5) / float(num_colormaps);\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nivec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return ivec4(0, 0, 0, 1);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform float opacity;\n\nvec4 get_color(vec3 uv, float empty) {\n    vec4 c = get_colormap_from_grayscale_texture(uv);\n    vec4 color = mix(c, vec4(0.0), empty);\n    return color;\n}\n\nvoid main() {\n    vec4 color_start = get_color(frag_uv_start, m_start);\n    vec4 color_end = get_color(frag_uv_end, m_end);\n\n    out_frag_color = mix(color_start, color_end, frag_blending_factor);\n    out_frag_color.a = out_frag_color.a * opacity;\n}"
+module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp isampler2D;\nprecision mediump int;\n\nin vec3 frag_uv_start;\nin vec3 frag_uv_end;\nin float frag_blending_factor;\nin float m_start;\nin float m_end;\n\nout vec4 out_frag_color;\n\n//const int MAX_NUM_TEX = 3;\nuniform isampler2D tex1;\nuniform isampler2D tex2;\nuniform isampler2D tex3;\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform float num_colormaps;\nuniform float colormap_id;\n// can be either 0 or 1\nuniform float reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, reversed);\n    float id = (colormap_id + 0.5) / num_colormaps;\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nivec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return ivec4(0, 0, 0, 1);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform float opacity;\n\nvec4 get_color(vec3 uv, float empty) {\n    vec4 c = get_colormap_from_grayscale_texture(uv);\n    vec4 color = mix(c, vec4(0.0), empty);\n    return color;\n}\n\nvoid main() {\n    vec4 color_start = get_color(frag_uv_start, m_start);\n    vec4 color_end = get_color(frag_uv_end, m_end);\n\n    out_frag_color = mix(color_start, color_end, frag_blending_factor);\n    out_frag_color.a = out_frag_color.a * opacity;\n}"
 
 /***/ }),
 
@@ -637,7 +637,7 @@ module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampl
   \**********************************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp isampler2D;\nprecision highp usampler2D;\nprecision mediump int;\n\nin vec3 frag_uv_start;\nin vec3 frag_uv_end;\nin float frag_blending_factor;\nin float m_start;\nin float m_end;\n\nout vec4 out_frag_color;\n\n//const int MAX_NUM_TEX = 3;\nuniform usampler2D tex1;\nuniform usampler2D tex2;\nuniform usampler2D tex3;\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform int num_colormaps;\nuniform int colormap_id;\n// can be either 0 or 1\nuniform int reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, float(reversed));\n    float id = (float(colormap_id) + 0.5) / float(num_colormaps);\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nuvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return uvec4(0, 0, 0, 1);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform float opacity;\n\nvec4 get_color(vec3 uv, float empty) {\n    vec4 c = get_colormap_from_grayscale_texture(uv);\n    vec4 color = mix(c, vec4(0.0), empty);\n    return color;\n}\n\nvoid main() {\n    //vec4 color_start = get_color(frag_uv_start, m_start);\n    //vec4 color_end = get_color(frag_uv_end, m_end);\n    vec4 color_start = get_colormap_from_grayscale_texture(frag_uv_start);\n    color_start.a *= (1.0 - m_start);\n    vec4 color_end = get_colormap_from_grayscale_texture(frag_uv_end);\n    color_end.a *= (1.0 - m_end);\n\n    out_frag_color = mix(color_start, color_end, frag_blending_factor);\n    out_frag_color.a = out_frag_color.a * opacity;\n}"
+module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp isampler2D;\nprecision highp usampler2D;\nprecision mediump int;\n\nin vec3 frag_uv_start;\nin vec3 frag_uv_end;\nin float frag_blending_factor;\nin float m_start;\nin float m_end;\n\nout vec4 out_frag_color;\n\n//const int MAX_NUM_TEX = 3;\nuniform usampler2D tex1;\nuniform usampler2D tex2;\nuniform usampler2D tex3;\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform float num_colormaps;\nuniform float colormap_id;\n// can be either 0 or 1\nuniform float reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, reversed);\n    float id = (colormap_id + 0.5) / num_colormaps;\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nuvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return uvec4(0, 0, 0, 1);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform float opacity;\n\nvec4 get_color(vec3 uv, float empty) {\n    vec4 c = get_colormap_from_grayscale_texture(uv);\n    vec4 color = mix(c, vec4(0.0), empty);\n    return color;\n}\n\nvoid main() {\n    //vec4 color_start = get_color(frag_uv_start, m_start);\n    //vec4 color_end = get_color(frag_uv_end, m_end);\n    vec4 color_start = get_colormap_from_grayscale_texture(frag_uv_start);\n    color_start.a *= (1.0 - m_start);\n    vec4 color_end = get_colormap_from_grayscale_texture(frag_uv_end);\n    color_end.a *= (1.0 - m_end);\n\n    out_frag_color = mix(color_start, color_end, frag_blending_factor);\n    out_frag_color.a = out_frag_color.a * opacity;\n}"
 
 /***/ }),
 
@@ -647,7 +647,7 @@ module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampl
   \*******************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision highp float;\nprecision mediump int;\n\nlayout (location = 0) in vec2 lonlat;\n//layout (location = 1) in vec3 position;\nlayout (location = 1) in vec2 ndc_pos;\nlayout (location = 2) in vec3 uv_start;\nlayout (location = 3) in vec3 uv_end;\nlayout (location = 4) in float time_tile_received;\nlayout (location = 5) in float m0;\nlayout (location = 6) in float m1;\n\nout vec3 frag_uv_start;\nout vec3 frag_uv_end;\nout float frag_blending_factor;\nout float m_start;\nout float m_end;\n\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\n//uniform float czf;\n\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    /*\n    vec3 world_pos = vec3(inv_model * vec4(position, 1.f));\n    world_pos = check_inversed_longitude(world_pos);\n\n    gl_Position = vec4(world2clip_mercator(world_pos) / (ndc_to_clip * czf), 0.0, 1.0);\n    */\n    gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n    frag_blending_factor = min((current_time - time_tile_received) / 500.f, 1.f);\n    m_start = m0;\n    m_end = m1;\n}"
+module.exports = "#version 300 es\nprecision highp float;\nprecision mediump int;\n\nlayout (location = 0) in vec3 position;\nlayout (location = 1) in vec3 uv_start;\nlayout (location = 2) in vec3 uv_end;\nlayout (location = 3) in float time_tile_received;\nlayout (location = 4) in float m0;\nlayout (location = 5) in float m1;\n\nout vec3 frag_uv_start;\nout vec3 frag_uv_end;\nout float frag_blending_factor;\nout float m_start;\nout float m_end;\n\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\nuniform float czf;\n\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    \n    vec3 world_pos = vec3(inv_model * vec4(position, 1.f));\n    world_pos = check_inversed_longitude(world_pos);\n\n    gl_Position = vec4(world2clip_mercator(world_pos) / (ndc_to_clip * czf), 0.0, 1.0);\n    \n    //gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n    frag_blending_factor = min((current_time - time_tile_received) / 500.f, 1.f);\n    m_start = m0;\n    m_end = m1;\n}"
 
 /***/ }),
 
@@ -657,7 +657,7 @@ module.exports = "#version 300 es\nprecision highp float;\nprecision mediump int
   \********************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision highp float;\nprecision mediump int;\n\nlayout (location = 0) in vec2 lonlat;\n//layout (location = 1) in vec3 position;\nlayout (location = 1) in vec2 ndc_pos;\nlayout (location = 2) in vec3 uv_start;\nlayout (location = 3) in vec3 uv_end;\nlayout (location = 4) in float time_tile_received;\nlayout (location = 5) in float m0;\nlayout (location = 6) in float m1;\n\nout vec3 frag_uv_start;\nout vec3 frag_uv_end;\nout float frag_blending_factor;\nout float m_start;\nout float m_end;\n\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\n//uniform float czf;\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    /*\n    vec3 world_pos = vec3(inv_model * vec4(position, 1.f));\n    world_pos = check_inversed_longitude(world_pos);\n\n    gl_Position = vec4(world2clip_mollweide(world_pos) / (ndc_to_clip * czf), 0.0, 1.0);\n    */\n    gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n    frag_blending_factor = min((current_time - time_tile_received) / 500.f, 1.f);\n    m_start = m0;\n    m_end = m1;\n}"
+module.exports = "#version 300 es\nprecision highp float;\nprecision mediump int;\n\nlayout (location = 0) in vec3 position;\nlayout (location = 1) in vec3 uv_start;\nlayout (location = 2) in vec3 uv_end;\nlayout (location = 3) in float time_tile_received;\nlayout (location = 4) in float m0;\nlayout (location = 5) in float m1;\n\nout vec3 frag_uv_start;\nout vec3 frag_uv_end;\nout float frag_blending_factor;\nout float m_start;\nout float m_end;\n\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\nuniform float czf;\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 world_pos = vec3(inv_model * vec4(position, 1.f));\n    world_pos = check_inversed_longitude(world_pos);\n\n    gl_Position = vec4(world2clip_mollweide(world_pos) / (ndc_to_clip * czf), 0.0, 1.0);\n    \n    //gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n    frag_blending_factor = min((current_time - time_tile_received) / 500.f, 1.f);\n    m_start = m0;\n    m_end = m1;\n}"
 
 /***/ }),
 
@@ -667,7 +667,7 @@ module.exports = "#version 300 es\nprecision highp float;\nprecision mediump int
   \****************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision highp float;\nprecision mediump int;\n\nlayout (location = 0) in vec2 lonlat;\n//layout (location = 1) in vec3 position;\nlayout (location = 1) in vec2 ndc_pos;\nlayout (location = 2) in vec3 uv_start;\nlayout (location = 3) in vec3 uv_end;\nlayout (location = 4) in float time_tile_received;\nlayout (location = 5) in float m0;\nlayout (location = 6) in float m1;\n\nout vec3 frag_uv_start;\nout vec3 frag_uv_end;\nout float frag_blending_factor;\nout float m_start;\nout float m_end;\n\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\n//uniform float czf;\n\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    /*\n    vec3 world_pos = vec3(inv_model * vec4(position, 1.f));\n    world_pos = check_inversed_longitude(world_pos);\n\n    vec2 ndc_pos = world2clip_orthographic(world_pos) / (ndc_to_clip * czf);\n    */\n    gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n\n    frag_blending_factor = min((current_time - time_tile_received) / 500.f, 1.f);\n    m_start = m0;\n    m_end = m1;\n}"
+module.exports = "#version 300 es\nprecision highp float;\nprecision mediump int;\n\nlayout (location = 0) in vec3 position;\nlayout (location = 1) in vec3 uv_start;\nlayout (location = 2) in vec3 uv_end;\nlayout (location = 3) in float time_tile_received;\nlayout (location = 4) in float m0;\nlayout (location = 5) in float m1;\n\nout vec3 frag_uv_start;\nout vec3 frag_uv_end;\nout float frag_blending_factor;\nout float m_start;\nout float m_end;\n\nuniform mat4 inv_model;\nuniform vec2 ndc_to_clip;\nuniform float czf;\n\n// current time in ms\nuniform float current_time;\n\nconst float PI = 3.1415926535897932384626433832795f;\n\nuniform int inversed_longitude;\n\nconst mat3 inverseLongitude = mat3(\n    -1.0, 0.0, 0.0,\n    0.0, 1.0, 0.0,\n    0.0, 0.0, 1.0\n);\n\nconst mat4 GAL2J2000 = mat4(\n    -0.4448296299195045,\n    0.7469822444763707,\n    0.4941094279435681,\n    0.0,\n\n    -0.1980763734646737,\n    0.4559837762325372,\n    -0.8676661489811610,\n    0.0,\n\n    -0.873437090247923,\n    -0.4838350155267381,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nconst mat4 J20002GAL = mat4(\n    -0.4448296299195045,\n    -0.1980763734646737,\n    -0.873437090247923,\n    0.0,\n\n    0.7469822444763707,\n    0.4559837762325372,\n    -0.4838350155267381,\n    0.0,\n\n    0.4941094279435681,\n    -0.8676661489811610,\n    -0.0548755604024359,\n    0.0,\n\n    0.0,\n    0.0,\n    0.0,\n    1.0\n);\n\nvec3 check_inversed_longitude(vec3 p) {\n    if (inversed_longitude == 1) {\n        return inverseLongitude * p;\n    } else {\n        return p;\n    }\n}\n\nvec2 world2clip_orthographic(vec3 p) {\n    return vec2(p.x, p.y);\n}\n\nvec2 world2clip_aitoff(vec3 p) {\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float theta_by_two = theta * 0.5f;\n\n    float alpha = acos(cos(delta)*cos(theta_by_two));\n    float inv_sinc_alpha = 1.f;\n    if (alpha > 1e-3f) {\n        inv_sinc_alpha = alpha / sin(alpha);\n    }\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = 2.f * inv_sinc_alpha * cos(delta) * sin(theta_by_two);\n    float y = inv_sinc_alpha * sin(delta);\n\n    return vec2(x / PI, y / PI);\n}\n\nvec2 world2clip_mollweide(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n    int max_iter = 10;\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float cst = PI * sin(delta);\n\n    float phi = delta;\n    float f = phi + sin(phi) - cst;\n\n    int k = 0;\n    while (abs(f) > 1e-6 && k < max_iter) {\n        phi = phi - f / (1.f + cos(phi));\n        f = phi + sin(phi) - cst;\n\n        k = k + 1;\n    }\n\n    phi = phi * 0.5f;\n\n    // The minus is an astronomical convention.\n    // longitudes are increasing from right to left\n    float x = (theta / PI) * cos(phi);\n    float y = 0.5f * sin(phi);\n\n    return vec2(x, y);\n}\n\nvec2 world2clip_mercator(vec3 p) {\n    // X in [-1, 1]\n    // Y in [-1/2; 1/2] and scaled by the screen width/height ratio\n\n    float delta = asin(p.y);\n    float theta = atan(p.x, p.z);\n\n    float x = theta / PI;\n    float y = asinh(tan(delta / PI));\n\n    return vec2(x, y);\n}\n\nfloat arc_sinc(float x) {\n    if (x > 1e-4) {\n        return asin(x) / x;\n    } else {\n        // If a is mall, use Taylor expension of asin(a) / a\n        // a = 1e-4 => a^4 = 1.e-16\n        float x2 = x*x;\n        return 1.0 + x2 * (1.0 + x2 * 9.0 / 20.0) / 6.0;\n    }\n}\n\nvec2 world2clip_arc(vec3 p) {\n    if (p.z > -1.0) {\n        // Distance in the Euclidean plane (xy)\n        // Angular distance is acos(x), but for small separation, asin(r)\n        // is more accurate.\n        float r = length(p.xy);\n        if (p.z > 0.0) { // Angular distance < PI/2, angular distance = asin(r)\n            r = arc_sinc(r);\n        } else { // Angular distance > PI/2, angular distance = acos(x)\n            r = acos(p.z) / r;\n        }\n        float x = p.x * r;\n        float y = p.y * r;\n\n        return vec2(x / PI, y / PI);\n    } else {\n        return vec2(1.0, 0.0);\n    }\n}\n\nvec2 world2clip_gnomonic(vec3 p) {\n    if (p.z <= 1e-2) { // Back hemisphere (x < 0) + diverges near x=0\n        return vec2(1.0, 0.0);\n    } else {\n        return vec2((p.x/p.z) / PI , (p.y/p.z) / PI);\n    }\n}\n\nvoid main() {\n    vec3 world_pos = vec3(inv_model * vec4(position, 1.f));\n    world_pos = check_inversed_longitude(world_pos);\n\n    vec2 ndc_pos = world2clip_orthographic(world_pos) / (ndc_to_clip * czf);\n    gl_Position = vec4(ndc_pos, 0.0, 1.0);\n\n    frag_uv_start = uv_start;\n    frag_uv_end = uv_end;\n\n    frag_blending_factor = min((current_time - time_tile_received) / 500.f, 1.f);\n    m_start = m0;\n    m_end = m1;\n}"
 
 /***/ }),
 
@@ -677,7 +677,7 @@ module.exports = "#version 300 es\nprecision highp float;\nprecision mediump int
   \***************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp usampler2D;\nprecision highp isampler2D;\nprecision highp int;\n\nin vec3 out_vert_pos;\nin vec2 out_clip_pos;\nout vec4 out_frag_color;\n\nuniform int user_action;\n\nstruct Tile {\n    int uniq; // Healpix cell\n    int texture_idx; // Index in the texture buffer\n    float start_time; // Absolute time that the load has been done in ms\n    float empty;\n};\n\nuniform int current_depth;\nuniform Tile textures_tiles[192];\nuniform int num_tiles;\n\nuniform float current_time; // current time in ms\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform int num_colormaps;\nuniform int colormap_id;\n// can be either 0 or 1\nuniform int reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, float(reversed));\n    float id = (float(colormap_id) + 0.5) / float(num_colormaps);\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 0.0, 0.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\nconst float TWICE_PI = 6.28318530718f;\nconst float PI = 3.141592653589793f;\nconst float FOUR_OVER_PI = 1.27323954474f;\nconst float TRANSITION_Z = 0.66666666666f;\nconst float TRANSITION_Z_INV = 1.5f;\n\nint quarter(vec2 p) {\n    int x_neg = int(p.x < 0.0f);\n    int y_neg = int(p.y < 0.0f);\n    int q = (x_neg + y_neg) | (y_neg << 1);\n    return q;\n}\n\nfloat xpm1(vec2 p) {\n    bool x_neg = (p.x < 0.0f);\n    //debug_assert!(x_neg <= 1);\n    bool y_neg = (p.y < 0.0f);\n    //debug_assert!(y_neg <= 1);\n    // The purpose it to have the same numerical precision for each base cell\n    // by avoiding subtraction by 1 or 3 or 5 or 7\n    float lon = atan(abs(p.y), abs(p.x));\n    //debug_assert!(0.0 <= lon && lon <= PI / 2.0);\n    float x02 = lon * FOUR_OVER_PI;\n    //debug_assert!(0.0 <= x02 && x02 <= 2.0);\n    if (x_neg != y_neg) { // Could be replaced by a sign copy from (x_neg ^ y_neg) << 32\n        return 1.0f - x02;\n    } else {\n        return x02 - 1.0f;\n    }\n}\n\nfloat one_minus_z_pos(vec3 p) {\n    //debug_assert!(z > 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n\n    if (d2 < 1e-1f) { // <=> dec > 84.27 deg\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return 1.0f - p.z;\n}\n\nfloat one_minus_z_neg(vec3 p) {\n    //debug_assert!(z < 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n    if (d2 < 1e-1f) { // <=> dec < -84.27 deg\n        // 0.5 * d2 + 0.125 * d2 * d2\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return p.z + 1.0f;\n}\n\n// Z-Order curve projection.\nint ij2z(int i, int j) {\n    int i1 = i | (j << 16);\n\n    int j1 = (i1 ^ (i1 >> 8)) & 0x0000FF00;\n    int i2 = i1 ^ j1 ^ (j1 << 8);\n\n    int j2 = (i2 ^ (i2 >> 4)) & 0x00F000F0;\n    int i3 = i2 ^ j2 ^ (j2 << 4);\n\n    int j3 = (i3 ^ (i3 >> 2)) & 0x0C0C0C0C;\n    int i4 = i3 ^ j3 ^ (j3 << 2);\n\n    int j4 = (i4 ^ (i4 >> 1)) & 0x22222222;\n    int i5 = i4 ^ j4 ^ (j4 << 1);\n\n    return i5;\n}\n\nstruct HashDxDy {\n    int idx;\n    float dx;\n    float dy;\n};\n\nuniform sampler2D ang2pixd;\nHashDxDy hash_with_dxdy2(vec2 radec) {\n    vec2 aa = vec2(radec.x/TWICE_PI + 1.0, (radec.y/PI) + 0.5);\n    vec3 v = texture(ang2pixd, aa).rgb;\n    return HashDxDy(\n        int(v.x * 255.0),\n        v.y,\n        v.z\n    );\n}\n// Returns the cell number (hash value) associated with the given position on the unit sphere, \n// together with the offset `(dx, dy)` on the Euclidean plane of the projected position with\n// respect to the origin of the cell (South vertex).\n// # Inputs:\n// - `depth` in `[0, 14]` (so that and HEALPix cell number can be stored on an unsigned integer)\n// - `x`: in `[-1.0, 1.0]`\n// - `y`: in `[-1.0, 1.0]`\n// - `z`: in `[-1.0, 1.0]`\n// # Output\n// - the cell number (hash value) associated with the given position on the unit sphere,\n//   in `[0, 12*nside^2[`\n// - `dx`: the positional offset $\\in [0, 1[$ along the south-to-east axis\n// - `dy`: the positional offset $\\in [0, 1[$ along the south-to-west axis\n// # WARNING\n// - The function assumes, without checking, that the input vector is a unit vector \n//   (hence `x^2 + y^2 + z^2 = 1`) !!\n// - Operations being made on simple precision float, the precision is lower than `~0.2 arcsec` only!!\n// - At depth 13, the precision on `(dx, dy)` is better than `(1/512, 1/512)`, i.e. 2e-3.\nHashDxDy hash_with_dxdy(int depth, vec3 p) {\n    //assert!(depth <= 14);\n    //assert!(-1.0 <= x && x <= 1.0);\n    //assert!(-1.0 <= y && y <= 1.0);\n    //assert!(-1.0 <= z && z <= 1.0);\n    //debug_assert!(1.0 - (x * x + y * y + z * z) < 1e-5);\n    // A f32 mantissa contains 23 bits.\n    // - it basically means that when storing (x, y) coordinates,\n    //   we can go as deep as depth 24 (or maybe 25)\n    \n    int nside = 1 << depth;\n    float half_nside = float(nside) * 0.5f;\n\n    float x_pm1 = xpm1(p.xy);\n    int q = quarter(p.xy);\n\n    int d0h = 0;\n    vec2 p_proj = vec2(0.f);\n    if (p.z > TRANSITION_Z) {\n        // North polar cap, Collignon projection.\n        // - set the origin to (PI/4, 0)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_pos(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, 2.0f - sqrt_3_one_min_z);\n        d0h = q;\n    } else if (p.z < -TRANSITION_Z) {\n        // South polar cap, Collignon projection\n        // - set the origin to (PI/4, -PI/2)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_neg(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, sqrt_3_one_min_z);\n        d0h = q + 8;\n    } else {\n        // Equatorial region, Cylindrical equal area projection\n        // - set the origin to (PI/4, 0)               if q = 2\n        // - set the origin to (PI/4, -PI/2)           if q = 0\n        // - set the origin to (0, -TRANSITION_LAT)    if q = 3\n        // - set the origin to (PI/2, -TRANSITION_LAT) if q = 1\n        // let zero_or_one = (x_cea as u8) & 1;\n        float y_pm1 = p.z * TRANSITION_Z_INV;\n        // |\\2/|\n        // .3X1.\n        // |/0\\|\n        int q01 = int(x_pm1 > y_pm1);  // 0/1\n        //debug_assert!(q01 == 0 || q01 == 1);\n        int q12 = int(x_pm1 >= -y_pm1); // 0\\1\n        //debug_assert!(q12 == 0 || q12 == 1);\n        int q03 = 1 - q12; // 1\\0\n        //let q13 = q01 ^ q12; debug_assert!(q13 == 0 || q13 == 1);\n        int q1 = q01 & q12; // = 1 if q1, 0 else\n        //debug_assert!( q1 == 0 ||  q1 == 1);\n        // x: xcea - 0 if q3 | xcea - 2 if q1 | xcea - 1 if q0 or q2\n        //let x_proj = x_pm1 - ((q01 + q12) as i8 - 1) as f32;\n        // y: y - 0 if q2 | y - 1 if q1 or q3 | y - 2 if q0 \n        //let y_proj = y_pm1 + (q01 + q03) as f32;\n        p_proj = vec2(\n            x_pm1 - float(q01 + q12 - 1),\n            y_pm1 + float(q01 + q03)\n        );\n        // d0h: +8 if q0 | +4 if q3 | +5 if q1\n        d0h = ((q01 + q03) << 2) + ((q + q1) & 3);\n    }\n\n    // Coords inside the base cell\n    float x = (half_nside * (p_proj.x + p_proj.y));\n    float y = (half_nside * (p_proj.y - p_proj.x));\n    int i = int(x);\n    int j = int(y);\n\n    return HashDxDy(\n        (d0h << (depth << 1)) | ij2z(i, j),\n        x - float(i),\n        y - float(j)\n    );\n}\n\nuniform float opacity;\n\nint binary_search_tile(int uniq) {\n    int l = 0;\n    int r = num_tiles - 1;\n\n    while (l < r) {\n        int a = (l + r) / 2;\n        Tile tile = textures_tiles[a];\n        if(tile.uniq == uniq) {\n            return a;\n        } else if(tile.uniq < uniq) {\n            l = a + 1;\n        } else {\n            r = a - 1;\n        }\n    }\n\n    return l;\n}\n\nvec4 get_tile_color(vec3 pos) {\n    int d = current_depth;\n\n    while (d >= 0) {\n        HashDxDy result = hash_with_dxdy(d, pos.zxy);\n        \n        int idx = result.idx;\n        vec2 uv = vec2(result.dy, result.dx);\n\n        int uniq = (16 << (d << 1)) | idx;\n        int tile_idx = binary_search_tile(uniq);\n        Tile tile = textures_tiles[tile_idx];\n\n        if(tile.uniq == uniq) {\n            int idx_texture = tile.texture_idx >> 6;\n            int off = tile.texture_idx & 0x3F;\n            float idx_row = float(off >> 3); // in [0; 7]\n            float idx_col = float(off & 0x7); // in [0; 7]\n\n            vec2 offset = (vec2(idx_col, idx_row) + uv)*0.125;\n            vec3 UV = vec3(offset, float(idx_texture));\n\n            vec4 color = get_color_from_texture(UV);\n            // For empty tiles we set the alpha of the pixel to 0.0\n            // so that what is behind will be plotted\n            color.a *= (1.0 - tile.empty);\n            \n            return color;\n        }\n\n        d = d - 1;\n    }\n}\n\nuniform sampler2D position_tex;\nuniform mat4 model;\nvoid main() {\n    vec3 n = vec3(0.0);\n    if(current_depth < 2) {\n        vec2 uv = out_clip_pos * 0.5 + 0.5;\n        n = texture(position_tex, uv).rgb;\n    } else {\n        float x = out_clip_pos.x;\n        float y = out_clip_pos.y;\n        float x2 = x*x;\n        float y2 = y*y;\n        float x4 = x2*x2;\n        float y4 = y2*y2;\n\n        n = vec3(\n            -x,\n            y,\n            -0.5*x2 - 0.5*y2 + 1.0\n        );\n    }\n\n    vec3 frag_pos = vec3(model * vec4(n, 1.0));\n\n    // Get the HEALPix cell idx and the uv in the texture\n    vec4 c = get_tile_color(frag_pos);\n    out_frag_color = vec4(c.rgb, opacity * c.a);\n}"
+module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp usampler2D;\nprecision highp isampler2D;\nprecision highp int;\n\nin vec3 out_vert_pos;\nin vec2 out_clip_pos;\nout vec4 out_frag_color;\n\nuniform int user_action;\n\nstruct Tile {\n    int uniq; // Healpix cell\n    int texture_idx; // Index in the texture buffer\n    float start_time; // Absolute time that the load has been done in ms\n    float empty;\n};\n\nuniform int current_depth;\nuniform Tile textures_tiles[192];\nuniform int num_tiles;\n\nuniform float current_time; // current time in ms\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform float num_colormaps;\nuniform float colormap_id;\n// can be either 0 or 1\nuniform float reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, reversed);\n    float id = (colormap_id + 0.5) / num_colormaps;\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 0.0, 0.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\nconst float TWICE_PI = 6.28318530718f;\nconst float PI = 3.141592653589793f;\nconst float FOUR_OVER_PI = 1.27323954474f;\nconst float TRANSITION_Z = 0.66666666666f;\nconst float TRANSITION_Z_INV = 1.5f;\n\nint quarter(vec2 p) {\n    int x_neg = int(p.x < 0.0f);\n    int y_neg = int(p.y < 0.0f);\n    int q = (x_neg + y_neg) | (y_neg << 1);\n    return q;\n}\n\nfloat xpm1(vec2 p) {\n    bool x_neg = (p.x < 0.0f);\n    //debug_assert!(x_neg <= 1);\n    bool y_neg = (p.y < 0.0f);\n    //debug_assert!(y_neg <= 1);\n    // The purpose it to have the same numerical precision for each base cell\n    // by avoiding subtraction by 1 or 3 or 5 or 7\n    float lon = atan(abs(p.y), abs(p.x));\n    //debug_assert!(0.0 <= lon && lon <= PI / 2.0);\n    float x02 = lon * FOUR_OVER_PI;\n    //debug_assert!(0.0 <= x02 && x02 <= 2.0);\n    if (x_neg != y_neg) { // Could be replaced by a sign copy from (x_neg ^ y_neg) << 32\n        return 1.0f - x02;\n    } else {\n        return x02 - 1.0f;\n    }\n}\n\nfloat one_minus_z_pos(vec3 p) {\n    //debug_assert!(z > 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n\n    if (d2 < 1e-1f) { // <=> dec > 84.27 deg\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return 1.0f - p.z;\n}\n\nfloat one_minus_z_neg(vec3 p) {\n    //debug_assert!(z < 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n    if (d2 < 1e-1f) { // <=> dec < -84.27 deg\n        // 0.5 * d2 + 0.125 * d2 * d2\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return p.z + 1.0f;\n}\n\n// Z-Order curve projection.\nint ij2z(int i, int j) {\n    int i1 = i | (j << 16);\n\n    int j1 = (i1 ^ (i1 >> 8)) & 0x0000FF00;\n    int i2 = i1 ^ j1 ^ (j1 << 8);\n\n    int j2 = (i2 ^ (i2 >> 4)) & 0x00F000F0;\n    int i3 = i2 ^ j2 ^ (j2 << 4);\n\n    int j3 = (i3 ^ (i3 >> 2)) & 0x0C0C0C0C;\n    int i4 = i3 ^ j3 ^ (j3 << 2);\n\n    int j4 = (i4 ^ (i4 >> 1)) & 0x22222222;\n    int i5 = i4 ^ j4 ^ (j4 << 1);\n\n    return i5;\n}\n\nstruct HashDxDy {\n    int idx;\n    float dx;\n    float dy;\n};\n\nuniform sampler2D ang2pixd;\nHashDxDy hash_with_dxdy2(vec2 radec) {\n    vec2 aa = vec2(radec.x/TWICE_PI + 1.0, (radec.y/PI) + 0.5);\n    vec3 v = texture(ang2pixd, aa).rgb;\n    return HashDxDy(\n        int(v.x * 255.0),\n        v.y,\n        v.z\n    );\n}\n// Returns the cell number (hash value) associated with the given position on the unit sphere, \n// together with the offset `(dx, dy)` on the Euclidean plane of the projected position with\n// respect to the origin of the cell (South vertex).\n// # Inputs:\n// - `depth` in `[0, 14]` (so that and HEALPix cell number can be stored on an unsigned integer)\n// - `x`: in `[-1.0, 1.0]`\n// - `y`: in `[-1.0, 1.0]`\n// - `z`: in `[-1.0, 1.0]`\n// # Output\n// - the cell number (hash value) associated with the given position on the unit sphere,\n//   in `[0, 12*nside^2[`\n// - `dx`: the positional offset $\\in [0, 1[$ along the south-to-east axis\n// - `dy`: the positional offset $\\in [0, 1[$ along the south-to-west axis\n// # WARNING\n// - The function assumes, without checking, that the input vector is a unit vector \n//   (hence `x^2 + y^2 + z^2 = 1`) !!\n// - Operations being made on simple precision float, the precision is lower than `~0.2 arcsec` only!!\n// - At depth 13, the precision on `(dx, dy)` is better than `(1/512, 1/512)`, i.e. 2e-3.\nHashDxDy hash_with_dxdy(int depth, vec3 p) {\n    //assert!(depth <= 14);\n    //assert!(-1.0 <= x && x <= 1.0);\n    //assert!(-1.0 <= y && y <= 1.0);\n    //assert!(-1.0 <= z && z <= 1.0);\n    //debug_assert!(1.0 - (x * x + y * y + z * z) < 1e-5);\n    // A f32 mantissa contains 23 bits.\n    // - it basically means that when storing (x, y) coordinates,\n    //   we can go as deep as depth 24 (or maybe 25)\n    \n    int nside = 1 << depth;\n    float half_nside = float(nside) * 0.5f;\n\n    float x_pm1 = xpm1(p.xy);\n    int q = quarter(p.xy);\n\n    int d0h = 0;\n    vec2 p_proj = vec2(0.f);\n    if (p.z > TRANSITION_Z) {\n        // North polar cap, Collignon projection.\n        // - set the origin to (PI/4, 0)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_pos(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, 2.0f - sqrt_3_one_min_z);\n        d0h = q;\n    } else if (p.z < -TRANSITION_Z) {\n        // South polar cap, Collignon projection\n        // - set the origin to (PI/4, -PI/2)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_neg(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, sqrt_3_one_min_z);\n        d0h = q + 8;\n    } else {\n        // Equatorial region, Cylindrical equal area projection\n        // - set the origin to (PI/4, 0)               if q = 2\n        // - set the origin to (PI/4, -PI/2)           if q = 0\n        // - set the origin to (0, -TRANSITION_LAT)    if q = 3\n        // - set the origin to (PI/2, -TRANSITION_LAT) if q = 1\n        // let zero_or_one = (x_cea as u8) & 1;\n        float y_pm1 = p.z * TRANSITION_Z_INV;\n        // |\\2/|\n        // .3X1.\n        // |/0\\|\n        int q01 = int(x_pm1 > y_pm1);  // 0/1\n        //debug_assert!(q01 == 0 || q01 == 1);\n        int q12 = int(x_pm1 >= -y_pm1); // 0\\1\n        //debug_assert!(q12 == 0 || q12 == 1);\n        int q03 = 1 - q12; // 1\\0\n        //let q13 = q01 ^ q12; debug_assert!(q13 == 0 || q13 == 1);\n        int q1 = q01 & q12; // = 1 if q1, 0 else\n        //debug_assert!( q1 == 0 ||  q1 == 1);\n        // x: xcea - 0 if q3 | xcea - 2 if q1 | xcea - 1 if q0 or q2\n        //let x_proj = x_pm1 - ((q01 + q12) as i8 - 1) as f32;\n        // y: y - 0 if q2 | y - 1 if q1 or q3 | y - 2 if q0 \n        //let y_proj = y_pm1 + (q01 + q03) as f32;\n        p_proj = vec2(\n            x_pm1 - float(q01 + q12 - 1),\n            y_pm1 + float(q01 + q03)\n        );\n        // d0h: +8 if q0 | +4 if q3 | +5 if q1\n        d0h = ((q01 + q03) << 2) + ((q + q1) & 3);\n    }\n\n    // Coords inside the base cell\n    float x = (half_nside * (p_proj.x + p_proj.y));\n    float y = (half_nside * (p_proj.y - p_proj.x));\n    int i = int(x);\n    int j = int(y);\n\n    return HashDxDy(\n        (d0h << (depth << 1)) | ij2z(i, j),\n        x - float(i),\n        y - float(j)\n    );\n}\n\nuniform float opacity;\n\nint binary_search_tile(int uniq) {\n    int l = 0;\n    int r = num_tiles - 1;\n\n    while (l < r) {\n        int a = (l + r) / 2;\n        Tile tile = textures_tiles[a];\n        if(tile.uniq == uniq) {\n            return a;\n        } else if(tile.uniq < uniq) {\n            l = a + 1;\n        } else {\n            r = a - 1;\n        }\n    }\n\n    return l;\n}\n\nvec4 get_tile_color(vec3 pos) {\n    int d = current_depth;\n\n    while (d >= 0) {\n        HashDxDy result = hash_with_dxdy(d, pos.zxy);\n        \n        int idx = result.idx;\n        vec2 uv = vec2(result.dy, result.dx);\n\n        int uniq = (16 << (d << 1)) | idx;\n        int tile_idx = binary_search_tile(uniq);\n        Tile tile = textures_tiles[tile_idx];\n\n        if(tile.uniq == uniq) {\n            int idx_texture = tile.texture_idx >> 6;\n            int off = tile.texture_idx & 0x3F;\n            float idx_row = float(off >> 3); // in [0; 7]\n            float idx_col = float(off & 0x7); // in [0; 7]\n\n            vec2 offset = (vec2(idx_col, idx_row) + uv)*0.125;\n            vec3 UV = vec3(offset, float(idx_texture));\n\n            vec4 color = get_color_from_texture(UV);\n            // For empty tiles we set the alpha of the pixel to 0.0\n            // so that what is behind will be plotted\n            color.a *= (1.0 - tile.empty);\n            \n            return color;\n        }\n\n        d = d - 1;\n    }\n}\n\nuniform sampler2D position_tex;\nuniform mat4 model;\nvoid main() {\n    vec3 n = vec3(0.0);\n    if(current_depth < 2) {\n        vec2 uv = out_clip_pos * 0.5 + 0.5;\n        n = texture(position_tex, uv).rgb;\n    } else {\n        float x = out_clip_pos.x;\n        float y = out_clip_pos.y;\n        float x2 = x*x;\n        float y2 = y*y;\n        float x4 = x2*x2;\n        float y4 = y2*y2;\n\n        n = vec3(\n            -x,\n            y,\n            -0.5*x2 - 0.5*y2 + 1.0\n        );\n    }\n\n    vec3 frag_pos = vec3(model * vec4(n, 1.0));\n\n    // Get the HEALPix cell idx and the uv in the texture\n    vec4 c = get_tile_color(frag_pos);\n    out_frag_color = vec4(c.rgb, opacity * c.a);\n}"
 
 /***/ }),
 
@@ -687,7 +687,7 @@ module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampl
   \****************************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp usampler2D;\nprecision highp isampler2D;\nprecision highp int;\n\nin vec2 out_clip_pos;\nout vec4 out_frag_color;\n\nuniform int user_action;\n\nstruct Tile {\n    int uniq; // Healpix cell\n    int texture_idx; // Index in the texture buffer\n    float start_time; // Absolute time that the load has been done in ms\n    float empty;\n};\n\nuniform int current_depth;\n\nuniform Tile textures_tiles[12];\n\nuniform float current_time; // current time in ms\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform int num_colormaps;\nuniform int colormap_id;\n// can be either 0 or 1\nuniform int reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, float(reversed));\n    float id = (float(colormap_id) + 0.5) / float(num_colormaps);\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 0.0, 0.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\nconst float TWICE_PI = 6.28318530718f;\nconst float PI = 3.141592653589793f;\nconst float FOUR_OVER_PI = 1.27323954474f;\nconst float TRANSITION_Z = 0.66666666666f;\nconst float TRANSITION_Z_INV = 1.5f;\n\nint quarter(vec2 p) {\n    int x_neg = int(p.x < 0.0f);\n    int y_neg = int(p.y < 0.0f);\n    int q = (x_neg + y_neg) | (y_neg << 1);\n    return q;\n}\n\nfloat xpm1(vec2 p) {\n    bool x_neg = (p.x < 0.0f);\n    //debug_assert!(x_neg <= 1);\n    bool y_neg = (p.y < 0.0f);\n    //debug_assert!(y_neg <= 1);\n    // The purpose it to have the same numerical precision for each base cell\n    // by avoiding subtraction by 1 or 3 or 5 or 7\n    float lon = atan(abs(p.y), abs(p.x));\n    //debug_assert!(0.0 <= lon && lon <= PI / 2.0);\n    float x02 = lon * FOUR_OVER_PI;\n    //debug_assert!(0.0 <= x02 && x02 <= 2.0);\n    if (x_neg != y_neg) { // Could be replaced by a sign copy from (x_neg ^ y_neg) << 32\n        return 1.0f - x02;\n    } else {\n        return x02 - 1.0f;\n    }\n}\n\nfloat one_minus_z_pos(vec3 p) {\n    //debug_assert!(z > 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n\n    if (d2 < 1e-1f) { // <=> dec > 84.27 deg\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return 1.0f - p.z;\n}\n\nfloat one_minus_z_neg(vec3 p) {\n    //debug_assert!(z < 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n    if (d2 < 1e-1f) { // <=> dec < -84.27 deg\n        // 0.5 * d2 + 0.125 * d2 * d2\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return p.z + 1.0f;\n}\n\n// Z-Order curve projection.\nint ij2z(int i, int j) {\n    int i1 = i | (j << 16);\n\n    int j1 = (i1 ^ (i1 >> 8)) & 0x0000FF00;\n    int i2 = i1 ^ j1 ^ (j1 << 8);\n\n    int j2 = (i2 ^ (i2 >> 4)) & 0x00F000F0;\n    int i3 = i2 ^ j2 ^ (j2 << 4);\n\n    int j3 = (i3 ^ (i3 >> 2)) & 0x0C0C0C0C;\n    int i4 = i3 ^ j3 ^ (j3 << 2);\n\n    int j4 = (i4 ^ (i4 >> 1)) & 0x22222222;\n    int i5 = i4 ^ j4 ^ (j4 << 1);\n\n    return i5;\n}\n\nstruct HashDxDy {\n    int idx;\n    float dx;\n    float dy;\n};\n\nuniform sampler2D ang2pixd;\nHashDxDy hash_with_dxdy2(vec2 radec) {\n    vec2 aa = vec2(radec.x/TWICE_PI + 1.0, (radec.y/PI) + 0.5);\n    vec3 v = texture(ang2pixd, aa).rgb;\n    return HashDxDy(\n        int(v.x * 255.0),\n        v.y,\n        v.z\n    );\n}\n// Returns the cell number (hash value) associated with the given position on the unit sphere, \n// together with the offset `(dx, dy)` on the Euclidean plane of the projected position with\n// respect to the origin of the cell (South vertex).\n// # Inputs:\n// - `depth` in `[0, 14]` (so that and HEALPix cell number can be stored on an unsigned integer)\n// - `x`: in `[-1.0, 1.0]`\n// - `y`: in `[-1.0, 1.0]`\n// - `z`: in `[-1.0, 1.0]`\n// # Output\n// - the cell number (hash value) associated with the given position on the unit sphere,\n//   in `[0, 12*nside^2[`\n// - `dx`: the positional offset $\\in [0, 1[$ along the south-to-east axis\n// - `dy`: the positional offset $\\in [0, 1[$ along the south-to-west axis\n// # WARNING\n// - The function assumes, without checking, that the input vector is a unit vector \n//   (hence `x^2 + y^2 + z^2 = 1`) !!\n// - Operations being made on simple precision float, the precision is lower than `~0.2 arcsec` only!!\n// - At depth 13, the precision on `(dx, dy)` is better than `(1/512, 1/512)`, i.e. 2e-3.\nHashDxDy hash_with_dxdy(int depth, vec3 p) {\n    //assert!(depth <= 14);\n    //assert!(-1.0 <= x && x <= 1.0);\n    //assert!(-1.0 <= y && y <= 1.0);\n    //assert!(-1.0 <= z && z <= 1.0);\n    //debug_assert!(1.0 - (x * x + y * y + z * z) < 1e-5);\n    // A f32 mantissa contains 23 bits.\n    // - it basically means that when storing (x, y) coordinates,\n    //   we can go as deep as depth 24 (or maybe 25)\n    \n    int nside = 1 << depth;\n    float half_nside = float(nside) * 0.5f;\n\n    float x_pm1 = xpm1(p.xy);\n    int q = quarter(p.xy);\n\n    int d0h = 0;\n    vec2 p_proj = vec2(0.f);\n    if (p.z > TRANSITION_Z) {\n        // North polar cap, Collignon projection.\n        // - set the origin to (PI/4, 0)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_pos(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, 2.0f - sqrt_3_one_min_z);\n        d0h = q;\n    } else if (p.z < -TRANSITION_Z) {\n        // South polar cap, Collignon projection\n        // - set the origin to (PI/4, -PI/2)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_neg(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, sqrt_3_one_min_z);\n        d0h = q + 8;\n    } else {\n        // Equatorial region, Cylindrical equal area projection\n        // - set the origin to (PI/4, 0)               if q = 2\n        // - set the origin to (PI/4, -PI/2)           if q = 0\n        // - set the origin to (0, -TRANSITION_LAT)    if q = 3\n        // - set the origin to (PI/2, -TRANSITION_LAT) if q = 1\n        // let zero_or_one = (x_cea as u8) & 1;\n        float y_pm1 = p.z * TRANSITION_Z_INV;\n        // |\\2/|\n        // .3X1.\n        // |/0\\|\n        int q01 = int(x_pm1 > y_pm1);  // 0/1\n        //debug_assert!(q01 == 0 || q01 == 1);\n        int q12 = int(x_pm1 >= -y_pm1); // 0\\1\n        //debug_assert!(q12 == 0 || q12 == 1);\n        int q03 = 1 - q12; // 1\\0\n        //let q13 = q01 ^ q12; debug_assert!(q13 == 0 || q13 == 1);\n        int q1 = q01 & q12; // = 1 if q1, 0 else\n        //debug_assert!( q1 == 0 ||  q1 == 1);\n        // x: xcea - 0 if q3 | xcea - 2 if q1 | xcea - 1 if q0 or q2\n        //let x_proj = x_pm1 - ((q01 + q12) as i8 - 1) as f32;\n        // y: y - 0 if q2 | y - 1 if q1 or q3 | y - 2 if q0 \n        //let y_proj = y_pm1 + (q01 + q03) as f32;\n        p_proj = vec2(\n            x_pm1 - float(q01 + q12 - 1),\n            y_pm1 + float(q01 + q03)\n        );\n        // d0h: +8 if q0 | +4 if q3 | +5 if q1\n        d0h = ((q01 + q03) << 2) + ((q + q1) & 3);\n    }\n\n    // Coords inside the base cell\n    float x = (half_nside * (p_proj.x + p_proj.y));\n    float y = (half_nside * (p_proj.y - p_proj.x));\n    int i = int(x);\n    int j = int(y);\n\n    return HashDxDy(\n        (d0h << (depth << 1)) | ij2z(i, j),\n        x - float(i),\n        y - float(j)\n    );\n}\n\nuniform float opacity;\n\nvec4 get_tile_color(vec3 pos) {\n    HashDxDy result = hash_with_dxdy(0, pos.zxy);\n    int idx = result.idx;\n    vec2 uv = vec2(result.dy, result.dx);\n\n    Tile tile = textures_tiles[idx];\n\n    int idx_texture = tile.texture_idx >> 6;\n    int off = tile.texture_idx & 0x3F;\n    float idx_row = float(off >> 3); // in [0; 7]\n    float idx_col = float(off & 0x7); // in [0; 7]\n\n    vec2 offset = (vec2(idx_col, idx_row) + uv)*0.125;\n    vec3 UV = vec3(offset, float(idx_texture));\n\n    vec4 color = get_color_from_grayscale_texture(UV);\n    // For empty tiles we set the alpha of the pixel to 0.0\n    // so that what is behind will be plotted\n    color.a *= (1.0 - tile.empty);\n    return color;\n}\n\nconst float duration = 500.f; // 500ms\nuniform int max_depth; // max depth of the HiPS\n\nuniform sampler2D position_tex;\nuniform mat4 model;\nvoid main() {\n    vec2 uv = out_clip_pos * 0.5 + 0.5;\n    vec3 n = texture(position_tex, uv).rgb;\n\n    vec3 frag_pos = vec3(model * vec4(n, 1.0));\n\n    vec4 c = get_tile_color(frag_pos);\n    out_frag_color = c;\n    out_frag_color.a = out_frag_color.a * opacity;\n}"
+module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp usampler2D;\nprecision highp isampler2D;\nprecision highp int;\n\nin vec2 out_clip_pos;\nout vec4 out_frag_color;\n\nuniform int user_action;\n\nstruct Tile {\n    int uniq; // Healpix cell\n    int texture_idx; // Index in the texture buffer\n    float start_time; // Absolute time that the load has been done in ms\n    float empty;\n};\n\nuniform int current_depth;\n\nuniform Tile textures_tiles[12];\n\nuniform float current_time; // current time in ms\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform float num_colormaps;\nuniform float colormap_id;\n// can be either 0 or 1\nuniform float reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, reversed);\n    float id = (colormap_id + 0.5) / num_colormaps;\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 0.0, 0.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\nconst float TWICE_PI = 6.28318530718f;\nconst float PI = 3.141592653589793f;\nconst float FOUR_OVER_PI = 1.27323954474f;\nconst float TRANSITION_Z = 0.66666666666f;\nconst float TRANSITION_Z_INV = 1.5f;\n\nint quarter(vec2 p) {\n    int x_neg = int(p.x < 0.0f);\n    int y_neg = int(p.y < 0.0f);\n    int q = (x_neg + y_neg) | (y_neg << 1);\n    return q;\n}\n\nfloat xpm1(vec2 p) {\n    bool x_neg = (p.x < 0.0f);\n    //debug_assert!(x_neg <= 1);\n    bool y_neg = (p.y < 0.0f);\n    //debug_assert!(y_neg <= 1);\n    // The purpose it to have the same numerical precision for each base cell\n    // by avoiding subtraction by 1 or 3 or 5 or 7\n    float lon = atan(abs(p.y), abs(p.x));\n    //debug_assert!(0.0 <= lon && lon <= PI / 2.0);\n    float x02 = lon * FOUR_OVER_PI;\n    //debug_assert!(0.0 <= x02 && x02 <= 2.0);\n    if (x_neg != y_neg) { // Could be replaced by a sign copy from (x_neg ^ y_neg) << 32\n        return 1.0f - x02;\n    } else {\n        return x02 - 1.0f;\n    }\n}\n\nfloat one_minus_z_pos(vec3 p) {\n    //debug_assert!(z > 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n\n    if (d2 < 1e-1f) { // <=> dec > 84.27 deg\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return 1.0f - p.z;\n}\n\nfloat one_minus_z_neg(vec3 p) {\n    //debug_assert!(z < 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n    if (d2 < 1e-1f) { // <=> dec < -84.27 deg\n        // 0.5 * d2 + 0.125 * d2 * d2\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return p.z + 1.0f;\n}\n\n// Z-Order curve projection.\nint ij2z(int i, int j) {\n    int i1 = i | (j << 16);\n\n    int j1 = (i1 ^ (i1 >> 8)) & 0x0000FF00;\n    int i2 = i1 ^ j1 ^ (j1 << 8);\n\n    int j2 = (i2 ^ (i2 >> 4)) & 0x00F000F0;\n    int i3 = i2 ^ j2 ^ (j2 << 4);\n\n    int j3 = (i3 ^ (i3 >> 2)) & 0x0C0C0C0C;\n    int i4 = i3 ^ j3 ^ (j3 << 2);\n\n    int j4 = (i4 ^ (i4 >> 1)) & 0x22222222;\n    int i5 = i4 ^ j4 ^ (j4 << 1);\n\n    return i5;\n}\n\nstruct HashDxDy {\n    int idx;\n    float dx;\n    float dy;\n};\n\nuniform sampler2D ang2pixd;\nHashDxDy hash_with_dxdy2(vec2 radec) {\n    vec2 aa = vec2(radec.x/TWICE_PI + 1.0, (radec.y/PI) + 0.5);\n    vec3 v = texture(ang2pixd, aa).rgb;\n    return HashDxDy(\n        int(v.x * 255.0),\n        v.y,\n        v.z\n    );\n}\n// Returns the cell number (hash value) associated with the given position on the unit sphere, \n// together with the offset `(dx, dy)` on the Euclidean plane of the projected position with\n// respect to the origin of the cell (South vertex).\n// # Inputs:\n// - `depth` in `[0, 14]` (so that and HEALPix cell number can be stored on an unsigned integer)\n// - `x`: in `[-1.0, 1.0]`\n// - `y`: in `[-1.0, 1.0]`\n// - `z`: in `[-1.0, 1.0]`\n// # Output\n// - the cell number (hash value) associated with the given position on the unit sphere,\n//   in `[0, 12*nside^2[`\n// - `dx`: the positional offset $\\in [0, 1[$ along the south-to-east axis\n// - `dy`: the positional offset $\\in [0, 1[$ along the south-to-west axis\n// # WARNING\n// - The function assumes, without checking, that the input vector is a unit vector \n//   (hence `x^2 + y^2 + z^2 = 1`) !!\n// - Operations being made on simple precision float, the precision is lower than `~0.2 arcsec` only!!\n// - At depth 13, the precision on `(dx, dy)` is better than `(1/512, 1/512)`, i.e. 2e-3.\nHashDxDy hash_with_dxdy(int depth, vec3 p) {\n    //assert!(depth <= 14);\n    //assert!(-1.0 <= x && x <= 1.0);\n    //assert!(-1.0 <= y && y <= 1.0);\n    //assert!(-1.0 <= z && z <= 1.0);\n    //debug_assert!(1.0 - (x * x + y * y + z * z) < 1e-5);\n    // A f32 mantissa contains 23 bits.\n    // - it basically means that when storing (x, y) coordinates,\n    //   we can go as deep as depth 24 (or maybe 25)\n    \n    int nside = 1 << depth;\n    float half_nside = float(nside) * 0.5f;\n\n    float x_pm1 = xpm1(p.xy);\n    int q = quarter(p.xy);\n\n    int d0h = 0;\n    vec2 p_proj = vec2(0.f);\n    if (p.z > TRANSITION_Z) {\n        // North polar cap, Collignon projection.\n        // - set the origin to (PI/4, 0)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_pos(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, 2.0f - sqrt_3_one_min_z);\n        d0h = q;\n    } else if (p.z < -TRANSITION_Z) {\n        // South polar cap, Collignon projection\n        // - set the origin to (PI/4, -PI/2)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_neg(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, sqrt_3_one_min_z);\n        d0h = q + 8;\n    } else {\n        // Equatorial region, Cylindrical equal area projection\n        // - set the origin to (PI/4, 0)               if q = 2\n        // - set the origin to (PI/4, -PI/2)           if q = 0\n        // - set the origin to (0, -TRANSITION_LAT)    if q = 3\n        // - set the origin to (PI/2, -TRANSITION_LAT) if q = 1\n        // let zero_or_one = (x_cea as u8) & 1;\n        float y_pm1 = p.z * TRANSITION_Z_INV;\n        // |\\2/|\n        // .3X1.\n        // |/0\\|\n        int q01 = int(x_pm1 > y_pm1);  // 0/1\n        //debug_assert!(q01 == 0 || q01 == 1);\n        int q12 = int(x_pm1 >= -y_pm1); // 0\\1\n        //debug_assert!(q12 == 0 || q12 == 1);\n        int q03 = 1 - q12; // 1\\0\n        //let q13 = q01 ^ q12; debug_assert!(q13 == 0 || q13 == 1);\n        int q1 = q01 & q12; // = 1 if q1, 0 else\n        //debug_assert!( q1 == 0 ||  q1 == 1);\n        // x: xcea - 0 if q3 | xcea - 2 if q1 | xcea - 1 if q0 or q2\n        //let x_proj = x_pm1 - ((q01 + q12) as i8 - 1) as f32;\n        // y: y - 0 if q2 | y - 1 if q1 or q3 | y - 2 if q0 \n        //let y_proj = y_pm1 + (q01 + q03) as f32;\n        p_proj = vec2(\n            x_pm1 - float(q01 + q12 - 1),\n            y_pm1 + float(q01 + q03)\n        );\n        // d0h: +8 if q0 | +4 if q3 | +5 if q1\n        d0h = ((q01 + q03) << 2) + ((q + q1) & 3);\n    }\n\n    // Coords inside the base cell\n    float x = (half_nside * (p_proj.x + p_proj.y));\n    float y = (half_nside * (p_proj.y - p_proj.x));\n    int i = int(x);\n    int j = int(y);\n\n    return HashDxDy(\n        (d0h << (depth << 1)) | ij2z(i, j),\n        x - float(i),\n        y - float(j)\n    );\n}\n\nuniform float opacity;\n\nvec4 get_tile_color(vec3 pos) {\n    HashDxDy result = hash_with_dxdy(0, pos.zxy);\n    int idx = result.idx;\n    vec2 uv = vec2(result.dy, result.dx);\n\n    Tile tile = textures_tiles[idx];\n\n    int idx_texture = tile.texture_idx >> 6;\n    int off = tile.texture_idx & 0x3F;\n    float idx_row = float(off >> 3); // in [0; 7]\n    float idx_col = float(off & 0x7); // in [0; 7]\n\n    vec2 offset = (vec2(idx_col, idx_row) + uv)*0.125;\n    vec3 UV = vec3(offset, float(idx_texture));\n\n    vec4 color = get_color_from_grayscale_texture(UV);\n    // For empty tiles we set the alpha of the pixel to 0.0\n    // so that what is behind will be plotted\n    color.a *= (1.0 - tile.empty);\n    return color;\n}\n\nconst float duration = 500.f; // 500ms\nuniform int max_depth; // max depth of the HiPS\n\nuniform sampler2D position_tex;\nuniform mat4 model;\nvoid main() {\n    vec2 uv = out_clip_pos * 0.5 + 0.5;\n    vec3 n = texture(position_tex, uv).rgb;\n\n    vec3 frag_pos = vec3(model * vec4(n, 1.0));\n\n    vec4 c = get_tile_color(frag_pos);\n    out_frag_color = c;\n    out_frag_color.a = out_frag_color.a * opacity;\n}"
 
 /***/ }),
 
@@ -697,7 +697,7 @@ module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampl
   \******************************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp usampler2D;\nprecision highp isampler2D;\nprecision highp int;\n\nin vec3 out_vert_pos;\nin vec2 out_clip_pos;\nout vec4 out_frag_color;\n\nuniform int user_action;\n\nstruct Tile {\n    int uniq; // Healpix cell\n    int texture_idx; // Index in the texture buffer\n    float start_time; // Absolute time that the load has been done in ms\n    float empty;\n};\n\nuniform int current_depth;\n\nuniform Tile textures_tiles[12];\n\nuniform float current_time; // current time in ms\nstruct TileColor {\n    Tile tile;\n    vec4 color;\n    bool found;\n};\n\n//const int MAX_NUM_TEX = 3;\nuniform isampler2D tex1;\nuniform isampler2D tex2;\nuniform isampler2D tex3;\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform int num_colormaps;\nuniform int colormap_id;\n// can be either 0 or 1\nuniform int reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, float(reversed));\n    float id = (float(colormap_id) + 0.5) / float(num_colormaps);\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nivec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return ivec4(0, 0, 0, 1);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\nconst float TWICE_PI = 6.28318530718f;\nconst float PI = 3.141592653589793f;\nconst float FOUR_OVER_PI = 1.27323954474f;\nconst float TRANSITION_Z = 0.66666666666f;\nconst float TRANSITION_Z_INV = 1.5f;\n\nint quarter(vec2 p) {\n    int x_neg = int(p.x < 0.0f);\n    int y_neg = int(p.y < 0.0f);\n    int q = (x_neg + y_neg) | (y_neg << 1);\n    return q;\n}\n\nfloat xpm1(vec2 p) {\n    bool x_neg = (p.x < 0.0f);\n    //debug_assert!(x_neg <= 1);\n    bool y_neg = (p.y < 0.0f);\n    //debug_assert!(y_neg <= 1);\n    // The purpose it to have the same numerical precision for each base cell\n    // by avoiding subtraction by 1 or 3 or 5 or 7\n    float lon = atan(abs(p.y), abs(p.x));\n    //debug_assert!(0.0 <= lon && lon <= PI / 2.0);\n    float x02 = lon * FOUR_OVER_PI;\n    //debug_assert!(0.0 <= x02 && x02 <= 2.0);\n    if (x_neg != y_neg) { // Could be replaced by a sign copy from (x_neg ^ y_neg) << 32\n        return 1.0f - x02;\n    } else {\n        return x02 - 1.0f;\n    }\n}\n\nfloat one_minus_z_pos(vec3 p) {\n    //debug_assert!(z > 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n\n    if (d2 < 1e-1f) { // <=> dec > 84.27 deg\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return 1.0f - p.z;\n}\n\nfloat one_minus_z_neg(vec3 p) {\n    //debug_assert!(z < 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n    if (d2 < 1e-1f) { // <=> dec < -84.27 deg\n        // 0.5 * d2 + 0.125 * d2 * d2\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return p.z + 1.0f;\n}\n\n// Z-Order curve projection.\nint ij2z(int i, int j) {\n    int i1 = i | (j << 16);\n\n    int j1 = (i1 ^ (i1 >> 8)) & 0x0000FF00;\n    int i2 = i1 ^ j1 ^ (j1 << 8);\n\n    int j2 = (i2 ^ (i2 >> 4)) & 0x00F000F0;\n    int i3 = i2 ^ j2 ^ (j2 << 4);\n\n    int j3 = (i3 ^ (i3 >> 2)) & 0x0C0C0C0C;\n    int i4 = i3 ^ j3 ^ (j3 << 2);\n\n    int j4 = (i4 ^ (i4 >> 1)) & 0x22222222;\n    int i5 = i4 ^ j4 ^ (j4 << 1);\n\n    return i5;\n}\n\nstruct HashDxDy {\n    int idx;\n    float dx;\n    float dy;\n};\n\nuniform sampler2D ang2pixd;\nHashDxDy hash_with_dxdy2(vec2 radec) {\n    vec2 aa = vec2(radec.x/TWICE_PI + 1.0, (radec.y/PI) + 0.5);\n    vec3 v = texture(ang2pixd, aa).rgb;\n    return HashDxDy(\n        int(v.x * 255.0),\n        v.y,\n        v.z\n    );\n}\n// Returns the cell number (hash value) associated with the given position on the unit sphere, \n// together with the offset `(dx, dy)` on the Euclidean plane of the projected position with\n// respect to the origin of the cell (South vertex).\n// # Inputs:\n// - `depth` in `[0, 14]` (so that and HEALPix cell number can be stored on an unsigned integer)\n// - `x`: in `[-1.0, 1.0]`\n// - `y`: in `[-1.0, 1.0]`\n// - `z`: in `[-1.0, 1.0]`\n// # Output\n// - the cell number (hash value) associated with the given position on the unit sphere,\n//   in `[0, 12*nside^2[`\n// - `dx`: the positional offset $\\in [0, 1[$ along the south-to-east axis\n// - `dy`: the positional offset $\\in [0, 1[$ along the south-to-west axis\n// # WARNING\n// - The function assumes, without checking, that the input vector is a unit vector \n//   (hence `x^2 + y^2 + z^2 = 1`) !!\n// - Operations being made on simple precision float, the precision is lower than `~0.2 arcsec` only!!\n// - At depth 13, the precision on `(dx, dy)` is better than `(1/512, 1/512)`, i.e. 2e-3.\nHashDxDy hash_with_dxdy(int depth, vec3 p) {\n    //assert!(depth <= 14);\n    //assert!(-1.0 <= x && x <= 1.0);\n    //assert!(-1.0 <= y && y <= 1.0);\n    //assert!(-1.0 <= z && z <= 1.0);\n    //debug_assert!(1.0 - (x * x + y * y + z * z) < 1e-5);\n    // A f32 mantissa contains 23 bits.\n    // - it basically means that when storing (x, y) coordinates,\n    //   we can go as deep as depth 24 (or maybe 25)\n    \n    int nside = 1 << depth;\n    float half_nside = float(nside) * 0.5f;\n\n    float x_pm1 = xpm1(p.xy);\n    int q = quarter(p.xy);\n\n    int d0h = 0;\n    vec2 p_proj = vec2(0.f);\n    if (p.z > TRANSITION_Z) {\n        // North polar cap, Collignon projection.\n        // - set the origin to (PI/4, 0)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_pos(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, 2.0f - sqrt_3_one_min_z);\n        d0h = q;\n    } else if (p.z < -TRANSITION_Z) {\n        // South polar cap, Collignon projection\n        // - set the origin to (PI/4, -PI/2)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_neg(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, sqrt_3_one_min_z);\n        d0h = q + 8;\n    } else {\n        // Equatorial region, Cylindrical equal area projection\n        // - set the origin to (PI/4, 0)               if q = 2\n        // - set the origin to (PI/4, -PI/2)           if q = 0\n        // - set the origin to (0, -TRANSITION_LAT)    if q = 3\n        // - set the origin to (PI/2, -TRANSITION_LAT) if q = 1\n        // let zero_or_one = (x_cea as u8) & 1;\n        float y_pm1 = p.z * TRANSITION_Z_INV;\n        // |\\2/|\n        // .3X1.\n        // |/0\\|\n        int q01 = int(x_pm1 > y_pm1);  // 0/1\n        //debug_assert!(q01 == 0 || q01 == 1);\n        int q12 = int(x_pm1 >= -y_pm1); // 0\\1\n        //debug_assert!(q12 == 0 || q12 == 1);\n        int q03 = 1 - q12; // 1\\0\n        //let q13 = q01 ^ q12; debug_assert!(q13 == 0 || q13 == 1);\n        int q1 = q01 & q12; // = 1 if q1, 0 else\n        //debug_assert!( q1 == 0 ||  q1 == 1);\n        // x: xcea - 0 if q3 | xcea - 2 if q1 | xcea - 1 if q0 or q2\n        //let x_proj = x_pm1 - ((q01 + q12) as i8 - 1) as f32;\n        // y: y - 0 if q2 | y - 1 if q1 or q3 | y - 2 if q0 \n        //let y_proj = y_pm1 + (q01 + q03) as f32;\n        p_proj = vec2(\n            x_pm1 - float(q01 + q12 - 1),\n            y_pm1 + float(q01 + q03)\n        );\n        // d0h: +8 if q0 | +4 if q3 | +5 if q1\n        d0h = ((q01 + q03) << 2) + ((q + q1) & 3);\n    }\n\n    // Coords inside the base cell\n    float x = (half_nside * (p_proj.x + p_proj.y));\n    float y = (half_nside * (p_proj.y - p_proj.x));\n    int i = int(x);\n    int j = int(y);\n\n    return HashDxDy(\n        (d0h << (depth << 1)) | ij2z(i, j),\n        x - float(i),\n        y - float(j)\n    );\n}\n\nuniform float opacity;\n\nvec4 get_tile_color(vec3 pos) {\n    HashDxDy result = hash_with_dxdy(0, pos.zxy);\n    int idx = result.idx;\n    vec2 uv = vec2(result.dy, result.dx);\n\n    Tile tile = textures_tiles[idx];\n\n    int idx_texture = tile.texture_idx >> 6;\n    int off = tile.texture_idx & 0x3F;\n    float idx_row = float(off >> 3); // in [0; 7]\n    float idx_col = float(off & 0x7); // in [0; 7]\n\n    vec2 offset = (vec2(idx_col, idx_row) + uv)*0.125;\n    vec3 UV = vec3(offset, float(idx_texture));\n\n    vec4 color = get_color_from_grayscale_texture(UV);\n    // For empty tiles we set the alpha of the pixel to 0.0\n    // so that what is behind will be plotted\n    color.a *= (1.0 - tile.empty);\n    return color;\n}\n\nconst float duration = 500.f; // 500ms\nuniform int max_depth; // max depth of the HiPS\n\nuniform sampler2D position_tex;\nuniform mat4 model;\nvoid main() {\n    vec2 uv = out_clip_pos * 0.5 + 0.5;\n    vec3 n = texture(position_tex, uv).rgb;\n\n    vec3 frag_pos = vec3(model * vec4(n, 1.0));\n\n    vec4 c = get_tile_color(frag_pos);\n    out_frag_color = c;\n    out_frag_color.a = out_frag_color.a * opacity;\n}"
+module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp usampler2D;\nprecision highp isampler2D;\nprecision highp int;\n\nin vec3 out_vert_pos;\nin vec2 out_clip_pos;\nout vec4 out_frag_color;\n\nuniform int user_action;\n\nstruct Tile {\n    int uniq; // Healpix cell\n    int texture_idx; // Index in the texture buffer\n    float start_time; // Absolute time that the load has been done in ms\n    float empty;\n};\n\nuniform int current_depth;\n\nuniform Tile textures_tiles[12];\n\nuniform float current_time; // current time in ms\nstruct TileColor {\n    Tile tile;\n    vec4 color;\n    bool found;\n};\n\n//const int MAX_NUM_TEX = 3;\nuniform isampler2D tex1;\nuniform isampler2D tex2;\nuniform isampler2D tex3;\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform float num_colormaps;\nuniform float colormap_id;\n// can be either 0 or 1\nuniform float reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, reversed);\n    float id = (colormap_id + 0.5) / num_colormaps;\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nivec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return ivec4(0, 0, 0, 1);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\nconst float TWICE_PI = 6.28318530718f;\nconst float PI = 3.141592653589793f;\nconst float FOUR_OVER_PI = 1.27323954474f;\nconst float TRANSITION_Z = 0.66666666666f;\nconst float TRANSITION_Z_INV = 1.5f;\n\nint quarter(vec2 p) {\n    int x_neg = int(p.x < 0.0f);\n    int y_neg = int(p.y < 0.0f);\n    int q = (x_neg + y_neg) | (y_neg << 1);\n    return q;\n}\n\nfloat xpm1(vec2 p) {\n    bool x_neg = (p.x < 0.0f);\n    //debug_assert!(x_neg <= 1);\n    bool y_neg = (p.y < 0.0f);\n    //debug_assert!(y_neg <= 1);\n    // The purpose it to have the same numerical precision for each base cell\n    // by avoiding subtraction by 1 or 3 or 5 or 7\n    float lon = atan(abs(p.y), abs(p.x));\n    //debug_assert!(0.0 <= lon && lon <= PI / 2.0);\n    float x02 = lon * FOUR_OVER_PI;\n    //debug_assert!(0.0 <= x02 && x02 <= 2.0);\n    if (x_neg != y_neg) { // Could be replaced by a sign copy from (x_neg ^ y_neg) << 32\n        return 1.0f - x02;\n    } else {\n        return x02 - 1.0f;\n    }\n}\n\nfloat one_minus_z_pos(vec3 p) {\n    //debug_assert!(z > 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n\n    if (d2 < 1e-1f) { // <=> dec > 84.27 deg\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return 1.0f - p.z;\n}\n\nfloat one_minus_z_neg(vec3 p) {\n    //debug_assert!(z < 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n    if (d2 < 1e-1f) { // <=> dec < -84.27 deg\n        // 0.5 * d2 + 0.125 * d2 * d2\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return p.z + 1.0f;\n}\n\n// Z-Order curve projection.\nint ij2z(int i, int j) {\n    int i1 = i | (j << 16);\n\n    int j1 = (i1 ^ (i1 >> 8)) & 0x0000FF00;\n    int i2 = i1 ^ j1 ^ (j1 << 8);\n\n    int j2 = (i2 ^ (i2 >> 4)) & 0x00F000F0;\n    int i3 = i2 ^ j2 ^ (j2 << 4);\n\n    int j3 = (i3 ^ (i3 >> 2)) & 0x0C0C0C0C;\n    int i4 = i3 ^ j3 ^ (j3 << 2);\n\n    int j4 = (i4 ^ (i4 >> 1)) & 0x22222222;\n    int i5 = i4 ^ j4 ^ (j4 << 1);\n\n    return i5;\n}\n\nstruct HashDxDy {\n    int idx;\n    float dx;\n    float dy;\n};\n\nuniform sampler2D ang2pixd;\nHashDxDy hash_with_dxdy2(vec2 radec) {\n    vec2 aa = vec2(radec.x/TWICE_PI + 1.0, (radec.y/PI) + 0.5);\n    vec3 v = texture(ang2pixd, aa).rgb;\n    return HashDxDy(\n        int(v.x * 255.0),\n        v.y,\n        v.z\n    );\n}\n// Returns the cell number (hash value) associated with the given position on the unit sphere, \n// together with the offset `(dx, dy)` on the Euclidean plane of the projected position with\n// respect to the origin of the cell (South vertex).\n// # Inputs:\n// - `depth` in `[0, 14]` (so that and HEALPix cell number can be stored on an unsigned integer)\n// - `x`: in `[-1.0, 1.0]`\n// - `y`: in `[-1.0, 1.0]`\n// - `z`: in `[-1.0, 1.0]`\n// # Output\n// - the cell number (hash value) associated with the given position on the unit sphere,\n//   in `[0, 12*nside^2[`\n// - `dx`: the positional offset $\\in [0, 1[$ along the south-to-east axis\n// - `dy`: the positional offset $\\in [0, 1[$ along the south-to-west axis\n// # WARNING\n// - The function assumes, without checking, that the input vector is a unit vector \n//   (hence `x^2 + y^2 + z^2 = 1`) !!\n// - Operations being made on simple precision float, the precision is lower than `~0.2 arcsec` only!!\n// - At depth 13, the precision on `(dx, dy)` is better than `(1/512, 1/512)`, i.e. 2e-3.\nHashDxDy hash_with_dxdy(int depth, vec3 p) {\n    //assert!(depth <= 14);\n    //assert!(-1.0 <= x && x <= 1.0);\n    //assert!(-1.0 <= y && y <= 1.0);\n    //assert!(-1.0 <= z && z <= 1.0);\n    //debug_assert!(1.0 - (x * x + y * y + z * z) < 1e-5);\n    // A f32 mantissa contains 23 bits.\n    // - it basically means that when storing (x, y) coordinates,\n    //   we can go as deep as depth 24 (or maybe 25)\n    \n    int nside = 1 << depth;\n    float half_nside = float(nside) * 0.5f;\n\n    float x_pm1 = xpm1(p.xy);\n    int q = quarter(p.xy);\n\n    int d0h = 0;\n    vec2 p_proj = vec2(0.f);\n    if (p.z > TRANSITION_Z) {\n        // North polar cap, Collignon projection.\n        // - set the origin to (PI/4, 0)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_pos(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, 2.0f - sqrt_3_one_min_z);\n        d0h = q;\n    } else if (p.z < -TRANSITION_Z) {\n        // South polar cap, Collignon projection\n        // - set the origin to (PI/4, -PI/2)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_neg(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, sqrt_3_one_min_z);\n        d0h = q + 8;\n    } else {\n        // Equatorial region, Cylindrical equal area projection\n        // - set the origin to (PI/4, 0)               if q = 2\n        // - set the origin to (PI/4, -PI/2)           if q = 0\n        // - set the origin to (0, -TRANSITION_LAT)    if q = 3\n        // - set the origin to (PI/2, -TRANSITION_LAT) if q = 1\n        // let zero_or_one = (x_cea as u8) & 1;\n        float y_pm1 = p.z * TRANSITION_Z_INV;\n        // |\\2/|\n        // .3X1.\n        // |/0\\|\n        int q01 = int(x_pm1 > y_pm1);  // 0/1\n        //debug_assert!(q01 == 0 || q01 == 1);\n        int q12 = int(x_pm1 >= -y_pm1); // 0\\1\n        //debug_assert!(q12 == 0 || q12 == 1);\n        int q03 = 1 - q12; // 1\\0\n        //let q13 = q01 ^ q12; debug_assert!(q13 == 0 || q13 == 1);\n        int q1 = q01 & q12; // = 1 if q1, 0 else\n        //debug_assert!( q1 == 0 ||  q1 == 1);\n        // x: xcea - 0 if q3 | xcea - 2 if q1 | xcea - 1 if q0 or q2\n        //let x_proj = x_pm1 - ((q01 + q12) as i8 - 1) as f32;\n        // y: y - 0 if q2 | y - 1 if q1 or q3 | y - 2 if q0 \n        //let y_proj = y_pm1 + (q01 + q03) as f32;\n        p_proj = vec2(\n            x_pm1 - float(q01 + q12 - 1),\n            y_pm1 + float(q01 + q03)\n        );\n        // d0h: +8 if q0 | +4 if q3 | +5 if q1\n        d0h = ((q01 + q03) << 2) + ((q + q1) & 3);\n    }\n\n    // Coords inside the base cell\n    float x = (half_nside * (p_proj.x + p_proj.y));\n    float y = (half_nside * (p_proj.y - p_proj.x));\n    int i = int(x);\n    int j = int(y);\n\n    return HashDxDy(\n        (d0h << (depth << 1)) | ij2z(i, j),\n        x - float(i),\n        y - float(j)\n    );\n}\n\nuniform float opacity;\n\nvec4 get_tile_color(vec3 pos) {\n    HashDxDy result = hash_with_dxdy(0, pos.zxy);\n    int idx = result.idx;\n    vec2 uv = vec2(result.dy, result.dx);\n\n    Tile tile = textures_tiles[idx];\n\n    int idx_texture = tile.texture_idx >> 6;\n    int off = tile.texture_idx & 0x3F;\n    float idx_row = float(off >> 3); // in [0; 7]\n    float idx_col = float(off & 0x7); // in [0; 7]\n\n    vec2 offset = (vec2(idx_col, idx_row) + uv)*0.125;\n    vec3 UV = vec3(offset, float(idx_texture));\n\n    vec4 color = get_color_from_grayscale_texture(UV);\n    // For empty tiles we set the alpha of the pixel to 0.0\n    // so that what is behind will be plotted\n    color.a *= (1.0 - tile.empty);\n    return color;\n}\n\nconst float duration = 500.f; // 500ms\nuniform int max_depth; // max depth of the HiPS\n\nuniform sampler2D position_tex;\nuniform mat4 model;\nvoid main() {\n    vec2 uv = out_clip_pos * 0.5 + 0.5;\n    vec3 n = texture(position_tex, uv).rgb;\n\n    vec3 frag_pos = vec3(model * vec4(n, 1.0));\n\n    vec4 c = get_tile_color(frag_pos);\n    out_frag_color = c;\n    out_frag_color.a = out_frag_color.a * opacity;\n}"
 
 /***/ }),
 
@@ -707,7 +707,7 @@ module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampl
   \******************************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp usampler2D;\nprecision highp isampler2D;\nprecision highp int;\n\nin vec2 out_clip_pos;\nout vec4 out_frag_color;\n\nuniform int user_action;\n\nstruct Tile {\n    int uniq; // Healpix cell\n    int texture_idx; // Index in the texture buffer\n    float start_time; // Absolute time that the load has been done in ms\n    float empty;\n};\n\nuniform int current_depth;\n\nuniform Tile textures_tiles[12];\n\nuniform float current_time; // current time in ms\nstruct TileColor {\n    Tile tile;\n    vec4 color;\n    bool found;\n};\n\n//const int MAX_NUM_TEX = 3;\nuniform usampler2D tex1;\nuniform usampler2D tex2;\nuniform usampler2D tex3;\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform int num_colormaps;\nuniform int colormap_id;\n// can be either 0 or 1\nuniform int reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, float(reversed));\n    float id = (float(colormap_id) + 0.5) / float(num_colormaps);\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nuvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return uvec4(0, 0, 0, 1);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\nconst float TWICE_PI = 6.28318530718f;\nconst float PI = 3.141592653589793f;\nconst float FOUR_OVER_PI = 1.27323954474f;\nconst float TRANSITION_Z = 0.66666666666f;\nconst float TRANSITION_Z_INV = 1.5f;\n\nint quarter(vec2 p) {\n    int x_neg = int(p.x < 0.0f);\n    int y_neg = int(p.y < 0.0f);\n    int q = (x_neg + y_neg) | (y_neg << 1);\n    return q;\n}\n\nfloat xpm1(vec2 p) {\n    bool x_neg = (p.x < 0.0f);\n    //debug_assert!(x_neg <= 1);\n    bool y_neg = (p.y < 0.0f);\n    //debug_assert!(y_neg <= 1);\n    // The purpose it to have the same numerical precision for each base cell\n    // by avoiding subtraction by 1 or 3 or 5 or 7\n    float lon = atan(abs(p.y), abs(p.x));\n    //debug_assert!(0.0 <= lon && lon <= PI / 2.0);\n    float x02 = lon * FOUR_OVER_PI;\n    //debug_assert!(0.0 <= x02 && x02 <= 2.0);\n    if (x_neg != y_neg) { // Could be replaced by a sign copy from (x_neg ^ y_neg) << 32\n        return 1.0f - x02;\n    } else {\n        return x02 - 1.0f;\n    }\n}\n\nfloat one_minus_z_pos(vec3 p) {\n    //debug_assert!(z > 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n\n    if (d2 < 1e-1f) { // <=> dec > 84.27 deg\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return 1.0f - p.z;\n}\n\nfloat one_minus_z_neg(vec3 p) {\n    //debug_assert!(z < 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n    if (d2 < 1e-1f) { // <=> dec < -84.27 deg\n        // 0.5 * d2 + 0.125 * d2 * d2\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return p.z + 1.0f;\n}\n\n// Z-Order curve projection.\nint ij2z(int i, int j) {\n    int i1 = i | (j << 16);\n\n    int j1 = (i1 ^ (i1 >> 8)) & 0x0000FF00;\n    int i2 = i1 ^ j1 ^ (j1 << 8);\n\n    int j2 = (i2 ^ (i2 >> 4)) & 0x00F000F0;\n    int i3 = i2 ^ j2 ^ (j2 << 4);\n\n    int j3 = (i3 ^ (i3 >> 2)) & 0x0C0C0C0C;\n    int i4 = i3 ^ j3 ^ (j3 << 2);\n\n    int j4 = (i4 ^ (i4 >> 1)) & 0x22222222;\n    int i5 = i4 ^ j4 ^ (j4 << 1);\n\n    return i5;\n}\n\nstruct HashDxDy {\n    int idx;\n    float dx;\n    float dy;\n};\n\nuniform sampler2D ang2pixd;\nHashDxDy hash_with_dxdy2(vec2 radec) {\n    vec2 aa = vec2(radec.x/TWICE_PI + 1.0, (radec.y/PI) + 0.5);\n    vec3 v = texture(ang2pixd, aa).rgb;\n    return HashDxDy(\n        int(v.x * 255.0),\n        v.y,\n        v.z\n    );\n}\n// Returns the cell number (hash value) associated with the given position on the unit sphere, \n// together with the offset `(dx, dy)` on the Euclidean plane of the projected position with\n// respect to the origin of the cell (South vertex).\n// # Inputs:\n// - `depth` in `[0, 14]` (so that and HEALPix cell number can be stored on an unsigned integer)\n// - `x`: in `[-1.0, 1.0]`\n// - `y`: in `[-1.0, 1.0]`\n// - `z`: in `[-1.0, 1.0]`\n// # Output\n// - the cell number (hash value) associated with the given position on the unit sphere,\n//   in `[0, 12*nside^2[`\n// - `dx`: the positional offset $\\in [0, 1[$ along the south-to-east axis\n// - `dy`: the positional offset $\\in [0, 1[$ along the south-to-west axis\n// # WARNING\n// - The function assumes, without checking, that the input vector is a unit vector \n//   (hence `x^2 + y^2 + z^2 = 1`) !!\n// - Operations being made on simple precision float, the precision is lower than `~0.2 arcsec` only!!\n// - At depth 13, the precision on `(dx, dy)` is better than `(1/512, 1/512)`, i.e. 2e-3.\nHashDxDy hash_with_dxdy(int depth, vec3 p) {\n    //assert!(depth <= 14);\n    //assert!(-1.0 <= x && x <= 1.0);\n    //assert!(-1.0 <= y && y <= 1.0);\n    //assert!(-1.0 <= z && z <= 1.0);\n    //debug_assert!(1.0 - (x * x + y * y + z * z) < 1e-5);\n    // A f32 mantissa contains 23 bits.\n    // - it basically means that when storing (x, y) coordinates,\n    //   we can go as deep as depth 24 (or maybe 25)\n    \n    int nside = 1 << depth;\n    float half_nside = float(nside) * 0.5f;\n\n    float x_pm1 = xpm1(p.xy);\n    int q = quarter(p.xy);\n\n    int d0h = 0;\n    vec2 p_proj = vec2(0.f);\n    if (p.z > TRANSITION_Z) {\n        // North polar cap, Collignon projection.\n        // - set the origin to (PI/4, 0)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_pos(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, 2.0f - sqrt_3_one_min_z);\n        d0h = q;\n    } else if (p.z < -TRANSITION_Z) {\n        // South polar cap, Collignon projection\n        // - set the origin to (PI/4, -PI/2)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_neg(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, sqrt_3_one_min_z);\n        d0h = q + 8;\n    } else {\n        // Equatorial region, Cylindrical equal area projection\n        // - set the origin to (PI/4, 0)               if q = 2\n        // - set the origin to (PI/4, -PI/2)           if q = 0\n        // - set the origin to (0, -TRANSITION_LAT)    if q = 3\n        // - set the origin to (PI/2, -TRANSITION_LAT) if q = 1\n        // let zero_or_one = (x_cea as u8) & 1;\n        float y_pm1 = p.z * TRANSITION_Z_INV;\n        // |\\2/|\n        // .3X1.\n        // |/0\\|\n        int q01 = int(x_pm1 > y_pm1);  // 0/1\n        //debug_assert!(q01 == 0 || q01 == 1);\n        int q12 = int(x_pm1 >= -y_pm1); // 0\\1\n        //debug_assert!(q12 == 0 || q12 == 1);\n        int q03 = 1 - q12; // 1\\0\n        //let q13 = q01 ^ q12; debug_assert!(q13 == 0 || q13 == 1);\n        int q1 = q01 & q12; // = 1 if q1, 0 else\n        //debug_assert!( q1 == 0 ||  q1 == 1);\n        // x: xcea - 0 if q3 | xcea - 2 if q1 | xcea - 1 if q0 or q2\n        //let x_proj = x_pm1 - ((q01 + q12) as i8 - 1) as f32;\n        // y: y - 0 if q2 | y - 1 if q1 or q3 | y - 2 if q0 \n        //let y_proj = y_pm1 + (q01 + q03) as f32;\n        p_proj = vec2(\n            x_pm1 - float(q01 + q12 - 1),\n            y_pm1 + float(q01 + q03)\n        );\n        // d0h: +8 if q0 | +4 if q3 | +5 if q1\n        d0h = ((q01 + q03) << 2) + ((q + q1) & 3);\n    }\n\n    // Coords inside the base cell\n    float x = (half_nside * (p_proj.x + p_proj.y));\n    float y = (half_nside * (p_proj.y - p_proj.x));\n    int i = int(x);\n    int j = int(y);\n\n    return HashDxDy(\n        (d0h << (depth << 1)) | ij2z(i, j),\n        x - float(i),\n        y - float(j)\n    );\n}\n\nuniform float opacity;\n\nvec4 get_tile_color(vec3 pos) {\n    HashDxDy result = hash_with_dxdy(0, pos.zxy);\n    int idx = result.idx;\n    vec2 uv = vec2(result.dy, result.dx);\n\n    Tile tile = textures_tiles[idx];\n\n    int idx_texture = tile.texture_idx >> 6;\n    int off = tile.texture_idx & 0x3F;\n    float idx_row = float(off >> 3); // in [0; 7]\n    float idx_col = float(off & 0x7); // in [0; 7]\n\n    vec2 offset = (vec2(idx_col, idx_row) + uv)*0.125;\n    vec3 UV = vec3(offset, float(idx_texture));\n\n    vec4 color = get_color_from_grayscale_texture(UV);\n    // For empty tiles we set the alpha of the pixel to 0.0\n    // so that what is behind will be plotted\n    color.a *= (1.0 - tile.empty);\n    return color;\n}\n\nconst float duration = 500.f; // 500ms\nuniform int max_depth; // max depth of the HiPS\n\nuniform sampler2D position_tex;\nuniform mat4 model;\nvoid main() {\n    vec2 uv = out_clip_pos * 0.5 + 0.5;\n    vec3 n = texture(position_tex, uv).rgb;\n\n    vec3 frag_pos = vec3(model * vec4(n, 1.0));\n\n    vec4 c = get_tile_color(frag_pos);\n    out_frag_color = c;\n    out_frag_color.a = out_frag_color.a * opacity;\n}"
+module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp usampler2D;\nprecision highp isampler2D;\nprecision highp int;\n\nin vec2 out_clip_pos;\nout vec4 out_frag_color;\n\nuniform int user_action;\n\nstruct Tile {\n    int uniq; // Healpix cell\n    int texture_idx; // Index in the texture buffer\n    float start_time; // Absolute time that the load has been done in ms\n    float empty;\n};\n\nuniform int current_depth;\n\nuniform Tile textures_tiles[12];\n\nuniform float current_time; // current time in ms\nstruct TileColor {\n    Tile tile;\n    vec4 color;\n    bool found;\n};\n\n//const int MAX_NUM_TEX = 3;\nuniform usampler2D tex1;\nuniform usampler2D tex2;\nuniform usampler2D tex3;\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform float num_colormaps;\nuniform float colormap_id;\n// can be either 0 or 1\nuniform float reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, reversed);\n    float id = (colormap_id + 0.5) / num_colormaps;\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nuvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return uvec4(0, 0, 0, 1);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\nconst float TWICE_PI = 6.28318530718f;\nconst float PI = 3.141592653589793f;\nconst float FOUR_OVER_PI = 1.27323954474f;\nconst float TRANSITION_Z = 0.66666666666f;\nconst float TRANSITION_Z_INV = 1.5f;\n\nint quarter(vec2 p) {\n    int x_neg = int(p.x < 0.0f);\n    int y_neg = int(p.y < 0.0f);\n    int q = (x_neg + y_neg) | (y_neg << 1);\n    return q;\n}\n\nfloat xpm1(vec2 p) {\n    bool x_neg = (p.x < 0.0f);\n    //debug_assert!(x_neg <= 1);\n    bool y_neg = (p.y < 0.0f);\n    //debug_assert!(y_neg <= 1);\n    // The purpose it to have the same numerical precision for each base cell\n    // by avoiding subtraction by 1 or 3 or 5 or 7\n    float lon = atan(abs(p.y), abs(p.x));\n    //debug_assert!(0.0 <= lon && lon <= PI / 2.0);\n    float x02 = lon * FOUR_OVER_PI;\n    //debug_assert!(0.0 <= x02 && x02 <= 2.0);\n    if (x_neg != y_neg) { // Could be replaced by a sign copy from (x_neg ^ y_neg) << 32\n        return 1.0f - x02;\n    } else {\n        return x02 - 1.0f;\n    }\n}\n\nfloat one_minus_z_pos(vec3 p) {\n    //debug_assert!(z > 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n\n    if (d2 < 1e-1f) { // <=> dec > 84.27 deg\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return 1.0f - p.z;\n}\n\nfloat one_minus_z_neg(vec3 p) {\n    //debug_assert!(z < 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n    if (d2 < 1e-1f) { // <=> dec < -84.27 deg\n        // 0.5 * d2 + 0.125 * d2 * d2\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return p.z + 1.0f;\n}\n\n// Z-Order curve projection.\nint ij2z(int i, int j) {\n    int i1 = i | (j << 16);\n\n    int j1 = (i1 ^ (i1 >> 8)) & 0x0000FF00;\n    int i2 = i1 ^ j1 ^ (j1 << 8);\n\n    int j2 = (i2 ^ (i2 >> 4)) & 0x00F000F0;\n    int i3 = i2 ^ j2 ^ (j2 << 4);\n\n    int j3 = (i3 ^ (i3 >> 2)) & 0x0C0C0C0C;\n    int i4 = i3 ^ j3 ^ (j3 << 2);\n\n    int j4 = (i4 ^ (i4 >> 1)) & 0x22222222;\n    int i5 = i4 ^ j4 ^ (j4 << 1);\n\n    return i5;\n}\n\nstruct HashDxDy {\n    int idx;\n    float dx;\n    float dy;\n};\n\nuniform sampler2D ang2pixd;\nHashDxDy hash_with_dxdy2(vec2 radec) {\n    vec2 aa = vec2(radec.x/TWICE_PI + 1.0, (radec.y/PI) + 0.5);\n    vec3 v = texture(ang2pixd, aa).rgb;\n    return HashDxDy(\n        int(v.x * 255.0),\n        v.y,\n        v.z\n    );\n}\n// Returns the cell number (hash value) associated with the given position on the unit sphere, \n// together with the offset `(dx, dy)` on the Euclidean plane of the projected position with\n// respect to the origin of the cell (South vertex).\n// # Inputs:\n// - `depth` in `[0, 14]` (so that and HEALPix cell number can be stored on an unsigned integer)\n// - `x`: in `[-1.0, 1.0]`\n// - `y`: in `[-1.0, 1.0]`\n// - `z`: in `[-1.0, 1.0]`\n// # Output\n// - the cell number (hash value) associated with the given position on the unit sphere,\n//   in `[0, 12*nside^2[`\n// - `dx`: the positional offset $\\in [0, 1[$ along the south-to-east axis\n// - `dy`: the positional offset $\\in [0, 1[$ along the south-to-west axis\n// # WARNING\n// - The function assumes, without checking, that the input vector is a unit vector \n//   (hence `x^2 + y^2 + z^2 = 1`) !!\n// - Operations being made on simple precision float, the precision is lower than `~0.2 arcsec` only!!\n// - At depth 13, the precision on `(dx, dy)` is better than `(1/512, 1/512)`, i.e. 2e-3.\nHashDxDy hash_with_dxdy(int depth, vec3 p) {\n    //assert!(depth <= 14);\n    //assert!(-1.0 <= x && x <= 1.0);\n    //assert!(-1.0 <= y && y <= 1.0);\n    //assert!(-1.0 <= z && z <= 1.0);\n    //debug_assert!(1.0 - (x * x + y * y + z * z) < 1e-5);\n    // A f32 mantissa contains 23 bits.\n    // - it basically means that when storing (x, y) coordinates,\n    //   we can go as deep as depth 24 (or maybe 25)\n    \n    int nside = 1 << depth;\n    float half_nside = float(nside) * 0.5f;\n\n    float x_pm1 = xpm1(p.xy);\n    int q = quarter(p.xy);\n\n    int d0h = 0;\n    vec2 p_proj = vec2(0.f);\n    if (p.z > TRANSITION_Z) {\n        // North polar cap, Collignon projection.\n        // - set the origin to (PI/4, 0)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_pos(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, 2.0f - sqrt_3_one_min_z);\n        d0h = q;\n    } else if (p.z < -TRANSITION_Z) {\n        // South polar cap, Collignon projection\n        // - set the origin to (PI/4, -PI/2)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_neg(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, sqrt_3_one_min_z);\n        d0h = q + 8;\n    } else {\n        // Equatorial region, Cylindrical equal area projection\n        // - set the origin to (PI/4, 0)               if q = 2\n        // - set the origin to (PI/4, -PI/2)           if q = 0\n        // - set the origin to (0, -TRANSITION_LAT)    if q = 3\n        // - set the origin to (PI/2, -TRANSITION_LAT) if q = 1\n        // let zero_or_one = (x_cea as u8) & 1;\n        float y_pm1 = p.z * TRANSITION_Z_INV;\n        // |\\2/|\n        // .3X1.\n        // |/0\\|\n        int q01 = int(x_pm1 > y_pm1);  // 0/1\n        //debug_assert!(q01 == 0 || q01 == 1);\n        int q12 = int(x_pm1 >= -y_pm1); // 0\\1\n        //debug_assert!(q12 == 0 || q12 == 1);\n        int q03 = 1 - q12; // 1\\0\n        //let q13 = q01 ^ q12; debug_assert!(q13 == 0 || q13 == 1);\n        int q1 = q01 & q12; // = 1 if q1, 0 else\n        //debug_assert!( q1 == 0 ||  q1 == 1);\n        // x: xcea - 0 if q3 | xcea - 2 if q1 | xcea - 1 if q0 or q2\n        //let x_proj = x_pm1 - ((q01 + q12) as i8 - 1) as f32;\n        // y: y - 0 if q2 | y - 1 if q1 or q3 | y - 2 if q0 \n        //let y_proj = y_pm1 + (q01 + q03) as f32;\n        p_proj = vec2(\n            x_pm1 - float(q01 + q12 - 1),\n            y_pm1 + float(q01 + q03)\n        );\n        // d0h: +8 if q0 | +4 if q3 | +5 if q1\n        d0h = ((q01 + q03) << 2) + ((q + q1) & 3);\n    }\n\n    // Coords inside the base cell\n    float x = (half_nside * (p_proj.x + p_proj.y));\n    float y = (half_nside * (p_proj.y - p_proj.x));\n    int i = int(x);\n    int j = int(y);\n\n    return HashDxDy(\n        (d0h << (depth << 1)) | ij2z(i, j),\n        x - float(i),\n        y - float(j)\n    );\n}\n\nuniform float opacity;\n\nvec4 get_tile_color(vec3 pos) {\n    HashDxDy result = hash_with_dxdy(0, pos.zxy);\n    int idx = result.idx;\n    vec2 uv = vec2(result.dy, result.dx);\n\n    Tile tile = textures_tiles[idx];\n\n    int idx_texture = tile.texture_idx >> 6;\n    int off = tile.texture_idx & 0x3F;\n    float idx_row = float(off >> 3); // in [0; 7]\n    float idx_col = float(off & 0x7); // in [0; 7]\n\n    vec2 offset = (vec2(idx_col, idx_row) + uv)*0.125;\n    vec3 UV = vec3(offset, float(idx_texture));\n\n    vec4 color = get_color_from_grayscale_texture(UV);\n    // For empty tiles we set the alpha of the pixel to 0.0\n    // so that what is behind will be plotted\n    color.a *= (1.0 - tile.empty);\n    return color;\n}\n\nconst float duration = 500.f; // 500ms\nuniform int max_depth; // max depth of the HiPS\n\nuniform sampler2D position_tex;\nuniform mat4 model;\nvoid main() {\n    vec2 uv = out_clip_pos * 0.5 + 0.5;\n    vec3 n = texture(position_tex, uv).rgb;\n\n    vec3 frag_pos = vec3(model * vec4(n, 1.0));\n\n    vec4 c = get_tile_color(frag_pos);\n    out_frag_color = c;\n    out_frag_color.a = out_frag_color.a * opacity;\n}"
 
 /***/ }),
 
@@ -717,7 +717,7 @@ module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampl
   \*******************************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp usampler2D;\nprecision highp isampler2D;\nprecision highp int;\n\nin vec2 out_clip_pos;\nout vec4 out_frag_color;\n\nuniform int user_action;\n\nstruct Tile {\n    int uniq; // Healpix cell\n    int texture_idx; // Index in the texture buffer\n    float start_time; // Absolute time that the load has been done in ms\n    float empty;\n};\n\nuniform int current_depth;\n\nuniform Tile textures_tiles[12];\n\nuniform float opacity;\nuniform float current_time; // current time in ms\nstruct TileColor {\n    Tile tile;\n    vec4 color;\n    bool found;\n};\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform int num_colormaps;\nuniform int colormap_id;\n// can be either 0 or 1\nuniform int reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, float(reversed));\n    float id = (float(colormap_id) + 0.5) / float(num_colormaps);\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 0.0, 0.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\nconst float TWICE_PI = 6.28318530718f;\nconst float PI = 3.141592653589793f;\nconst float FOUR_OVER_PI = 1.27323954474f;\nconst float TRANSITION_Z = 0.66666666666f;\nconst float TRANSITION_Z_INV = 1.5f;\n\nint quarter(vec2 p) {\n    int x_neg = int(p.x < 0.0f);\n    int y_neg = int(p.y < 0.0f);\n    int q = (x_neg + y_neg) | (y_neg << 1);\n    return q;\n}\n\nfloat xpm1(vec2 p) {\n    bool x_neg = (p.x < 0.0f);\n    //debug_assert!(x_neg <= 1);\n    bool y_neg = (p.y < 0.0f);\n    //debug_assert!(y_neg <= 1);\n    // The purpose it to have the same numerical precision for each base cell\n    // by avoiding subtraction by 1 or 3 or 5 or 7\n    float lon = atan(abs(p.y), abs(p.x));\n    //debug_assert!(0.0 <= lon && lon <= PI / 2.0);\n    float x02 = lon * FOUR_OVER_PI;\n    //debug_assert!(0.0 <= x02 && x02 <= 2.0);\n    if (x_neg != y_neg) { // Could be replaced by a sign copy from (x_neg ^ y_neg) << 32\n        return 1.0f - x02;\n    } else {\n        return x02 - 1.0f;\n    }\n}\n\nfloat one_minus_z_pos(vec3 p) {\n    //debug_assert!(z > 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n\n    if (d2 < 1e-1f) { // <=> dec > 84.27 deg\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return 1.0f - p.z;\n}\n\nfloat one_minus_z_neg(vec3 p) {\n    //debug_assert!(z < 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n    if (d2 < 1e-1f) { // <=> dec < -84.27 deg\n        // 0.5 * d2 + 0.125 * d2 * d2\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return p.z + 1.0f;\n}\n\n// Z-Order curve projection.\nint ij2z(int i, int j) {\n    int i1 = i | (j << 16);\n\n    int j1 = (i1 ^ (i1 >> 8)) & 0x0000FF00;\n    int i2 = i1 ^ j1 ^ (j1 << 8);\n\n    int j2 = (i2 ^ (i2 >> 4)) & 0x00F000F0;\n    int i3 = i2 ^ j2 ^ (j2 << 4);\n\n    int j3 = (i3 ^ (i3 >> 2)) & 0x0C0C0C0C;\n    int i4 = i3 ^ j3 ^ (j3 << 2);\n\n    int j4 = (i4 ^ (i4 >> 1)) & 0x22222222;\n    int i5 = i4 ^ j4 ^ (j4 << 1);\n\n    return i5;\n}\n\nstruct HashDxDy {\n    int idx;\n    float dx;\n    float dy;\n};\n\nuniform sampler2D ang2pixd;\nHashDxDy hash_with_dxdy2(vec2 radec) {\n    vec2 aa = vec2(radec.x/TWICE_PI + 1.0, (radec.y/PI) + 0.5);\n    vec3 v = texture(ang2pixd, aa).rgb;\n    return HashDxDy(\n        int(v.x * 255.0),\n        v.y,\n        v.z\n    );\n}\n// Returns the cell number (hash value) associated with the given position on the unit sphere, \n// together with the offset `(dx, dy)` on the Euclidean plane of the projected position with\n// respect to the origin of the cell (South vertex).\n// # Inputs:\n// - `depth` in `[0, 14]` (so that and HEALPix cell number can be stored on an unsigned integer)\n// - `x`: in `[-1.0, 1.0]`\n// - `y`: in `[-1.0, 1.0]`\n// - `z`: in `[-1.0, 1.0]`\n// # Output\n// - the cell number (hash value) associated with the given position on the unit sphere,\n//   in `[0, 12*nside^2[`\n// - `dx`: the positional offset $\\in [0, 1[$ along the south-to-east axis\n// - `dy`: the positional offset $\\in [0, 1[$ along the south-to-west axis\n// # WARNING\n// - The function assumes, without checking, that the input vector is a unit vector \n//   (hence `x^2 + y^2 + z^2 = 1`) !!\n// - Operations being made on simple precision float, the precision is lower than `~0.2 arcsec` only!!\n// - At depth 13, the precision on `(dx, dy)` is better than `(1/512, 1/512)`, i.e. 2e-3.\nHashDxDy hash_with_dxdy(int depth, vec3 p) {\n    //assert!(depth <= 14);\n    //assert!(-1.0 <= x && x <= 1.0);\n    //assert!(-1.0 <= y && y <= 1.0);\n    //assert!(-1.0 <= z && z <= 1.0);\n    //debug_assert!(1.0 - (x * x + y * y + z * z) < 1e-5);\n    // A f32 mantissa contains 23 bits.\n    // - it basically means that when storing (x, y) coordinates,\n    //   we can go as deep as depth 24 (or maybe 25)\n    \n    int nside = 1 << depth;\n    float half_nside = float(nside) * 0.5f;\n\n    float x_pm1 = xpm1(p.xy);\n    int q = quarter(p.xy);\n\n    int d0h = 0;\n    vec2 p_proj = vec2(0.f);\n    if (p.z > TRANSITION_Z) {\n        // North polar cap, Collignon projection.\n        // - set the origin to (PI/4, 0)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_pos(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, 2.0f - sqrt_3_one_min_z);\n        d0h = q;\n    } else if (p.z < -TRANSITION_Z) {\n        // South polar cap, Collignon projection\n        // - set the origin to (PI/4, -PI/2)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_neg(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, sqrt_3_one_min_z);\n        d0h = q + 8;\n    } else {\n        // Equatorial region, Cylindrical equal area projection\n        // - set the origin to (PI/4, 0)               if q = 2\n        // - set the origin to (PI/4, -PI/2)           if q = 0\n        // - set the origin to (0, -TRANSITION_LAT)    if q = 3\n        // - set the origin to (PI/2, -TRANSITION_LAT) if q = 1\n        // let zero_or_one = (x_cea as u8) & 1;\n        float y_pm1 = p.z * TRANSITION_Z_INV;\n        // |\\2/|\n        // .3X1.\n        // |/0\\|\n        int q01 = int(x_pm1 > y_pm1);  // 0/1\n        //debug_assert!(q01 == 0 || q01 == 1);\n        int q12 = int(x_pm1 >= -y_pm1); // 0\\1\n        //debug_assert!(q12 == 0 || q12 == 1);\n        int q03 = 1 - q12; // 1\\0\n        //let q13 = q01 ^ q12; debug_assert!(q13 == 0 || q13 == 1);\n        int q1 = q01 & q12; // = 1 if q1, 0 else\n        //debug_assert!( q1 == 0 ||  q1 == 1);\n        // x: xcea - 0 if q3 | xcea - 2 if q1 | xcea - 1 if q0 or q2\n        //let x_proj = x_pm1 - ((q01 + q12) as i8 - 1) as f32;\n        // y: y - 0 if q2 | y - 1 if q1 or q3 | y - 2 if q0 \n        //let y_proj = y_pm1 + (q01 + q03) as f32;\n        p_proj = vec2(\n            x_pm1 - float(q01 + q12 - 1),\n            y_pm1 + float(q01 + q03)\n        );\n        // d0h: +8 if q0 | +4 if q3 | +5 if q1\n        d0h = ((q01 + q03) << 2) + ((q + q1) & 3);\n    }\n\n    // Coords inside the base cell\n    float x = (half_nside * (p_proj.x + p_proj.y));\n    float y = (half_nside * (p_proj.y - p_proj.x));\n    int i = int(x);\n    int j = int(y);\n\n    return HashDxDy(\n        (d0h << (depth << 1)) | ij2z(i, j),\n        x - float(i),\n        y - float(j)\n    );\n}\n\nvec4 get_tile_color(vec3 pos) {\n    HashDxDy result = hash_with_dxdy(0, pos.zxy);\n\n    int idx = result.idx;\n    vec2 uv = vec2(result.dy, result.dx);\n\n    Tile tile = textures_tiles[idx];\n\n    int idx_texture = tile.texture_idx >> 6;\n    int off = tile.texture_idx & 0x3F;\n    float idx_row = float(off >> 3); // in [0; 7]\n    float idx_col = float(off & 0x7); // in [0; 7]\n\n    vec2 offset = (vec2(idx_col, idx_row) + uv)*0.125;\n    vec3 UV = vec3(offset, float(idx_texture));\n\n    vec4 color = get_colormap_from_grayscale_texture(UV);\n    // handle empty tiles\n    //vec4 c1 = mix(c, blank_color, tile.empty);\n    //vec4 c2 = mix(c, colormap_f(0.0), tile.empty);\n    //vec4 color = mix(c1, c2, first_survey);\n    // For empty tiles we set the alpha of the pixel to 0.0\n    // so that what is behind will be plotted\n    color.a *= (1.0 - tile.empty);\n    return color;\n}\n\nconst float duration = 500.f; // 500ms\nuniform int max_depth; // max depth of the HiPS\n\nuniform sampler2D position_tex;\nuniform mat4 model;\nvoid main() {\n    vec2 uv = out_clip_pos * 0.5 + 0.5;\n    vec3 n = texture(position_tex, uv).rgb;\n\n    vec3 frag_pos = vec3(model * vec4(n, 1.0));\n\n    vec4 c = get_tile_color(frag_pos);\n    out_frag_color = c;\n    out_frag_color.a = out_frag_color.a * opacity;\n}"
+module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp usampler2D;\nprecision highp isampler2D;\nprecision highp int;\n\nin vec2 out_clip_pos;\nout vec4 out_frag_color;\n\nuniform int user_action;\n\nstruct Tile {\n    int uniq; // Healpix cell\n    int texture_idx; // Index in the texture buffer\n    float start_time; // Absolute time that the load has been done in ms\n    float empty;\n};\n\nuniform int current_depth;\n\nuniform Tile textures_tiles[12];\n\nuniform float opacity;\nuniform float current_time; // current time in ms\nstruct TileColor {\n    Tile tile;\n    vec4 color;\n    bool found;\n};\n\n//const int MAX_NUM_TEX = 3;\nuniform sampler2D tex1;\nuniform sampler2D tex2;\nuniform sampler2D tex3;\n\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform float num_colormaps;\nuniform float colormap_id;\n// can be either 0 or 1\nuniform float reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, reversed);\n    float id = (colormap_id + 0.5) / num_colormaps;\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return vec4(0.0, 0.0, 0.0, 1.0);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_color_from_texture(vec3 UV) {\n    return get_pixels(UV);\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = get_pixels(uv).r;\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\nconst float TWICE_PI = 6.28318530718f;\nconst float PI = 3.141592653589793f;\nconst float FOUR_OVER_PI = 1.27323954474f;\nconst float TRANSITION_Z = 0.66666666666f;\nconst float TRANSITION_Z_INV = 1.5f;\n\nint quarter(vec2 p) {\n    int x_neg = int(p.x < 0.0f);\n    int y_neg = int(p.y < 0.0f);\n    int q = (x_neg + y_neg) | (y_neg << 1);\n    return q;\n}\n\nfloat xpm1(vec2 p) {\n    bool x_neg = (p.x < 0.0f);\n    //debug_assert!(x_neg <= 1);\n    bool y_neg = (p.y < 0.0f);\n    //debug_assert!(y_neg <= 1);\n    // The purpose it to have the same numerical precision for each base cell\n    // by avoiding subtraction by 1 or 3 or 5 or 7\n    float lon = atan(abs(p.y), abs(p.x));\n    //debug_assert!(0.0 <= lon && lon <= PI / 2.0);\n    float x02 = lon * FOUR_OVER_PI;\n    //debug_assert!(0.0 <= x02 && x02 <= 2.0);\n    if (x_neg != y_neg) { // Could be replaced by a sign copy from (x_neg ^ y_neg) << 32\n        return 1.0f - x02;\n    } else {\n        return x02 - 1.0f;\n    }\n}\n\nfloat one_minus_z_pos(vec3 p) {\n    //debug_assert!(z > 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n\n    if (d2 < 1e-1f) { // <=> dec > 84.27 deg\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return 1.0f - p.z;\n}\n\nfloat one_minus_z_neg(vec3 p) {\n    //debug_assert!(z < 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n    if (d2 < 1e-1f) { // <=> dec < -84.27 deg\n        // 0.5 * d2 + 0.125 * d2 * d2\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return p.z + 1.0f;\n}\n\n// Z-Order curve projection.\nint ij2z(int i, int j) {\n    int i1 = i | (j << 16);\n\n    int j1 = (i1 ^ (i1 >> 8)) & 0x0000FF00;\n    int i2 = i1 ^ j1 ^ (j1 << 8);\n\n    int j2 = (i2 ^ (i2 >> 4)) & 0x00F000F0;\n    int i3 = i2 ^ j2 ^ (j2 << 4);\n\n    int j3 = (i3 ^ (i3 >> 2)) & 0x0C0C0C0C;\n    int i4 = i3 ^ j3 ^ (j3 << 2);\n\n    int j4 = (i4 ^ (i4 >> 1)) & 0x22222222;\n    int i5 = i4 ^ j4 ^ (j4 << 1);\n\n    return i5;\n}\n\nstruct HashDxDy {\n    int idx;\n    float dx;\n    float dy;\n};\n\nuniform sampler2D ang2pixd;\nHashDxDy hash_with_dxdy2(vec2 radec) {\n    vec2 aa = vec2(radec.x/TWICE_PI + 1.0, (radec.y/PI) + 0.5);\n    vec3 v = texture(ang2pixd, aa).rgb;\n    return HashDxDy(\n        int(v.x * 255.0),\n        v.y,\n        v.z\n    );\n}\n// Returns the cell number (hash value) associated with the given position on the unit sphere, \n// together with the offset `(dx, dy)` on the Euclidean plane of the projected position with\n// respect to the origin of the cell (South vertex).\n// # Inputs:\n// - `depth` in `[0, 14]` (so that and HEALPix cell number can be stored on an unsigned integer)\n// - `x`: in `[-1.0, 1.0]`\n// - `y`: in `[-1.0, 1.0]`\n// - `z`: in `[-1.0, 1.0]`\n// # Output\n// - the cell number (hash value) associated with the given position on the unit sphere,\n//   in `[0, 12*nside^2[`\n// - `dx`: the positional offset $\\in [0, 1[$ along the south-to-east axis\n// - `dy`: the positional offset $\\in [0, 1[$ along the south-to-west axis\n// # WARNING\n// - The function assumes, without checking, that the input vector is a unit vector \n//   (hence `x^2 + y^2 + z^2 = 1`) !!\n// - Operations being made on simple precision float, the precision is lower than `~0.2 arcsec` only!!\n// - At depth 13, the precision on `(dx, dy)` is better than `(1/512, 1/512)`, i.e. 2e-3.\nHashDxDy hash_with_dxdy(int depth, vec3 p) {\n    //assert!(depth <= 14);\n    //assert!(-1.0 <= x && x <= 1.0);\n    //assert!(-1.0 <= y && y <= 1.0);\n    //assert!(-1.0 <= z && z <= 1.0);\n    //debug_assert!(1.0 - (x * x + y * y + z * z) < 1e-5);\n    // A f32 mantissa contains 23 bits.\n    // - it basically means that when storing (x, y) coordinates,\n    //   we can go as deep as depth 24 (or maybe 25)\n    \n    int nside = 1 << depth;\n    float half_nside = float(nside) * 0.5f;\n\n    float x_pm1 = xpm1(p.xy);\n    int q = quarter(p.xy);\n\n    int d0h = 0;\n    vec2 p_proj = vec2(0.f);\n    if (p.z > TRANSITION_Z) {\n        // North polar cap, Collignon projection.\n        // - set the origin to (PI/4, 0)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_pos(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, 2.0f - sqrt_3_one_min_z);\n        d0h = q;\n    } else if (p.z < -TRANSITION_Z) {\n        // South polar cap, Collignon projection\n        // - set the origin to (PI/4, -PI/2)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_neg(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, sqrt_3_one_min_z);\n        d0h = q + 8;\n    } else {\n        // Equatorial region, Cylindrical equal area projection\n        // - set the origin to (PI/4, 0)               if q = 2\n        // - set the origin to (PI/4, -PI/2)           if q = 0\n        // - set the origin to (0, -TRANSITION_LAT)    if q = 3\n        // - set the origin to (PI/2, -TRANSITION_LAT) if q = 1\n        // let zero_or_one = (x_cea as u8) & 1;\n        float y_pm1 = p.z * TRANSITION_Z_INV;\n        // |\\2/|\n        // .3X1.\n        // |/0\\|\n        int q01 = int(x_pm1 > y_pm1);  // 0/1\n        //debug_assert!(q01 == 0 || q01 == 1);\n        int q12 = int(x_pm1 >= -y_pm1); // 0\\1\n        //debug_assert!(q12 == 0 || q12 == 1);\n        int q03 = 1 - q12; // 1\\0\n        //let q13 = q01 ^ q12; debug_assert!(q13 == 0 || q13 == 1);\n        int q1 = q01 & q12; // = 1 if q1, 0 else\n        //debug_assert!( q1 == 0 ||  q1 == 1);\n        // x: xcea - 0 if q3 | xcea - 2 if q1 | xcea - 1 if q0 or q2\n        //let x_proj = x_pm1 - ((q01 + q12) as i8 - 1) as f32;\n        // y: y - 0 if q2 | y - 1 if q1 or q3 | y - 2 if q0 \n        //let y_proj = y_pm1 + (q01 + q03) as f32;\n        p_proj = vec2(\n            x_pm1 - float(q01 + q12 - 1),\n            y_pm1 + float(q01 + q03)\n        );\n        // d0h: +8 if q0 | +4 if q3 | +5 if q1\n        d0h = ((q01 + q03) << 2) + ((q + q1) & 3);\n    }\n\n    // Coords inside the base cell\n    float x = (half_nside * (p_proj.x + p_proj.y));\n    float y = (half_nside * (p_proj.y - p_proj.x));\n    int i = int(x);\n    int j = int(y);\n\n    return HashDxDy(\n        (d0h << (depth << 1)) | ij2z(i, j),\n        x - float(i),\n        y - float(j)\n    );\n}\n\nvec4 get_tile_color(vec3 pos) {\n    HashDxDy result = hash_with_dxdy(0, pos.zxy);\n\n    int idx = result.idx;\n    vec2 uv = vec2(result.dy, result.dx);\n\n    Tile tile = textures_tiles[idx];\n\n    int idx_texture = tile.texture_idx >> 6;\n    int off = tile.texture_idx & 0x3F;\n    float idx_row = float(off >> 3); // in [0; 7]\n    float idx_col = float(off & 0x7); // in [0; 7]\n\n    vec2 offset = (vec2(idx_col, idx_row) + uv)*0.125;\n    vec3 UV = vec3(offset, float(idx_texture));\n\n    vec4 color = get_colormap_from_grayscale_texture(UV);\n    // handle empty tiles\n    //vec4 c1 = mix(c, blank_color, tile.empty);\n    //vec4 c2 = mix(c, colormap_f(0.0), tile.empty);\n    //vec4 color = mix(c1, c2, first_survey);\n    // For empty tiles we set the alpha of the pixel to 0.0\n    // so that what is behind will be plotted\n    color.a *= (1.0 - tile.empty);\n    return color;\n}\n\nconst float duration = 500.f; // 500ms\nuniform int max_depth; // max depth of the HiPS\n\nuniform sampler2D position_tex;\nuniform mat4 model;\nvoid main() {\n    vec2 uv = out_clip_pos * 0.5 + 0.5;\n    vec3 n = texture(position_tex, uv).rgb;\n\n    vec3 frag_pos = vec3(model * vec4(n, 1.0));\n\n    vec4 c = get_tile_color(frag_pos);\n    out_frag_color = c;\n    out_frag_color.a = out_frag_color.a * opacity;\n}"
 
 /***/ }),
 
@@ -727,7 +727,7 @@ module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampl
   \*********************************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp usampler2D;\nprecision highp isampler2D;\nprecision highp int;\n\nin vec2 out_clip_pos;\nout vec4 out_frag_color;\n\nuniform int user_action;\n\nstruct Tile {\n    int uniq; // Healpix cell\n    int texture_idx; // Index in the texture buffer\n    float start_time; // Absolute time that the load has been done in ms\n    float empty;\n};\n\nuniform int current_depth;\n\nuniform Tile textures_tiles[12];\n\nuniform float opacity;\nuniform float current_time; // current time in ms\n\n//const int MAX_NUM_TEX = 3;\nuniform isampler2D tex1;\nuniform isampler2D tex2;\nuniform isampler2D tex3;\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform int num_colormaps;\nuniform int colormap_id;\n// can be either 0 or 1\nuniform int reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, float(reversed));\n    float id = (float(colormap_id) + 0.5) / float(num_colormaps);\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nivec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return ivec4(0, 0, 0, 1);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\nconst float TWICE_PI = 6.28318530718f;\nconst float PI = 3.141592653589793f;\nconst float FOUR_OVER_PI = 1.27323954474f;\nconst float TRANSITION_Z = 0.66666666666f;\nconst float TRANSITION_Z_INV = 1.5f;\n\nint quarter(vec2 p) {\n    int x_neg = int(p.x < 0.0f);\n    int y_neg = int(p.y < 0.0f);\n    int q = (x_neg + y_neg) | (y_neg << 1);\n    return q;\n}\n\nfloat xpm1(vec2 p) {\n    bool x_neg = (p.x < 0.0f);\n    //debug_assert!(x_neg <= 1);\n    bool y_neg = (p.y < 0.0f);\n    //debug_assert!(y_neg <= 1);\n    // The purpose it to have the same numerical precision for each base cell\n    // by avoiding subtraction by 1 or 3 or 5 or 7\n    float lon = atan(abs(p.y), abs(p.x));\n    //debug_assert!(0.0 <= lon && lon <= PI / 2.0);\n    float x02 = lon * FOUR_OVER_PI;\n    //debug_assert!(0.0 <= x02 && x02 <= 2.0);\n    if (x_neg != y_neg) { // Could be replaced by a sign copy from (x_neg ^ y_neg) << 32\n        return 1.0f - x02;\n    } else {\n        return x02 - 1.0f;\n    }\n}\n\nfloat one_minus_z_pos(vec3 p) {\n    //debug_assert!(z > 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n\n    if (d2 < 1e-1f) { // <=> dec > 84.27 deg\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return 1.0f - p.z;\n}\n\nfloat one_minus_z_neg(vec3 p) {\n    //debug_assert!(z < 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n    if (d2 < 1e-1f) { // <=> dec < -84.27 deg\n        // 0.5 * d2 + 0.125 * d2 * d2\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return p.z + 1.0f;\n}\n\n// Z-Order curve projection.\nint ij2z(int i, int j) {\n    int i1 = i | (j << 16);\n\n    int j1 = (i1 ^ (i1 >> 8)) & 0x0000FF00;\n    int i2 = i1 ^ j1 ^ (j1 << 8);\n\n    int j2 = (i2 ^ (i2 >> 4)) & 0x00F000F0;\n    int i3 = i2 ^ j2 ^ (j2 << 4);\n\n    int j3 = (i3 ^ (i3 >> 2)) & 0x0C0C0C0C;\n    int i4 = i3 ^ j3 ^ (j3 << 2);\n\n    int j4 = (i4 ^ (i4 >> 1)) & 0x22222222;\n    int i5 = i4 ^ j4 ^ (j4 << 1);\n\n    return i5;\n}\n\nstruct HashDxDy {\n    int idx;\n    float dx;\n    float dy;\n};\n\nuniform sampler2D ang2pixd;\nHashDxDy hash_with_dxdy2(vec2 radec) {\n    vec2 aa = vec2(radec.x/TWICE_PI + 1.0, (radec.y/PI) + 0.5);\n    vec3 v = texture(ang2pixd, aa).rgb;\n    return HashDxDy(\n        int(v.x * 255.0),\n        v.y,\n        v.z\n    );\n}\n// Returns the cell number (hash value) associated with the given position on the unit sphere, \n// together with the offset `(dx, dy)` on the Euclidean plane of the projected position with\n// respect to the origin of the cell (South vertex).\n// # Inputs:\n// - `depth` in `[0, 14]` (so that and HEALPix cell number can be stored on an unsigned integer)\n// - `x`: in `[-1.0, 1.0]`\n// - `y`: in `[-1.0, 1.0]`\n// - `z`: in `[-1.0, 1.0]`\n// # Output\n// - the cell number (hash value) associated with the given position on the unit sphere,\n//   in `[0, 12*nside^2[`\n// - `dx`: the positional offset $\\in [0, 1[$ along the south-to-east axis\n// - `dy`: the positional offset $\\in [0, 1[$ along the south-to-west axis\n// # WARNING\n// - The function assumes, without checking, that the input vector is a unit vector \n//   (hence `x^2 + y^2 + z^2 = 1`) !!\n// - Operations being made on simple precision float, the precision is lower than `~0.2 arcsec` only!!\n// - At depth 13, the precision on `(dx, dy)` is better than `(1/512, 1/512)`, i.e. 2e-3.\nHashDxDy hash_with_dxdy(int depth, vec3 p) {\n    //assert!(depth <= 14);\n    //assert!(-1.0 <= x && x <= 1.0);\n    //assert!(-1.0 <= y && y <= 1.0);\n    //assert!(-1.0 <= z && z <= 1.0);\n    //debug_assert!(1.0 - (x * x + y * y + z * z) < 1e-5);\n    // A f32 mantissa contains 23 bits.\n    // - it basically means that when storing (x, y) coordinates,\n    //   we can go as deep as depth 24 (or maybe 25)\n    \n    int nside = 1 << depth;\n    float half_nside = float(nside) * 0.5f;\n\n    float x_pm1 = xpm1(p.xy);\n    int q = quarter(p.xy);\n\n    int d0h = 0;\n    vec2 p_proj = vec2(0.f);\n    if (p.z > TRANSITION_Z) {\n        // North polar cap, Collignon projection.\n        // - set the origin to (PI/4, 0)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_pos(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, 2.0f - sqrt_3_one_min_z);\n        d0h = q;\n    } else if (p.z < -TRANSITION_Z) {\n        // South polar cap, Collignon projection\n        // - set the origin to (PI/4, -PI/2)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_neg(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, sqrt_3_one_min_z);\n        d0h = q + 8;\n    } else {\n        // Equatorial region, Cylindrical equal area projection\n        // - set the origin to (PI/4, 0)               if q = 2\n        // - set the origin to (PI/4, -PI/2)           if q = 0\n        // - set the origin to (0, -TRANSITION_LAT)    if q = 3\n        // - set the origin to (PI/2, -TRANSITION_LAT) if q = 1\n        // let zero_or_one = (x_cea as u8) & 1;\n        float y_pm1 = p.z * TRANSITION_Z_INV;\n        // |\\2/|\n        // .3X1.\n        // |/0\\|\n        int q01 = int(x_pm1 > y_pm1);  // 0/1\n        //debug_assert!(q01 == 0 || q01 == 1);\n        int q12 = int(x_pm1 >= -y_pm1); // 0\\1\n        //debug_assert!(q12 == 0 || q12 == 1);\n        int q03 = 1 - q12; // 1\\0\n        //let q13 = q01 ^ q12; debug_assert!(q13 == 0 || q13 == 1);\n        int q1 = q01 & q12; // = 1 if q1, 0 else\n        //debug_assert!( q1 == 0 ||  q1 == 1);\n        // x: xcea - 0 if q3 | xcea - 2 if q1 | xcea - 1 if q0 or q2\n        //let x_proj = x_pm1 - ((q01 + q12) as i8 - 1) as f32;\n        // y: y - 0 if q2 | y - 1 if q1 or q3 | y - 2 if q0 \n        //let y_proj = y_pm1 + (q01 + q03) as f32;\n        p_proj = vec2(\n            x_pm1 - float(q01 + q12 - 1),\n            y_pm1 + float(q01 + q03)\n        );\n        // d0h: +8 if q0 | +4 if q3 | +5 if q1\n        d0h = ((q01 + q03) << 2) + ((q + q1) & 3);\n    }\n\n    // Coords inside the base cell\n    float x = (half_nside * (p_proj.x + p_proj.y));\n    float y = (half_nside * (p_proj.y - p_proj.x));\n    int i = int(x);\n    int j = int(y);\n\n    return HashDxDy(\n        (d0h << (depth << 1)) | ij2z(i, j),\n        x - float(i),\n        y - float(j)\n    );\n}\n\nvec4 get_tile_color(vec3 pos) {\n    HashDxDy result = hash_with_dxdy(0, pos.zxy);\n\n    int idx = result.idx;\n\n    vec2 uv = vec2(result.dy, result.dx);\n\n    Tile tile = textures_tiles[idx];\n\n    int idx_texture = tile.texture_idx >> 6;\n    int off = tile.texture_idx & 0x3F;\n    float idx_row = float(off >> 3); // in [0; 7]\n    float idx_col = float(off & 0x7); // in [0; 7]\n\n    vec2 offset = (vec2(idx_col, idx_row) + uv)*0.125;\n    vec3 UV = vec3(offset, float(idx_texture));\n\n    vec4 color = get_colormap_from_grayscale_texture(UV);\n    // handle empty tiles\n    //vec4 c1 = mix(c, blank_color, tile.empty);\n    //vec4 c2 = mix(c, colormap_f(0.0), tile.empty);\n    //vec4 color = mix(c1, c2, first_survey);\n    \n    // For empty tiles we set the alpha of the pixel to 0.0\n    // so that what is behind will be plotted\n    color.a *= (1.0 - tile.empty);\n\n    return color;\n}\n\nconst float duration = 500.f; // 500ms\nuniform int max_depth; // max depth of the HiPS\n\nuniform sampler2D position_tex;\nuniform mat4 model;\nvoid main() {\n    vec2 uv = out_clip_pos * 0.5 + 0.5;\n    vec3 n = texture(position_tex, uv).rgb;\n\n    vec3 frag_pos = vec3(model * vec4(n, 1.0));\n\n    vec4 c = get_tile_color(frag_pos);\n    out_frag_color = c;\n    out_frag_color.a = out_frag_color.a * opacity;\n}"
+module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp usampler2D;\nprecision highp isampler2D;\nprecision highp int;\n\nin vec2 out_clip_pos;\nout vec4 out_frag_color;\n\nuniform int user_action;\n\nstruct Tile {\n    int uniq; // Healpix cell\n    int texture_idx; // Index in the texture buffer\n    float start_time; // Absolute time that the load has been done in ms\n    float empty;\n};\n\nuniform int current_depth;\n\nuniform Tile textures_tiles[12];\n\nuniform float opacity;\nuniform float current_time; // current time in ms\n\n//const int MAX_NUM_TEX = 3;\nuniform isampler2D tex1;\nuniform isampler2D tex2;\nuniform isampler2D tex3;\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform float num_colormaps;\nuniform float colormap_id;\n// can be either 0 or 1\nuniform float reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, reversed);\n    float id = (colormap_id + 0.5) / num_colormaps;\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nivec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return ivec4(0, 0, 0, 1);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\nconst float TWICE_PI = 6.28318530718f;\nconst float PI = 3.141592653589793f;\nconst float FOUR_OVER_PI = 1.27323954474f;\nconst float TRANSITION_Z = 0.66666666666f;\nconst float TRANSITION_Z_INV = 1.5f;\n\nint quarter(vec2 p) {\n    int x_neg = int(p.x < 0.0f);\n    int y_neg = int(p.y < 0.0f);\n    int q = (x_neg + y_neg) | (y_neg << 1);\n    return q;\n}\n\nfloat xpm1(vec2 p) {\n    bool x_neg = (p.x < 0.0f);\n    //debug_assert!(x_neg <= 1);\n    bool y_neg = (p.y < 0.0f);\n    //debug_assert!(y_neg <= 1);\n    // The purpose it to have the same numerical precision for each base cell\n    // by avoiding subtraction by 1 or 3 or 5 or 7\n    float lon = atan(abs(p.y), abs(p.x));\n    //debug_assert!(0.0 <= lon && lon <= PI / 2.0);\n    float x02 = lon * FOUR_OVER_PI;\n    //debug_assert!(0.0 <= x02 && x02 <= 2.0);\n    if (x_neg != y_neg) { // Could be replaced by a sign copy from (x_neg ^ y_neg) << 32\n        return 1.0f - x02;\n    } else {\n        return x02 - 1.0f;\n    }\n}\n\nfloat one_minus_z_pos(vec3 p) {\n    //debug_assert!(z > 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n\n    if (d2 < 1e-1f) { // <=> dec > 84.27 deg\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return 1.0f - p.z;\n}\n\nfloat one_minus_z_neg(vec3 p) {\n    //debug_assert!(z < 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n    if (d2 < 1e-1f) { // <=> dec < -84.27 deg\n        // 0.5 * d2 + 0.125 * d2 * d2\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return p.z + 1.0f;\n}\n\n// Z-Order curve projection.\nint ij2z(int i, int j) {\n    int i1 = i | (j << 16);\n\n    int j1 = (i1 ^ (i1 >> 8)) & 0x0000FF00;\n    int i2 = i1 ^ j1 ^ (j1 << 8);\n\n    int j2 = (i2 ^ (i2 >> 4)) & 0x00F000F0;\n    int i3 = i2 ^ j2 ^ (j2 << 4);\n\n    int j3 = (i3 ^ (i3 >> 2)) & 0x0C0C0C0C;\n    int i4 = i3 ^ j3 ^ (j3 << 2);\n\n    int j4 = (i4 ^ (i4 >> 1)) & 0x22222222;\n    int i5 = i4 ^ j4 ^ (j4 << 1);\n\n    return i5;\n}\n\nstruct HashDxDy {\n    int idx;\n    float dx;\n    float dy;\n};\n\nuniform sampler2D ang2pixd;\nHashDxDy hash_with_dxdy2(vec2 radec) {\n    vec2 aa = vec2(radec.x/TWICE_PI + 1.0, (radec.y/PI) + 0.5);\n    vec3 v = texture(ang2pixd, aa).rgb;\n    return HashDxDy(\n        int(v.x * 255.0),\n        v.y,\n        v.z\n    );\n}\n// Returns the cell number (hash value) associated with the given position on the unit sphere, \n// together with the offset `(dx, dy)` on the Euclidean plane of the projected position with\n// respect to the origin of the cell (South vertex).\n// # Inputs:\n// - `depth` in `[0, 14]` (so that and HEALPix cell number can be stored on an unsigned integer)\n// - `x`: in `[-1.0, 1.0]`\n// - `y`: in `[-1.0, 1.0]`\n// - `z`: in `[-1.0, 1.0]`\n// # Output\n// - the cell number (hash value) associated with the given position on the unit sphere,\n//   in `[0, 12*nside^2[`\n// - `dx`: the positional offset $\\in [0, 1[$ along the south-to-east axis\n// - `dy`: the positional offset $\\in [0, 1[$ along the south-to-west axis\n// # WARNING\n// - The function assumes, without checking, that the input vector is a unit vector \n//   (hence `x^2 + y^2 + z^2 = 1`) !!\n// - Operations being made on simple precision float, the precision is lower than `~0.2 arcsec` only!!\n// - At depth 13, the precision on `(dx, dy)` is better than `(1/512, 1/512)`, i.e. 2e-3.\nHashDxDy hash_with_dxdy(int depth, vec3 p) {\n    //assert!(depth <= 14);\n    //assert!(-1.0 <= x && x <= 1.0);\n    //assert!(-1.0 <= y && y <= 1.0);\n    //assert!(-1.0 <= z && z <= 1.0);\n    //debug_assert!(1.0 - (x * x + y * y + z * z) < 1e-5);\n    // A f32 mantissa contains 23 bits.\n    // - it basically means that when storing (x, y) coordinates,\n    //   we can go as deep as depth 24 (or maybe 25)\n    \n    int nside = 1 << depth;\n    float half_nside = float(nside) * 0.5f;\n\n    float x_pm1 = xpm1(p.xy);\n    int q = quarter(p.xy);\n\n    int d0h = 0;\n    vec2 p_proj = vec2(0.f);\n    if (p.z > TRANSITION_Z) {\n        // North polar cap, Collignon projection.\n        // - set the origin to (PI/4, 0)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_pos(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, 2.0f - sqrt_3_one_min_z);\n        d0h = q;\n    } else if (p.z < -TRANSITION_Z) {\n        // South polar cap, Collignon projection\n        // - set the origin to (PI/4, -PI/2)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_neg(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, sqrt_3_one_min_z);\n        d0h = q + 8;\n    } else {\n        // Equatorial region, Cylindrical equal area projection\n        // - set the origin to (PI/4, 0)               if q = 2\n        // - set the origin to (PI/4, -PI/2)           if q = 0\n        // - set the origin to (0, -TRANSITION_LAT)    if q = 3\n        // - set the origin to (PI/2, -TRANSITION_LAT) if q = 1\n        // let zero_or_one = (x_cea as u8) & 1;\n        float y_pm1 = p.z * TRANSITION_Z_INV;\n        // |\\2/|\n        // .3X1.\n        // |/0\\|\n        int q01 = int(x_pm1 > y_pm1);  // 0/1\n        //debug_assert!(q01 == 0 || q01 == 1);\n        int q12 = int(x_pm1 >= -y_pm1); // 0\\1\n        //debug_assert!(q12 == 0 || q12 == 1);\n        int q03 = 1 - q12; // 1\\0\n        //let q13 = q01 ^ q12; debug_assert!(q13 == 0 || q13 == 1);\n        int q1 = q01 & q12; // = 1 if q1, 0 else\n        //debug_assert!( q1 == 0 ||  q1 == 1);\n        // x: xcea - 0 if q3 | xcea - 2 if q1 | xcea - 1 if q0 or q2\n        //let x_proj = x_pm1 - ((q01 + q12) as i8 - 1) as f32;\n        // y: y - 0 if q2 | y - 1 if q1 or q3 | y - 2 if q0 \n        //let y_proj = y_pm1 + (q01 + q03) as f32;\n        p_proj = vec2(\n            x_pm1 - float(q01 + q12 - 1),\n            y_pm1 + float(q01 + q03)\n        );\n        // d0h: +8 if q0 | +4 if q3 | +5 if q1\n        d0h = ((q01 + q03) << 2) + ((q + q1) & 3);\n    }\n\n    // Coords inside the base cell\n    float x = (half_nside * (p_proj.x + p_proj.y));\n    float y = (half_nside * (p_proj.y - p_proj.x));\n    int i = int(x);\n    int j = int(y);\n\n    return HashDxDy(\n        (d0h << (depth << 1)) | ij2z(i, j),\n        x - float(i),\n        y - float(j)\n    );\n}\n\nvec4 get_tile_color(vec3 pos) {\n    HashDxDy result = hash_with_dxdy(0, pos.zxy);\n\n    int idx = result.idx;\n\n    vec2 uv = vec2(result.dy, result.dx);\n\n    Tile tile = textures_tiles[idx];\n\n    int idx_texture = tile.texture_idx >> 6;\n    int off = tile.texture_idx & 0x3F;\n    float idx_row = float(off >> 3); // in [0; 7]\n    float idx_col = float(off & 0x7); // in [0; 7]\n\n    vec2 offset = (vec2(idx_col, idx_row) + uv)*0.125;\n    vec3 UV = vec3(offset, float(idx_texture));\n\n    vec4 color = get_colormap_from_grayscale_texture(UV);\n    // handle empty tiles\n    //vec4 c1 = mix(c, blank_color, tile.empty);\n    //vec4 c2 = mix(c, colormap_f(0.0), tile.empty);\n    //vec4 color = mix(c1, c2, first_survey);\n    \n    // For empty tiles we set the alpha of the pixel to 0.0\n    // so that what is behind will be plotted\n    color.a *= (1.0 - tile.empty);\n\n    return color;\n}\n\nconst float duration = 500.f; // 500ms\nuniform int max_depth; // max depth of the HiPS\n\nuniform sampler2D position_tex;\nuniform mat4 model;\nvoid main() {\n    vec2 uv = out_clip_pos * 0.5 + 0.5;\n    vec3 n = texture(position_tex, uv).rgb;\n\n    vec3 frag_pos = vec3(model * vec4(n, 1.0));\n\n    vec4 c = get_tile_color(frag_pos);\n    out_frag_color = c;\n    out_frag_color.a = out_frag_color.a * opacity;\n}"
 
 /***/ }),
 
@@ -737,7 +737,7 @@ module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampl
   \*********************************************************************************/
 /***/ ((module) => {
 
-module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp usampler2D;\nprecision highp isampler2D;\nprecision highp int;\n\nin vec2 out_clip_pos;\nout vec4 out_frag_color;\n\nuniform int user_action;\n\nstruct Tile {\n    int uniq; // Healpix cell\n    int texture_idx; // Index in the texture buffer\n    float start_time; // Absolute time that the load has been done in ms\n    float empty;\n};\n\nuniform int current_depth;\n\nuniform Tile textures_tiles[12];\n\nuniform float opacity;\nuniform float current_time; // current time in ms\n\n//const int MAX_NUM_TEX = 3;\nuniform usampler2D tex1;\nuniform usampler2D tex2;\nuniform usampler2D tex3;\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform int num_colormaps;\nuniform int colormap_id;\n// can be either 0 or 1\nuniform int reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, float(reversed));\n    float id = (float(colormap_id) + 0.5) / float(num_colormaps);\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nuvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return uvec4(0, 0, 0, 1);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\nconst float TWICE_PI = 6.28318530718f;\nconst float PI = 3.141592653589793f;\nconst float FOUR_OVER_PI = 1.27323954474f;\nconst float TRANSITION_Z = 0.66666666666f;\nconst float TRANSITION_Z_INV = 1.5f;\n\nint quarter(vec2 p) {\n    int x_neg = int(p.x < 0.0f);\n    int y_neg = int(p.y < 0.0f);\n    int q = (x_neg + y_neg) | (y_neg << 1);\n    return q;\n}\n\nfloat xpm1(vec2 p) {\n    bool x_neg = (p.x < 0.0f);\n    //debug_assert!(x_neg <= 1);\n    bool y_neg = (p.y < 0.0f);\n    //debug_assert!(y_neg <= 1);\n    // The purpose it to have the same numerical precision for each base cell\n    // by avoiding subtraction by 1 or 3 or 5 or 7\n    float lon = atan(abs(p.y), abs(p.x));\n    //debug_assert!(0.0 <= lon && lon <= PI / 2.0);\n    float x02 = lon * FOUR_OVER_PI;\n    //debug_assert!(0.0 <= x02 && x02 <= 2.0);\n    if (x_neg != y_neg) { // Could be replaced by a sign copy from (x_neg ^ y_neg) << 32\n        return 1.0f - x02;\n    } else {\n        return x02 - 1.0f;\n    }\n}\n\nfloat one_minus_z_pos(vec3 p) {\n    //debug_assert!(z > 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n\n    if (d2 < 1e-1f) { // <=> dec > 84.27 deg\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return 1.0f - p.z;\n}\n\nfloat one_minus_z_neg(vec3 p) {\n    //debug_assert!(z < 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n    if (d2 < 1e-1f) { // <=> dec < -84.27 deg\n        // 0.5 * d2 + 0.125 * d2 * d2\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return p.z + 1.0f;\n}\n\n// Z-Order curve projection.\nint ij2z(int i, int j) {\n    int i1 = i | (j << 16);\n\n    int j1 = (i1 ^ (i1 >> 8)) & 0x0000FF00;\n    int i2 = i1 ^ j1 ^ (j1 << 8);\n\n    int j2 = (i2 ^ (i2 >> 4)) & 0x00F000F0;\n    int i3 = i2 ^ j2 ^ (j2 << 4);\n\n    int j3 = (i3 ^ (i3 >> 2)) & 0x0C0C0C0C;\n    int i4 = i3 ^ j3 ^ (j3 << 2);\n\n    int j4 = (i4 ^ (i4 >> 1)) & 0x22222222;\n    int i5 = i4 ^ j4 ^ (j4 << 1);\n\n    return i5;\n}\n\nstruct HashDxDy {\n    int idx;\n    float dx;\n    float dy;\n};\n\nuniform sampler2D ang2pixd;\nHashDxDy hash_with_dxdy2(vec2 radec) {\n    vec2 aa = vec2(radec.x/TWICE_PI + 1.0, (radec.y/PI) + 0.5);\n    vec3 v = texture(ang2pixd, aa).rgb;\n    return HashDxDy(\n        int(v.x * 255.0),\n        v.y,\n        v.z\n    );\n}\n// Returns the cell number (hash value) associated with the given position on the unit sphere, \n// together with the offset `(dx, dy)` on the Euclidean plane of the projected position with\n// respect to the origin of the cell (South vertex).\n// # Inputs:\n// - `depth` in `[0, 14]` (so that and HEALPix cell number can be stored on an unsigned integer)\n// - `x`: in `[-1.0, 1.0]`\n// - `y`: in `[-1.0, 1.0]`\n// - `z`: in `[-1.0, 1.0]`\n// # Output\n// - the cell number (hash value) associated with the given position on the unit sphere,\n//   in `[0, 12*nside^2[`\n// - `dx`: the positional offset $\\in [0, 1[$ along the south-to-east axis\n// - `dy`: the positional offset $\\in [0, 1[$ along the south-to-west axis\n// # WARNING\n// - The function assumes, without checking, that the input vector is a unit vector \n//   (hence `x^2 + y^2 + z^2 = 1`) !!\n// - Operations being made on simple precision float, the precision is lower than `~0.2 arcsec` only!!\n// - At depth 13, the precision on `(dx, dy)` is better than `(1/512, 1/512)`, i.e. 2e-3.\nHashDxDy hash_with_dxdy(int depth, vec3 p) {\n    //assert!(depth <= 14);\n    //assert!(-1.0 <= x && x <= 1.0);\n    //assert!(-1.0 <= y && y <= 1.0);\n    //assert!(-1.0 <= z && z <= 1.0);\n    //debug_assert!(1.0 - (x * x + y * y + z * z) < 1e-5);\n    // A f32 mantissa contains 23 bits.\n    // - it basically means that when storing (x, y) coordinates,\n    //   we can go as deep as depth 24 (or maybe 25)\n    \n    int nside = 1 << depth;\n    float half_nside = float(nside) * 0.5f;\n\n    float x_pm1 = xpm1(p.xy);\n    int q = quarter(p.xy);\n\n    int d0h = 0;\n    vec2 p_proj = vec2(0.f);\n    if (p.z > TRANSITION_Z) {\n        // North polar cap, Collignon projection.\n        // - set the origin to (PI/4, 0)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_pos(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, 2.0f - sqrt_3_one_min_z);\n        d0h = q;\n    } else if (p.z < -TRANSITION_Z) {\n        // South polar cap, Collignon projection\n        // - set the origin to (PI/4, -PI/2)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_neg(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, sqrt_3_one_min_z);\n        d0h = q + 8;\n    } else {\n        // Equatorial region, Cylindrical equal area projection\n        // - set the origin to (PI/4, 0)               if q = 2\n        // - set the origin to (PI/4, -PI/2)           if q = 0\n        // - set the origin to (0, -TRANSITION_LAT)    if q = 3\n        // - set the origin to (PI/2, -TRANSITION_LAT) if q = 1\n        // let zero_or_one = (x_cea as u8) & 1;\n        float y_pm1 = p.z * TRANSITION_Z_INV;\n        // |\\2/|\n        // .3X1.\n        // |/0\\|\n        int q01 = int(x_pm1 > y_pm1);  // 0/1\n        //debug_assert!(q01 == 0 || q01 == 1);\n        int q12 = int(x_pm1 >= -y_pm1); // 0\\1\n        //debug_assert!(q12 == 0 || q12 == 1);\n        int q03 = 1 - q12; // 1\\0\n        //let q13 = q01 ^ q12; debug_assert!(q13 == 0 || q13 == 1);\n        int q1 = q01 & q12; // = 1 if q1, 0 else\n        //debug_assert!( q1 == 0 ||  q1 == 1);\n        // x: xcea - 0 if q3 | xcea - 2 if q1 | xcea - 1 if q0 or q2\n        //let x_proj = x_pm1 - ((q01 + q12) as i8 - 1) as f32;\n        // y: y - 0 if q2 | y - 1 if q1 or q3 | y - 2 if q0 \n        //let y_proj = y_pm1 + (q01 + q03) as f32;\n        p_proj = vec2(\n            x_pm1 - float(q01 + q12 - 1),\n            y_pm1 + float(q01 + q03)\n        );\n        // d0h: +8 if q0 | +4 if q3 | +5 if q1\n        d0h = ((q01 + q03) << 2) + ((q + q1) & 3);\n    }\n\n    // Coords inside the base cell\n    float x = (half_nside * (p_proj.x + p_proj.y));\n    float y = (half_nside * (p_proj.y - p_proj.x));\n    int i = int(x);\n    int j = int(y);\n\n    return HashDxDy(\n        (d0h << (depth << 1)) | ij2z(i, j),\n        x - float(i),\n        y - float(j)\n    );\n}\n\nvec4 get_tile_color(vec3 pos) {\n    HashDxDy result = hash_with_dxdy(0, pos.zxy);\n\n    int idx = result.idx;\n\n    vec2 uv = vec2(result.dy, result.dx);\n\n    Tile tile = textures_tiles[idx];\n\n    int idx_texture = tile.texture_idx >> 6;\n    int off = tile.texture_idx & 0x3F;\n    float idx_row = float(off >> 3); // in [0; 7]\n    float idx_col = float(off & 0x7); // in [0; 7]\n\n    vec2 offset = (vec2(idx_col, idx_row) + uv)*0.125;\n    vec3 UV = vec3(offset, float(idx_texture));\n\n    vec4 color = get_colormap_from_grayscale_texture(UV);\n    // handle empty tiles\n    //vec4 c1 = mix(c, blank_color, tile.empty);\n    //vec4 c2 = mix(c, colormap_f(0.0), tile.empty);\n    //vec4 color = mix(c1, c2, first_survey);\n\n    // For empty tiles we set the alpha of the pixel to 0.0\n    // so that what is behind will be plotted\n    color.a *= (1.0 - tile.empty);\n    return color;\n}\n\nconst float duration = 500.f; // 500ms\nuniform int max_depth; // max depth of the HiPS\n\nuniform sampler2D position_tex;\nuniform mat4 model;\nvoid main() {\n    vec2 uv = out_clip_pos * 0.5 + 0.5;\n    vec3 n = texture(position_tex, uv).rgb;\n\n    vec3 frag_pos = vec3(model * vec4(n, 1.0));\n\n    vec4 c = get_tile_color(frag_pos);\n    out_frag_color = c;\n    out_frag_color.a = out_frag_color.a * opacity;\n}"
+module.exports = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nprecision highp usampler2D;\nprecision highp isampler2D;\nprecision highp int;\n\nin vec2 out_clip_pos;\nout vec4 out_frag_color;\n\nuniform int user_action;\n\nstruct Tile {\n    int uniq; // Healpix cell\n    int texture_idx; // Index in the texture buffer\n    float start_time; // Absolute time that the load has been done in ms\n    float empty;\n};\n\nuniform int current_depth;\n\nuniform Tile textures_tiles[12];\n\nuniform float opacity;\nuniform float current_time; // current time in ms\n\n//const int MAX_NUM_TEX = 3;\nuniform usampler2D tex1;\nuniform usampler2D tex2;\nuniform usampler2D tex3;\nuniform int num_tex;\n\nuniform float scale;\nuniform float offset;\nuniform float blank;\n\nuniform float min_value;\nuniform float max_value;\nuniform int H;\n\nuniform float size_tile_uv;\n\nuniform int tex_storing_fits;\n\nuniform sampler2D colormaps;\nuniform float num_colormaps;\nuniform float colormap_id;\n// can be either 0 or 1\nuniform float reversed;\n\nvec4 colormap_f(float x) {\n    x = mix(x, 1.0 - x, reversed);\n    float id = (colormap_id + 0.5) / num_colormaps;\n\n    return texture(colormaps, vec2(x, id));\n}\n\nfloat linear_f(float x, float min_value, float max_value) {\n    return clamp((x - min_value)/(max_value - min_value), 0.0, 1.0);\n}\n\nfloat sqrt_f(float x, float min_value, float max_value) {\n    float a = linear_f(x, min_value, max_value);\n    return sqrt(a);\n}\n\nfloat log_f(float x, float min_value, float max_value) {\n    float y = linear_f(x, min_value, max_value);\n    float a = 1000.0;\n    return log(a*y + 1.0)/log(a);\n}\n\nfloat asinh_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return asinh(10.0*d)/3.0;\n}\n\nfloat pow2_f(float x, float min_value, float max_value) {\n    float d = linear_f(x, min_value, max_value);\n    return d*d;\n}\n\nfloat transfer_func(int H, float x, float min_value, float max_value) {\n    if (H == 0) {\n        return linear_f(x, min_value, max_value);\n    } else if (H == 1) {\n        return sqrt_f(x, min_value, max_value);\n    } else if (H == 2) {\n        return log_f(x, min_value, max_value);\n    } else if (H == 3) {\n        return asinh_f(x, min_value, max_value);\n    } else {\n        return pow2_f(x, min_value, max_value);\n    }\n}\n\nuvec4 get_pixels(vec3 uv) {\n    int idx_texture = int(uv.z);\n    if (idx_texture == 0) {\n        return texture(tex1, uv.xy);\n    } else if (idx_texture == 1) {\n        return texture(tex2, uv.xy);\n    } else if (idx_texture == 2) {\n        return texture(tex3, uv.xy);\n    } else {\n        return uvec4(0, 0, 0, 1);\n    }\n}\n\nvec3 reverse_uv(vec3 uv) {\n    uv.y = size_tile_uv + 2.0*size_tile_uv*floor(uv.y / size_tile_uv) - uv.y;\n\n    return uv;\n}\n\nvec4 get_colormap_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(colormap_f(alpha), vec4(0.0), float(alpha == 0.0));\n    //}\n}\n\nuniform vec3 C;\nuniform float K;\nvec4 get_color_from_grayscale_texture(vec3 UV) {\n    // FITS data pixels are reversed along the y axis\n    vec3 uv = mix(UV, reverse_uv(UV), float(tex_storing_fits == 1));\n\n    float x = float(get_pixels(uv).r);\n    //if (x == blank) {\n    //    return blank_color;\n    //} else {\n        float alpha = x * scale + offset;\n        alpha = transfer_func(H, alpha, min_value, max_value);\n\n        return mix(vec4(C * K * alpha, 1.0), vec4(0.0), float(alpha == 0.0));\n    //}\n}\nconst float TWICE_PI = 6.28318530718f;\nconst float PI = 3.141592653589793f;\nconst float FOUR_OVER_PI = 1.27323954474f;\nconst float TRANSITION_Z = 0.66666666666f;\nconst float TRANSITION_Z_INV = 1.5f;\n\nint quarter(vec2 p) {\n    int x_neg = int(p.x < 0.0f);\n    int y_neg = int(p.y < 0.0f);\n    int q = (x_neg + y_neg) | (y_neg << 1);\n    return q;\n}\n\nfloat xpm1(vec2 p) {\n    bool x_neg = (p.x < 0.0f);\n    //debug_assert!(x_neg <= 1);\n    bool y_neg = (p.y < 0.0f);\n    //debug_assert!(y_neg <= 1);\n    // The purpose it to have the same numerical precision for each base cell\n    // by avoiding subtraction by 1 or 3 or 5 or 7\n    float lon = atan(abs(p.y), abs(p.x));\n    //debug_assert!(0.0 <= lon && lon <= PI / 2.0);\n    float x02 = lon * FOUR_OVER_PI;\n    //debug_assert!(0.0 <= x02 && x02 <= 2.0);\n    if (x_neg != y_neg) { // Could be replaced by a sign copy from (x_neg ^ y_neg) << 32\n        return 1.0f - x02;\n    } else {\n        return x02 - 1.0f;\n    }\n}\n\nfloat one_minus_z_pos(vec3 p) {\n    //debug_assert!(z > 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n\n    if (d2 < 1e-1f) { // <=> dec > 84.27 deg\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return 1.0f - p.z;\n}\n\nfloat one_minus_z_neg(vec3 p) {\n    //debug_assert!(z < 0.0);\n    float d2 = dot(p.xy, p.xy); // z = sqrt(1 - d2) AND sqrt(1 - x) = 1 - x / 2 - x^2 / 8 - x^3 / 16 - 5 x^4/128 - 7 * x^5/256\n    if (d2 < 1e-1f) { // <=> dec < -84.27 deg\n        // 0.5 * d2 + 0.125 * d2 * d2\n        return d2 * (0.5f + d2 * (0.125f + d2 * (0.0625f + d2 * (0.0390625f + d2 * 0.02734375f))));\n    }\n    return p.z + 1.0f;\n}\n\n// Z-Order curve projection.\nint ij2z(int i, int j) {\n    int i1 = i | (j << 16);\n\n    int j1 = (i1 ^ (i1 >> 8)) & 0x0000FF00;\n    int i2 = i1 ^ j1 ^ (j1 << 8);\n\n    int j2 = (i2 ^ (i2 >> 4)) & 0x00F000F0;\n    int i3 = i2 ^ j2 ^ (j2 << 4);\n\n    int j3 = (i3 ^ (i3 >> 2)) & 0x0C0C0C0C;\n    int i4 = i3 ^ j3 ^ (j3 << 2);\n\n    int j4 = (i4 ^ (i4 >> 1)) & 0x22222222;\n    int i5 = i4 ^ j4 ^ (j4 << 1);\n\n    return i5;\n}\n\nstruct HashDxDy {\n    int idx;\n    float dx;\n    float dy;\n};\n\nuniform sampler2D ang2pixd;\nHashDxDy hash_with_dxdy2(vec2 radec) {\n    vec2 aa = vec2(radec.x/TWICE_PI + 1.0, (radec.y/PI) + 0.5);\n    vec3 v = texture(ang2pixd, aa).rgb;\n    return HashDxDy(\n        int(v.x * 255.0),\n        v.y,\n        v.z\n    );\n}\n// Returns the cell number (hash value) associated with the given position on the unit sphere, \n// together with the offset `(dx, dy)` on the Euclidean plane of the projected position with\n// respect to the origin of the cell (South vertex).\n// # Inputs:\n// - `depth` in `[0, 14]` (so that and HEALPix cell number can be stored on an unsigned integer)\n// - `x`: in `[-1.0, 1.0]`\n// - `y`: in `[-1.0, 1.0]`\n// - `z`: in `[-1.0, 1.0]`\n// # Output\n// - the cell number (hash value) associated with the given position on the unit sphere,\n//   in `[0, 12*nside^2[`\n// - `dx`: the positional offset $\\in [0, 1[$ along the south-to-east axis\n// - `dy`: the positional offset $\\in [0, 1[$ along the south-to-west axis\n// # WARNING\n// - The function assumes, without checking, that the input vector is a unit vector \n//   (hence `x^2 + y^2 + z^2 = 1`) !!\n// - Operations being made on simple precision float, the precision is lower than `~0.2 arcsec` only!!\n// - At depth 13, the precision on `(dx, dy)` is better than `(1/512, 1/512)`, i.e. 2e-3.\nHashDxDy hash_with_dxdy(int depth, vec3 p) {\n    //assert!(depth <= 14);\n    //assert!(-1.0 <= x && x <= 1.0);\n    //assert!(-1.0 <= y && y <= 1.0);\n    //assert!(-1.0 <= z && z <= 1.0);\n    //debug_assert!(1.0 - (x * x + y * y + z * z) < 1e-5);\n    // A f32 mantissa contains 23 bits.\n    // - it basically means that when storing (x, y) coordinates,\n    //   we can go as deep as depth 24 (or maybe 25)\n    \n    int nside = 1 << depth;\n    float half_nside = float(nside) * 0.5f;\n\n    float x_pm1 = xpm1(p.xy);\n    int q = quarter(p.xy);\n\n    int d0h = 0;\n    vec2 p_proj = vec2(0.f);\n    if (p.z > TRANSITION_Z) {\n        // North polar cap, Collignon projection.\n        // - set the origin to (PI/4, 0)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_pos(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, 2.0f - sqrt_3_one_min_z);\n        d0h = q;\n    } else if (p.z < -TRANSITION_Z) {\n        // South polar cap, Collignon projection\n        // - set the origin to (PI/4, -PI/2)\n        float sqrt_3_one_min_z = sqrt(3.0f * one_minus_z_neg(p));\n        p_proj = vec2(x_pm1 * sqrt_3_one_min_z, sqrt_3_one_min_z);\n        d0h = q + 8;\n    } else {\n        // Equatorial region, Cylindrical equal area projection\n        // - set the origin to (PI/4, 0)               if q = 2\n        // - set the origin to (PI/4, -PI/2)           if q = 0\n        // - set the origin to (0, -TRANSITION_LAT)    if q = 3\n        // - set the origin to (PI/2, -TRANSITION_LAT) if q = 1\n        // let zero_or_one = (x_cea as u8) & 1;\n        float y_pm1 = p.z * TRANSITION_Z_INV;\n        // |\\2/|\n        // .3X1.\n        // |/0\\|\n        int q01 = int(x_pm1 > y_pm1);  // 0/1\n        //debug_assert!(q01 == 0 || q01 == 1);\n        int q12 = int(x_pm1 >= -y_pm1); // 0\\1\n        //debug_assert!(q12 == 0 || q12 == 1);\n        int q03 = 1 - q12; // 1\\0\n        //let q13 = q01 ^ q12; debug_assert!(q13 == 0 || q13 == 1);\n        int q1 = q01 & q12; // = 1 if q1, 0 else\n        //debug_assert!( q1 == 0 ||  q1 == 1);\n        // x: xcea - 0 if q3 | xcea - 2 if q1 | xcea - 1 if q0 or q2\n        //let x_proj = x_pm1 - ((q01 + q12) as i8 - 1) as f32;\n        // y: y - 0 if q2 | y - 1 if q1 or q3 | y - 2 if q0 \n        //let y_proj = y_pm1 + (q01 + q03) as f32;\n        p_proj = vec2(\n            x_pm1 - float(q01 + q12 - 1),\n            y_pm1 + float(q01 + q03)\n        );\n        // d0h: +8 if q0 | +4 if q3 | +5 if q1\n        d0h = ((q01 + q03) << 2) + ((q + q1) & 3);\n    }\n\n    // Coords inside the base cell\n    float x = (half_nside * (p_proj.x + p_proj.y));\n    float y = (half_nside * (p_proj.y - p_proj.x));\n    int i = int(x);\n    int j = int(y);\n\n    return HashDxDy(\n        (d0h << (depth << 1)) | ij2z(i, j),\n        x - float(i),\n        y - float(j)\n    );\n}\n\nvec4 get_tile_color(vec3 pos) {\n    HashDxDy result = hash_with_dxdy(0, pos.zxy);\n\n    int idx = result.idx;\n\n    vec2 uv = vec2(result.dy, result.dx);\n\n    Tile tile = textures_tiles[idx];\n\n    int idx_texture = tile.texture_idx >> 6;\n    int off = tile.texture_idx & 0x3F;\n    float idx_row = float(off >> 3); // in [0; 7]\n    float idx_col = float(off & 0x7); // in [0; 7]\n\n    vec2 offset = (vec2(idx_col, idx_row) + uv)*0.125;\n    vec3 UV = vec3(offset, float(idx_texture));\n\n    vec4 color = get_colormap_from_grayscale_texture(UV);\n    // handle empty tiles\n    //vec4 c1 = mix(c, blank_color, tile.empty);\n    //vec4 c2 = mix(c, colormap_f(0.0), tile.empty);\n    //vec4 color = mix(c1, c2, first_survey);\n\n    // For empty tiles we set the alpha of the pixel to 0.0\n    // so that what is behind will be plotted\n    color.a *= (1.0 - tile.empty);\n    return color;\n}\n\nconst float duration = 500.f; // 500ms\nuniform int max_depth; // max depth of the HiPS\n\nuniform sampler2D position_tex;\nuniform mat4 model;\nvoid main() {\n    vec2 uv = out_clip_pos * 0.5 + 0.5;\n    vec3 n = texture(position_tex, uv).rgb;\n\n    vec3 frag_pos = vec3(model * vec4(n, 1.0));\n\n    vec4 c = get_tile_color(frag_pos);\n    out_frag_color = c;\n    out_frag_color.a = out_frag_color.a * opacity;\n}"
 
 /***/ }),
 
@@ -9995,7 +9995,7 @@ let View = (function() {
             this.fov_limit = 180.0;
             
             this.healpixGrid = new _HealpixGrid_js__WEBPACK_IMPORTED_MODULE_2__.HealpixGrid(this.imageCanvas);
-
+            this.then = Date.now();
             
             var lon, lat;
             lon = lat = 0;
@@ -10074,11 +10074,14 @@ let View = (function() {
             this.dragy = null;
             this.needRedraw = true;
 
+            const si = 500000.0;
+            const alpha = 40.0;
             // zoom pinching
             this.pinchZoomParameters = {
                 isPinching: false, // true if a pinch zoom is ongoing
                 initialFov: undefined,
-                initialDistance: undefined
+                initialDistance: undefined,
+                initialAccDelta: Math.pow(si / 180.0, 1.0/alpha)
             };
 
             // two-fingers rotation
@@ -10393,6 +10396,7 @@ let View = (function() {
             if(view.aladin.webglAPI.posOnUi()) {
                 return;
             }
+
             // zoom pinching
             if (e.type==='touchstart' && e.originalEvent && e.originalEvent.targetTouches && e.originalEvent.targetTouches.length==2) {
                 view.dragging = false;
@@ -10424,7 +10428,7 @@ let View = (function() {
                 view.dragy = xymouse.y;
             }
 
-
+            console.log("AAAA")
             view.dragging = true;
             if (view.mode==View.PAN) {
                 view.setCursor('move');
@@ -10591,8 +10595,8 @@ let View = (function() {
             e.preventDefault();
             var xymouse = view.imageCanvas.relMouseCoords(e);
             p = xymouse;
-            if(view.aladin.webglAPI.posOnUi()) {
 
+            if(view.aladin.webglAPI.posOnUi()) {
                 return;
             }
 
@@ -10668,7 +10672,6 @@ let View = (function() {
             if (! view.dragging) {
                 return;
             }
-
             //var xoffset, yoffset;
             var s1, s2;
             if (e.originalEvent && e.originalEvent.targetTouches) {
@@ -10804,8 +10807,27 @@ let View = (function() {
             }*/
             // The value of the field of view is determined
             // inside the backend
-            view.aladin.webglAPI.registerWheelEvent(delta);
-            view.updateZoomState();
+            const si = 500000.0;
+            const alpha = 40.0;
+            let off = 0.00001 * delta;
+
+            view.pinchZoomParameters.initialAccDelta += off;
+
+            if (view.pinchZoomParameters.initialAccDelta <= 0.0) {
+                view.pinchZoomParameters.initialAccDelta = 1e-3;
+            }
+
+            let new_fov = si / Math.pow(view.pinchZoomParameters.initialAccDelta, alpha);
+            if (new_fov > 1000.0) {
+                new_fov = 1000.0;
+                view.pinchZoomParameters.initialAccDelta = Math.pow(si / new_fov, 1.0/alpha);
+            } 
+            if (new_fov < 2e-10) {
+                new_fov = 2e-10;
+                view.pinchZoomParameters.initialAccDelta = Math.pow(si / new_fov, 1.0/alpha);
+            } 
+
+            view.setZoom(new_fov);
 
             if (! view.debounceProgCatOnZoom) {
                 var self = view;
@@ -10946,334 +10968,345 @@ let View = (function() {
      * redraw the whole view
      */
     View.prototype.redraw = function() {
-
-        var saveNeedRedraw = this.needRedraw;
-        var now = Date.now();
-        var dt = now - this.prev;
-
-        this.ready = this.aladin.webglAPI.isReady();
-        if (this.imageSurveysToSet !== null && (this.firstHiPS || this.ready)) {
-            try {
-                console.log("sdfff ", this.imageSurveysToSet)
-                this.aladin.webglAPI.setImageSurveys(this.imageSurveysToSet);
-            } catch(e) {
-                console.warn(e)
-            }
-
-            this.imageSurveysToSet = null;
-            this.firstHiPS = false;
-        }
-
-        try {
-            this.aladin.webglAPI.update(dt, this.needRedraw);
-        } catch(e) {
-            console.error(e)
-        }
-        // This is called at each frame
-        // Better way is to give this function
-        // to Rust so that the backend executes it
-        // only when necessary, i.e. during the zoom
-        // animation
-        updateFovDiv(this);
-        // check whether a catalog has been parsed and
-        // is ready to be plot
-        let catReady = this.aladin.webglAPI.isCatalogLoaded();
-        if (catReady) {
-            var callbackFn = this.aladin.callbacksByEventName['catalogReady'];
-            (typeof callbackFn === 'function') && callbackFn();
-        }
-
-        try {
-            this.aladin.webglAPI.render(this.needRedraw);
-        } catch(e) {
-            console.error("Error: ", e);
-        }
-
-        var imageCtx = this.imageCtx;
-        //////// 1. Draw images ////////
-        /*if (imageCtx.start2D) {
-            imageCtx.start2D();
-        }*/
-        //// clear canvas ////
-        // TODO : do not need to clear if fov small enough ?
-        /*imageCtx.clearRect(0, 0, this.imageCanvas.width, this.imageCanvas.height);
-        ////////////////////////
+        // request another frame
     
-        var bkgdColor = this.getBackgroundColor();    
-        // fill with background of the same color than the first color map value (lowest intensity)
-        if (this.projectionMethod==ProjectionEnum.SIN) {
-            if (this.fov>=60) {
-                imageCtx.fillStyle = bkgdColor;
-                imageCtx.beginPath();
-                var maxCxCy = this.cx>this.cy ? this.cx : this.cy;
-                imageCtx.arc(this.cx, this.cy, maxCxCy * this.zoomFactor, 0, 2*Math.PI, true);
-                imageCtx.fill();
-            }
-            // pour eviter les losanges blancs qui apparaissent quand les tuiles sont en attente de chargement
-            else {
-                imageCtx.fillStyle = bkgdColor;
-                imageCtx.fillRect(0, 0, this.imageCanvas.width, this.imageCanvas.height);
-            }
-        }
-        else if (this.projectionMethod==ProjectionEnum.AITOFF) {
-            if (imageCtx.ellipse) {
-                imageCtx.fillStyle = bkgdColor;
-                imageCtx.beginPath();
-                imageCtx.ellipse(this.cx, this.cy, 2.828*this.cx*this.zoomFactor, this.cx*this.zoomFactor*1.414, 0, 0, 2*Math.PI);
-                imageCtx.fill();
-            }
-        }*/
-        /*if (imageCtx.finish2D) {
-            imageCtx.finish2D();
-        }*/
+        requestAnimationFrame(this.redraw.bind(this));
+    
+        // calc elapsed time since last loop
+    
+        this.now = Date.now();
+        let elapsed = this.now - this.then;
+        // if enough time has elapsed, draw the next frame
+        const fpsInterval = 1000/60;
+        //if (elapsed > fpsInterval) {
+    
+            // Get ready for next frame by setting then=now, but also adjust for your
+            // specified fpsInterval not being a multiple of RAF's interval (16.7ms)
+            this.then = this.now - (elapsed % fpsInterval);
+    
+            // Put your drawing code here
+            var saveNeedRedraw = this.needRedraw;
 
-        
-        this.projection.setCenter(this.viewCenter.lon, this.viewCenter.lat);
-        // do we have to redo that every time? Probably not
-        //this.projection.setProjection(this.projectionMethod);
-
-
-        // ************* Draw allsky tiles (low resolution) *****************
-
-        var cornersXYViewMapHighres = null;
-        // Pour traitement des DEFORMATIONS --> TEMPORAIRE, draw deviendra la methode utilisee systematiquement
-
-        /*if (this.imageSurvey && this.imageSurvey.isReady && this.displaySurvey) {
-                if (this.aladin.reduceDeformations==null) {
-                    this.imageSurvey.draw(imageCtx, this, !this.dragging, this.curNorder);
+            this.ready = this.aladin.webglAPI.isReady();
+            if (this.imageSurveysToSet !== null && (this.firstHiPS || this.ready)) {
+                try {
+                    this.aladin.webglAPI.setImageSurveys(this.imageSurveysToSet);
+                } catch(e) {
+                    console.warn(e)
                 }
-
-                else {
-                    this.imageSurvey.draw(imageCtx, this, this.aladin.reduceDeformations, this.curNorder);
-                }
-        }*/
-        /*
-        else {
-            var cornersXYViewMapAllsky = this.getVisibleCells(3);
-            var cornersXYViewMapHighres = null;
-            if (this.curNorder>=3) {
-                if (this.curNorder==3) {
-                    cornersXYViewMapHighres = cornersXYViewMapAllsky;
-                }
-                else {
-                    cornersXYViewMapHighres = this.getVisibleCells(this.curNorder);
-                }
+    
+                this.imageSurveysToSet = null;
+                this.firstHiPS = false;
+            }
+            //var now_update = Date.now();
+            try {
+                //var dt = now_update - this.prev;
+                this.aladin.webglAPI.update(elapsed, this.needRedraw);
+            } catch(e) {
+                console.error(e)
+            }
+            // This is called at each frame
+            // Better way is to give this function
+            // to Rust so that the backend executes it
+            // only when necessary, i.e. during the zoom
+            // animation
+            updateFovDiv(this);
+            // check whether a catalog has been parsed and
+            // is ready to be plot
+            let catReady = this.aladin.webglAPI.isCatalogLoaded();
+            if (catReady) {
+                var callbackFn = this.aladin.callbacksByEventName['catalogReady'];
+                (typeof callbackFn === 'function') && callbackFn();
             }
 
-            // redraw image survey
-            if (this.imageSurvey && this.imageSurvey.isReady && this.displaySurvey) {
-                // TODO : a t on besoin de dessiner le allsky si norder>=3 ?
-                // TODO refactoring : should be a method of HpxImageSurvey
-                this.imageSurvey.redrawAllsky(imageCtx, cornersXYViewMapAllsky, this.fov, this.curNorder);
-                if (this.curNorder>=3) {
-                    this.imageSurvey.redrawHighres(imageCtx, cornersXYViewMapHighres, this.curNorder);
-                }
+            try {
+                this.aladin.webglAPI.render(this.needRedraw);
+            } catch(e) {
+                console.error("Error: ", e);
             }
-        }
-        */
-        
-
-        // redraw overlay image survey
-        // TODO : does not work if different frames 
-        // TODO: use HpxImageSurvey.draw method !!
-        if (this.overlayImageSurvey && this.overlayImageSurvey.isReady) {
-            /*imageCtx.globalAlpha = this.overlayImageSurvey.getAlpha();
-
-            if (this.aladin.reduceDeformations==null) {
-                this.overlayImageSurvey.draw(imageCtx, this, !this.dragging, this.curOverlayNorder);
-            }
-
-            else {
-                this.overlayImageSurvey.draw(imageCtx, this, this.aladin.reduceDeformations, this.curOverlayNorder);
+    
+            var imageCtx = this.imageCtx;
+            //////// 1. Draw images ////////
+            /*if (imageCtx.start2D) {
+                imageCtx.start2D();
             }*/
-            /*
-            if (this.fov>50) {
-                this.overlayImageSurvey.redrawAllsky(imageCtx, cornersXYViewMapAllsky, this.fov, this.curOverlayNorder);
-            }
-            if (this.curOverlayNorder>=3) {
-                var norderOverlay = Math.min(this.curOverlayNorder, this.overlayImageSurvey.maxOrder);
-                if ( cornersXYViewMapHighres==null || norderOverlay != this.curNorder ) {
-                    cornersXYViewMapHighres = this.getVisibleCells(norderOverlay);
-                }
-                this.overlayImageSurvey.redrawHighres(imageCtx, cornersXYViewMapHighres, norderOverlay);
-            }
-            */
-
-           //imageCtx.globalAlpha = 1.0;
-
-        }
-        
-        // redraw HEALPix grid
-        if( this.displayHpxGrid) {
-            var cornersXYViewMapAllsky = this.getVisibleCells(3);
-            var cornersXYViewMapHighres = null;
-            if (this.curNorder>=3) {
-                if (this.curNorder==3) {
-                    cornersXYViewMapHighres = cornersXYViewMapAllsky;
-                }
-                else {
-                    cornersXYViewMapHighres = this.getVisibleCells(this.curNorder);
-                }
-            }
-            this.gridCtx.clearRect(0, 0, this.imageCanvas.width, this.imageCanvas.height);
-            if (cornersXYViewMapHighres && this.curNorder>3) {
-                this.healpixGrid.redraw(this.gridCtx, cornersXYViewMapHighres, this.fov, this.curNorder);
-            }
-            else {
-                this.healpixGrid.redraw(this.gridCtx, cornersXYViewMapAllsky, this.fov, 3);
-            }
-        }
-        
-        // redraw coordinates grid
-        /*if (this.showGrid) {
-            if (this.cooGrid==null) {
-                this.cooGrid = new CooGrid();
-            }
-            
-            this.cooGrid.redraw(this.gridCtx, this.projection, this.cooFrame, this.width, this.height, this.largestDim, this.zoomFactor, this.fov);
-        }*/
-         
-
-
-        ///*
-        ////// 2. Draw catalogues////////
-        var catalogCtx = this.catalogCtx;
-
-        var catalogCanvasCleared = false;
-        if (this.mustClearCatalog) {
-            catalogCtx.clearRect(0, 0, this.width, this.height);
-            catalogCanvasCleared = true;
-            this.mustClearCatalog = false;
-        }
-        if (this.catalogs && this.catalogs.length>0 && this.displayCatalog && (! this.dragging  || View.DRAW_SOURCES_WHILE_DRAGGING)) {
-              // TODO : do not clear every time
             //// clear canvas ////
-            if (! catalogCanvasCleared) {
-                catalogCtx.clearRect(0, 0, this.width, this.height);
-                catalogCanvasCleared = true;
-            }
-            for (var i=0; i<this.catalogs.length; i++) {
-                var cat = this.catalogs[i];
-                //console.log( this.projection, this.cooFrame, this.width, this.height, this.largestDim, this.zoomFactor);
-                cat.draw(catalogCtx, this.projection, this.cooFrame, this.width, this.height, this.largestDim, this.zoomFactor);
-            }
-        }
-        // draw popup catalog
-        if (this.catalogForPopup.isShowing && this.catalogForPopup.sources.length>0) {
-            if (! catalogCanvasCleared) {
-                catalogCtx.clearRect(0, 0, this.width, this.height);
-                catalogCanvasCleared = true;
-            }
-            this.catalogForPopup.draw(catalogCtx, this.projection, this.cooFrame, this.width, this.height, this.largestDim, this.zoomFactor);
-        }
-
-        ////// 3. Draw overlays////////
-        var overlayCtx = this.catalogCtx;
-        if (this.overlays && this.overlays.length>0 && (! this.dragging  || View.DRAW_SOURCES_WHILE_DRAGGING)) {
-            if (! catalogCanvasCleared) {
-                catalogCtx.clearRect(0, 0, this.width, this.height);
-                catalogCanvasCleared = true;
-            }
-            for (var i=0; i<this.overlays.length; i++) {
-                this.overlays[i].draw(overlayCtx, this.projection, this.cooFrame, this.width, this.height, this.largestDim, this.zoomFactor);
-            }
-        }
+            // TODO : do not need to clear if fov small enough ?
+            /*imageCtx.clearRect(0, 0, this.imageCanvas.width, this.imageCanvas.height);
+            ////////////////////////
         
-
-        // draw MOCs
-        var mocCtx = this.catalogCtx;
-        if (this.mocs && this.mocs.length>0 && (! this.dragging  || View.DRAW_MOCS_WHILE_DRAGGING)) {
-            if (! catalogCanvasCleared) {
-                catalogCtx.clearRect(0, 0, this.width, this.height);
-                catalogCanvasCleared = true;
-            }
-            for (var i=0; i<this.mocs.length; i++) {
-                this.mocs[i].draw(mocCtx, this.projection, this.cooFrame, this.width, this.height, this.largestDim, this.zoomFactor, this.fov);
-            }
-        }
-
-        //*/
-        if (this.mode==View.SELECT) {
-            mustRedrawReticle = true;
-        }
-        
-        ////// 4. Draw reticle ///////
-        // TODO: reticle should be placed in a static DIV, no need to waste a canvas
-        var reticleCtx = this.reticleCtx;
-        if (this.mustRedrawReticle || this.mode==View.SELECT) {
-            reticleCtx.clearRect(0, 0, this.width, this.height);
-        }
-        if (this.displayReticle) {
-            
-            if (! this.reticleCache) {
-                // build reticle image
-                var c = document.createElement('canvas');
-                var s = this.options.reticleSize;
-                c.width = s;
-                c.height = s;
-                var ctx = c.getContext('2d');
-                ctx.lineWidth = 2;
-                ctx.strokeStyle = this.options.reticleColor;
-                ctx.beginPath();
-                ctx.moveTo(s/2, s/2+(s/2-1));
-                ctx.lineTo(s/2, s/2+2);
-                ctx.moveTo(s/2, s/2-(s/2-1));
-                ctx.lineTo(s/2, s/2-2);
-                
-                ctx.moveTo(s/2+(s/2-1), s/2);
-                ctx.lineTo(s/2+2,  s/2);
-                ctx.moveTo(s/2-(s/2-1), s/2);
-                ctx.lineTo(s/2-2,  s/2);
-                
-                ctx.stroke();
-                
-                this.reticleCache = c;
-            }
-                
-            reticleCtx.drawImage(this.reticleCache, this.width/2 - this.reticleCache.width/2, this.height/2 - this.reticleCache.height/2);
-            
-            
-            this.mustRedrawReticle = false;
-        }
-        /*
-        ////// 5. Draw all-sky ring /////
-        if (this.projectionMethod==ProjectionEnum.SIN && this.fov>=60 && this.aladin.options['showAllskyRing'] === true) {
-                    imageCtx.strokeStyle = this.aladin.options['allskyRingColor'];
-                    var ringWidth = this.aladin.options['allskyRingWidth'];
-                    imageCtx.lineWidth = ringWidth;
+            var bkgdColor = this.getBackgroundColor();    
+            // fill with background of the same color than the first color map value (lowest intensity)
+            if (this.projectionMethod==ProjectionEnum.SIN) {
+                if (this.fov>=60) {
+                    imageCtx.fillStyle = bkgdColor;
                     imageCtx.beginPath();
                     var maxCxCy = this.cx>this.cy ? this.cx : this.cy;
-                    imageCtx.arc(this.cx, this.cy, (maxCxCy-(ringWidth/2.0)+1) * this.zoomFactor, 0, 2*Math.PI, true);
-                    imageCtx.stroke();
-        }
-
-        
-        // draw selection box
-        if (this.mode==View.SELECT && this.dragging) {
-            reticleCtx.fillStyle = "rgba(100, 240, 110, 0.25)";
-            var w = this.dragx - this.selectStartCoo.x;
-            var h =  this.dragy - this.selectStartCoo.y;
+                    imageCtx.arc(this.cx, this.cy, maxCxCy * this.zoomFactor, 0, 2*Math.PI, true);
+                    imageCtx.fill();
+                }
+                // pour eviter les losanges blancs qui apparaissent quand les tuiles sont en attente de chargement
+                else {
+                    imageCtx.fillStyle = bkgdColor;
+                    imageCtx.fillRect(0, 0, this.imageCanvas.width, this.imageCanvas.height);
+                }
+            }
+            else if (this.projectionMethod==ProjectionEnum.AITOFF) {
+                if (imageCtx.ellipse) {
+                    imageCtx.fillStyle = bkgdColor;
+                    imageCtx.beginPath();
+                    imageCtx.ellipse(this.cx, this.cy, 2.828*this.cx*this.zoomFactor, this.cx*this.zoomFactor*1.414, 0, 0, 2*Math.PI);
+                    imageCtx.fill();
+                }
+            }*/
+            /*if (imageCtx.finish2D) {
+                imageCtx.finish2D();
+            }*/
+    
             
-            reticleCtx.fillRect(this.selectStartCoo.x, this.selectStartCoo.y, w, h);
-        }
-        */
-        
-         // TODO : is this the right way?
-         if (saveNeedRedraw==this.needRedraw) {
-             this.needRedraw = false;
-         }
+            this.projection.setCenter(this.viewCenter.lon, this.viewCenter.lat);
+            // do we have to redo that every time? Probably not
+            //this.projection.setProjection(this.projectionMethod);
+    
+    
+            // ************* Draw allsky tiles (low resolution) *****************
+    
+            var cornersXYViewMapHighres = null;
+            // Pour traitement des DEFORMATIONS --> TEMPORAIRE, draw deviendra la methode utilisee systematiquement
+    
+            /*if (this.imageSurvey && this.imageSurvey.isReady && this.displaySurvey) {
+                    if (this.aladin.reduceDeformations==null) {
+                        this.imageSurvey.draw(imageCtx, this, !this.dragging, this.curNorder);
+                    }
+    
+                    else {
+                        this.imageSurvey.draw(imageCtx, this, this.aladin.reduceDeformations, this.curNorder);
+                    }
+            }*/
+            /*
+            else {
+                var cornersXYViewMapAllsky = this.getVisibleCells(3);
+                var cornersXYViewMapHighres = null;
+                if (this.curNorder>=3) {
+                    if (this.curNorder==3) {
+                        cornersXYViewMapHighres = cornersXYViewMapAllsky;
+                    }
+                    else {
+                        cornersXYViewMapHighres = this.getVisibleCells(this.curNorder);
+                    }
+                }
+    
+                // redraw image survey
+                if (this.imageSurvey && this.imageSurvey.isReady && this.displaySurvey) {
+                    // TODO : a t on besoin de dessiner le allsky si norder>=3 ?
+                    // TODO refactoring : should be a method of HpxImageSurvey
+                    this.imageSurvey.redrawAllsky(imageCtx, cornersXYViewMapAllsky, this.fov, this.curNorder);
+                    if (this.curNorder>=3) {
+                        this.imageSurvey.redrawHighres(imageCtx, cornersXYViewMapHighres, this.curNorder);
+                    }
+                }
+            }
+            */
+            
+    
+            // redraw overlay image survey
+            // TODO : does not work if different frames 
+            // TODO: use HpxImageSurvey.draw method !!
+            if (this.overlayImageSurvey && this.overlayImageSurvey.isReady) {
+                /*imageCtx.globalAlpha = this.overlayImageSurvey.getAlpha();
+    
+                if (this.aladin.reduceDeformations==null) {
+                    this.overlayImageSurvey.draw(imageCtx, this, !this.dragging, this.curOverlayNorder);
+                }
+    
+                else {
+                    this.overlayImageSurvey.draw(imageCtx, this, this.aladin.reduceDeformations, this.curOverlayNorder);
+                }*/
+                /*
+                if (this.fov>50) {
+                    this.overlayImageSurvey.redrawAllsky(imageCtx, cornersXYViewMapAllsky, this.fov, this.curOverlayNorder);
+                }
+                if (this.curOverlayNorder>=3) {
+                    var norderOverlay = Math.min(this.curOverlayNorder, this.overlayImageSurvey.maxOrder);
+                    if ( cornersXYViewMapHighres==null || norderOverlay != this.curNorder ) {
+                        cornersXYViewMapHighres = this.getVisibleCells(norderOverlay);
+                    }
+                    this.overlayImageSurvey.redrawHighres(imageCtx, cornersXYViewMapHighres, norderOverlay);
+                }
+                */
+    
+               //imageCtx.globalAlpha = 1.0;
+    
+            }
+            
+            // redraw HEALPix grid
+            if( this.displayHpxGrid) {
+                var cornersXYViewMapAllsky = this.getVisibleCells(3);
+                var cornersXYViewMapHighres = null;
+                if (this.curNorder>=3) {
+                    if (this.curNorder==3) {
+                        cornersXYViewMapHighres = cornersXYViewMapAllsky;
+                    }
+                    else {
+                        cornersXYViewMapHighres = this.getVisibleCells(this.curNorder);
+                    }
+                }
+                this.gridCtx.clearRect(0, 0, this.imageCanvas.width, this.imageCanvas.height);
+                if (cornersXYViewMapHighres && this.curNorder>3) {
+                    this.healpixGrid.redraw(this.gridCtx, cornersXYViewMapHighres, this.fov, this.curNorder);
+                }
+                else {
+                    this.healpixGrid.redraw(this.gridCtx, cornersXYViewMapAllsky, this.fov, 3);
+                }
+            }
+            
+            // redraw coordinates grid
+            /*if (this.showGrid) {
+                if (this.cooGrid==null) {
+                    this.cooGrid = new CooGrid();
+                }
+                
+                this.cooGrid.redraw(this.gridCtx, this.projection, this.cooFrame, this.width, this.height, this.largestDim, this.zoomFactor, this.fov);
+            }*/
+             
+    
+    
+            ///*
+            ////// 2. Draw catalogues////////
+            var catalogCtx = this.catalogCtx;
+    
+            var catalogCanvasCleared = false;
+            if (this.mustClearCatalog) {
+                catalogCtx.clearRect(0, 0, this.width, this.height);
+                catalogCanvasCleared = true;
+                this.mustClearCatalog = false;
+            }
+            if (this.catalogs && this.catalogs.length>0 && this.displayCatalog && (! this.dragging  || View.DRAW_SOURCES_WHILE_DRAGGING)) {
+                  // TODO : do not clear every time
+                //// clear canvas ////
+                if (! catalogCanvasCleared) {
+                    catalogCtx.clearRect(0, 0, this.width, this.height);
+                    catalogCanvasCleared = true;
+                }
+                for (var i=0; i<this.catalogs.length; i++) {
+                    var cat = this.catalogs[i];
+                    //console.log( this.projection, this.cooFrame, this.width, this.height, this.largestDim, this.zoomFactor);
+                    cat.draw(catalogCtx, this.projection, this.cooFrame, this.width, this.height, this.largestDim, this.zoomFactor);
+                }
+            }
+            // draw popup catalog
+            if (this.catalogForPopup.isShowing && this.catalogForPopup.sources.length>0) {
+                if (! catalogCanvasCleared) {
+                    catalogCtx.clearRect(0, 0, this.width, this.height);
+                    catalogCanvasCleared = true;
+                }
+                this.catalogForPopup.draw(catalogCtx, this.projection, this.cooFrame, this.width, this.height, this.largestDim, this.zoomFactor);
+            }
+    
+            ////// 3. Draw overlays////////
+            var overlayCtx = this.catalogCtx;
+            if (this.overlays && this.overlays.length>0 && (! this.dragging  || View.DRAW_SOURCES_WHILE_DRAGGING)) {
+                if (! catalogCanvasCleared) {
+                    catalogCtx.clearRect(0, 0, this.width, this.height);
+                    catalogCanvasCleared = true;
+                }
+                for (var i=0; i<this.overlays.length; i++) {
+                    this.overlays[i].draw(overlayCtx, this.projection, this.cooFrame, this.width, this.height, this.largestDim, this.zoomFactor);
+                }
+            }
+            
+    
+            // draw MOCs
+            var mocCtx = this.catalogCtx;
+            if (this.mocs && this.mocs.length>0 && (! this.dragging  || View.DRAW_MOCS_WHILE_DRAGGING)) {
+                if (! catalogCanvasCleared) {
+                    catalogCtx.clearRect(0, 0, this.width, this.height);
+                    catalogCanvasCleared = true;
+                }
+                for (var i=0; i<this.mocs.length; i++) {
+                    this.mocs[i].draw(mocCtx, this.projection, this.cooFrame, this.width, this.height, this.largestDim, this.zoomFactor, this.fov);
+                }
+            }
+    
+            //*/
+            if (this.mode==View.SELECT) {
+                mustRedrawReticle = true;
+            }
+            
+            ////// 4. Draw reticle ///////
+            // TODO: reticle should be placed in a static DIV, no need to waste a canvas
+            var reticleCtx = this.reticleCtx;
+            if (this.mustRedrawReticle || this.mode==View.SELECT) {
+                reticleCtx.clearRect(0, 0, this.width, this.height);
+            }
+            if (this.displayReticle) {
+                
+                if (! this.reticleCache) {
+                    // build reticle image
+                    var c = document.createElement('canvas');
+                    var s = this.options.reticleSize;
+                    c.width = s;
+                    c.height = s;
+                    var ctx = c.getContext('2d');
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = this.options.reticleColor;
+                    ctx.beginPath();
+                    ctx.moveTo(s/2, s/2+(s/2-1));
+                    ctx.lineTo(s/2, s/2+2);
+                    ctx.moveTo(s/2, s/2-(s/2-1));
+                    ctx.lineTo(s/2, s/2-2);
+                    
+                    ctx.moveTo(s/2+(s/2-1), s/2);
+                    ctx.lineTo(s/2+2,  s/2);
+                    ctx.moveTo(s/2-(s/2-1), s/2);
+                    ctx.lineTo(s/2-2,  s/2);
+                    
+                    ctx.stroke();
+                    
+                    this.reticleCache = c;
+                }
+                    
+                reticleCtx.drawImage(this.reticleCache, this.width/2 - this.reticleCache.width/2, this.height/2 - this.reticleCache.height/2);
+                
+                
+                this.mustRedrawReticle = false;
+            }
+            /*
+            ////// 5. Draw all-sky ring /////
+            if (this.projectionMethod==ProjectionEnum.SIN && this.fov>=60 && this.aladin.options['showAllskyRing'] === true) {
+                        imageCtx.strokeStyle = this.aladin.options['allskyRingColor'];
+                        var ringWidth = this.aladin.options['allskyRingWidth'];
+                        imageCtx.lineWidth = ringWidth;
+                        imageCtx.beginPath();
+                        var maxCxCy = this.cx>this.cy ? this.cx : this.cy;
+                        imageCtx.arc(this.cx, this.cy, (maxCxCy-(ringWidth/2.0)+1) * this.zoomFactor, 0, 2*Math.PI, true);
+                        imageCtx.stroke();
+            }
+    
+            
+            // draw selection box
+            if (this.mode==View.SELECT && this.dragging) {
+                reticleCtx.fillStyle = "rgba(100, 240, 110, 0.25)";
+                var w = this.dragx - this.selectStartCoo.x;
+                var h =  this.dragy - this.selectStartCoo.y;
+                
+                reticleCtx.fillRect(this.selectStartCoo.x, this.selectStartCoo.y, w, h);
+            }
+            */
+            
+             // TODO : is this the right way?
+             if (saveNeedRedraw==this.needRedraw) {
+                 this.needRedraw = false;
+             }
+    
+    
+            // objects lookup
+            if (!this.dragging) {
+                this.updateObjectsLookup();
+            }
+        //}
 
-
-        // objects lookup
-        if (!this.dragging) {
-            this.updateObjectsLookup();
-        }
-
-        // execute 'positionChanged' and 'zoomChanged' callbacks
-        //this.executeCallbacksThrottled();
-        this.prev = now;
-        (0,_libs_RequestAnimationFrame_js__WEBPACK_IMPORTED_MODULE_20__.requestAnimFrame)(this.redraw.bind(this));
-
+        //this.prev = now_update;
     };
 
     View.prototype.forceRedraw = function() {
@@ -11618,14 +11651,50 @@ let View = (function() {
     };
 
     View.prototype.increaseZoom = function() {
-        for (let i = 0; i < 5; i++) {
-            this.aladin.webglAPI.registerWheelEvent(0.01);
+        const si = 500000.0;
+        const alpha = 40.0;
+        const amount = 0.015;
+
+        this.pinchZoomParameters.initialAccDelta += amount;
+
+        if (this.pinchZoomParameters.initialAccDelta <= 0.0) {
+            this.pinchZoomParameters.initialAccDelta = 1e-3;
         }
+
+        let new_fov = si / Math.pow(this.pinchZoomParameters.initialAccDelta, alpha);
+        if (new_fov > 1000.0) {
+            new_fov = 1000.0;
+            this.pinchZoomParameters.initialAccDelta = Math.pow(si / new_fov, 1.0/alpha);
+        } 
+        if (new_fov < 2e-10) {
+            new_fov = 2e-10;
+            this.pinchZoomParameters.initialAccDelta = Math.pow(si / new_fov, 1.0/alpha);
+        } 
+
+        this.setZoom(new_fov);
     }
     View.prototype.decreaseZoom = function() {
-        for (let i = 0; i < 5; i++) {
-            this.aladin.webglAPI.registerWheelEvent(-0.01);
+        const si = 500000.0;
+        const alpha = 40.0;
+        const amount = 0.015;
+
+        this.pinchZoomParameters.initialAccDelta -= amount;
+
+        if (this.pinchZoomParameters.initialAccDelta <= 0.0) {
+            this.pinchZoomParameters.initialAccDelta = 1e-3;
         }
+
+        let new_fov = si / Math.pow(this.pinchZoomParameters.initialAccDelta, alpha);
+        if (new_fov > 1000.0) {
+            new_fov = 1000.0;
+            this.pinchZoomParameters.initialAccDelta = Math.pow(si / new_fov, 1.0/alpha);
+        } 
+        if (new_fov < 2e-10) {
+            new_fov = 2e-10;
+            this.pinchZoomParameters.initialAccDelta = Math.pow(si / new_fov, 1.0/alpha);
+        } 
+
+        this.setZoom(new_fov);
     }
     View.prototype.setShowGrid = function(showGrid) {
         this.showGrid = showGrid;
@@ -17689,8 +17758,6 @@ let SpatialVector = (function () {
 /******/ 		var wasmImportedFuncCache453;
 /******/ 		var wasmImportedFuncCache454;
 /******/ 		var wasmImportedFuncCache455;
-/******/ 		var wasmImportedFuncCache456;
-/******/ 		var wasmImportedFuncCache457;
 /******/ 		var wasmImportObjects = {
 /******/ 			"./node_modules/@fxpineau/healpix/healpix_bg.wasm": function() {
 /******/ 				return {
@@ -17709,25 +17776,25 @@ let SpatialVector = (function () {
 /******/ 							if(wasmImportedFuncCache1 === undefined) wasmImportedFuncCache1 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
 /******/ 							return wasmImportedFuncCache1["__wbindgen_object_drop_ref"](p0i32);
 /******/ 						},
-/******/ 						"__wbindgen_object_clone_ref": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache2 === undefined) wasmImportedFuncCache2 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache2["__wbindgen_object_clone_ref"](p0i32);
-/******/ 						},
 /******/ 						"__wbindgen_string_new": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache3 === undefined) wasmImportedFuncCache3 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache3["__wbindgen_string_new"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbindgen_cb_drop": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache4 === undefined) wasmImportedFuncCache4 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache4["__wbindgen_cb_drop"](p0i32);
+/******/ 							if(wasmImportedFuncCache2 === undefined) wasmImportedFuncCache2 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache2["__wbindgen_string_new"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbindgen_json_parse": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache5 === undefined) wasmImportedFuncCache5 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache5["__wbindgen_json_parse"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache3 === undefined) wasmImportedFuncCache3 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache3["__wbindgen_json_parse"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbindgen_json_serialize": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache4 === undefined) wasmImportedFuncCache4 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache4["__wbindgen_json_serialize"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbindgen_object_clone_ref": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache5 === undefined) wasmImportedFuncCache5 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache5["__wbindgen_object_clone_ref"](p0i32);
+/******/ 						},
+/******/ 						"__wbindgen_cb_drop": function(p0i32) {
 /******/ 							if(wasmImportedFuncCache6 === undefined) wasmImportedFuncCache6 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache6["__wbindgen_json_serialize"](p0i32,p1i32);
+/******/ 							return wasmImportedFuncCache6["__wbindgen_cb_drop"](p0i32);
 /******/ 						},
 /******/ 						"__wbindgen_number_get": function(p0i32,p1i32) {
 /******/ 							if(wasmImportedFuncCache7 === undefined) wasmImportedFuncCache7 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
@@ -17745,741 +17812,741 @@ let SpatialVector = (function () {
 /******/ 							if(wasmImportedFuncCache10 === undefined) wasmImportedFuncCache10 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
 /******/ 							return wasmImportedFuncCache10["__wbg_log_a39f164b49616cb0"](p0i32,p1i32);
 /******/ 						},
-/******/ 						"__wbg_clientX_849ccdf456d662ac": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache11 === undefined) wasmImportedFuncCache11 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache11["__wbg_clientX_849ccdf456d662ac"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_clientY_1aaff30fe0cd0876": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache12 === undefined) wasmImportedFuncCache12 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache12["__wbg_clientY_1aaff30fe0cd0876"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_ctrlKey_4e536bedb069129f": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache13 === undefined) wasmImportedFuncCache13 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache13["__wbg_ctrlKey_4e536bedb069129f"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_metaKey_0b396e35a4941247": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache14 === undefined) wasmImportedFuncCache14 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache14["__wbg_metaKey_0b396e35a4941247"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_button_a18f33eb55774d89": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache15 === undefined) wasmImportedFuncCache15 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache15["__wbg_button_a18f33eb55774d89"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_dataTransfer_bc4c0501385a0c8e": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache16 === undefined) wasmImportedFuncCache16 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache16["__wbg_dataTransfer_bc4c0501385a0c8e"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_length_41b205f6892bf9d9": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache17 === undefined) wasmImportedFuncCache17 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache17["__wbg_length_41b205f6892bf9d9"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_get_bdec89fd60d07530": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache18 === undefined) wasmImportedFuncCache18 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache18["__wbg_get_bdec89fd60d07530"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_name_4ada8b70ffadb5c0": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache19 === undefined) wasmImportedFuncCache19 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache19["__wbg_name_4ada8b70ffadb5c0"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_name_9a61dbbdbfb2d0de": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache20 === undefined) wasmImportedFuncCache20 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache20["__wbg_name_9a61dbbdbfb2d0de"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_lastModified_0de23a8c5214f2fb": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache21 === undefined) wasmImportedFuncCache21 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache21["__wbg_lastModified_0de23a8c5214f2fb"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_instanceof_Window_434ce1849eb4e0fc": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache22 === undefined) wasmImportedFuncCache22 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache22["__wbg_instanceof_Window_434ce1849eb4e0fc"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_document_5edd43643d1060d9": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache23 === undefined) wasmImportedFuncCache23 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache23["__wbg_document_5edd43643d1060d9"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_navigator_0e0588c949560476": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache24 === undefined) wasmImportedFuncCache24 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache24["__wbg_navigator_0e0588c949560476"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_innerWidth_405786923c1d2641": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache25 === undefined) wasmImportedFuncCache25 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache25["__wbg_innerWidth_405786923c1d2641"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_innerHeight_25d3be0d129329c3": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache26 === undefined) wasmImportedFuncCache26 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache26["__wbg_innerHeight_25d3be0d129329c3"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_devicePixelRatio_9632545370d525ae": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache27 === undefined) wasmImportedFuncCache27 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache27["__wbg_devicePixelRatio_9632545370d525ae"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_performance_bbca4ccfaef860b2": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache28 === undefined) wasmImportedFuncCache28 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache28["__wbg_performance_bbca4ccfaef860b2"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_open_67fbcd7373a90ddc": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
-/******/ 							if(wasmImportedFuncCache29 === undefined) wasmImportedFuncCache29 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache29["__wbg_open_67fbcd7373a90ddc"](p0i32,p1i32,p2i32,p3i32,p4i32);
-/******/ 						},
-/******/ 						"__wbg_requestAnimationFrame_0c71cd3c6779a371": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache30 === undefined) wasmImportedFuncCache30 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache30["__wbg_requestAnimationFrame_0c71cd3c6779a371"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_setTimeout_1c75092906446b91": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache31 === undefined) wasmImportedFuncCache31 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache31["__wbg_setTimeout_1c75092906446b91"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_instanceof_HtmlInputElement_8969541a2a0bded0": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache32 === undefined) wasmImportedFuncCache32 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache32["__wbg_instanceof_HtmlInputElement_8969541a2a0bded0"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_setautofocus_a2ae37091dfbe4af": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache33 === undefined) wasmImportedFuncCache33 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache33["__wbg_setautofocus_a2ae37091dfbe4af"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_setsize_90d1034a7a757a50": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache34 === undefined) wasmImportedFuncCache34 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache34["__wbg_setsize_90d1034a7a757a50"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_value_fc1c354d1a0e9714": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache35 === undefined) wasmImportedFuncCache35 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache35["__wbg_value_fc1c354d1a0e9714"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_setvalue_ce4a23f487065c07": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache36 === undefined) wasmImportedFuncCache36 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache36["__wbg_setvalue_ce4a23f487065c07"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_size_20c167ba9040b895": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache37 === undefined) wasmImportedFuncCache37 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache37["__wbg_size_20c167ba9040b895"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_arrayBuffer_8b5364ee9b393098": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache38 === undefined) wasmImportedFuncCache38 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache38["__wbg_arrayBuffer_8b5364ee9b393098"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_type_8bc3e57acd2158c9": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache39 === undefined) wasmImportedFuncCache39 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache39["__wbg_type_8bc3e57acd2158c9"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_addEventListener_6bdba88519fdc1c9": function(p0i32,p1i32,p2i32,p3i32) {
-/******/ 							if(wasmImportedFuncCache40 === undefined) wasmImportedFuncCache40 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache40["__wbg_addEventListener_6bdba88519fdc1c9"](p0i32,p1i32,p2i32,p3i32);
-/******/ 						},
-/******/ 						"__wbg_setonerror_d665b35adb3552fb": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache41 === undefined) wasmImportedFuncCache41 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache41["__wbg_setonerror_d665b35adb3552fb"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_setonload_18033df8ec5db791": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache42 === undefined) wasmImportedFuncCache42 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache42["__wbg_setonload_18033df8ec5db791"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_getwithindex_5caaba1b5b3e6e18": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache43 === undefined) wasmImportedFuncCache43 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache43["__wbg_getwithindex_5caaba1b5b3e6e18"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_setsrc_b0a1ac4dd261ae2d": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache44 === undefined) wasmImportedFuncCache44 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache44["__wbg_setsrc_b0a1ac4dd261ae2d"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_setcrossOrigin_07e0e4935571a4c5": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache45 === undefined) wasmImportedFuncCache45 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache45["__wbg_setcrossOrigin_07e0e4935571a4c5"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_width_6c4cad65073b3852": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache46 === undefined) wasmImportedFuncCache46 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache46["__wbg_width_6c4cad65073b3852"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_height_133772b066cfc559": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache47 === undefined) wasmImportedFuncCache47 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache47["__wbg_height_133772b066cfc559"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_new_da67f111e299956e": function() {
-/******/ 							if(wasmImportedFuncCache48 === undefined) wasmImportedFuncCache48 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache48["__wbg_new_da67f111e299956e"]();
-/******/ 						},
-/******/ 						"__wbg_identifier_afa8b01d4d901685": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache49 === undefined) wasmImportedFuncCache49 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache49["__wbg_identifier_afa8b01d4d901685"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_pageX_e0c8221ecfdb73d0": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache50 === undefined) wasmImportedFuncCache50 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache50["__wbg_pageX_e0c8221ecfdb73d0"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_pageY_32100ad7039a744e": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache51 === undefined) wasmImportedFuncCache51 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache51["__wbg_pageY_32100ad7039a744e"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_force_8e51e1fec066aade": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache52 === undefined) wasmImportedFuncCache52 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache52["__wbg_force_8e51e1fec066aade"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_items_d571f433ef73ee49": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache53 === undefined) wasmImportedFuncCache53 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache53["__wbg_items_d571f433ef73ee49"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_files_a4192b4f5967317b": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache54 === undefined) wasmImportedFuncCache54 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache54["__wbg_files_a4192b4f5967317b"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_instanceof_WebGl2RenderingContext_df519ebc1fd4a55f": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache55 === undefined) wasmImportedFuncCache55 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache55["__wbg_instanceof_WebGl2RenderingContext_df519ebc1fd4a55f"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_canvas_1396c967596541f8": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache56 === undefined) wasmImportedFuncCache56 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache56["__wbg_canvas_1396c967596541f8"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_bindVertexArray_8020efc46272d6b1": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache57 === undefined) wasmImportedFuncCache57 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache57["__wbg_bindVertexArray_8020efc46272d6b1"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_bufferData_17b90d9499ee7889": function(p0i32,p1i32,p2i32,p3i32) {
-/******/ 							if(wasmImportedFuncCache58 === undefined) wasmImportedFuncCache58 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache58["__wbg_bufferData_17b90d9499ee7889"](p0i32,p1i32,p2i32,p3i32);
-/******/ 						},
-/******/ 						"__wbg_bufferSubData_ebe7e7da307cfecb": function(p0i32,p1i32,p2i32,p3i32) {
-/******/ 							if(wasmImportedFuncCache59 === undefined) wasmImportedFuncCache59 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache59["__wbg_bufferSubData_ebe7e7da307cfecb"](p0i32,p1i32,p2i32,p3i32);
-/******/ 						},
-/******/ 						"__wbg_createVertexArray_ccfd68f784dda58d": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache60 === undefined) wasmImportedFuncCache60 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache60["__wbg_createVertexArray_ccfd68f784dda58d"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_deleteVertexArray_431b44dad4d908dc": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache61 === undefined) wasmImportedFuncCache61 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache61["__wbg_deleteVertexArray_431b44dad4d908dc"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_drawElementsInstanced_7fe064b9d2fd80e2": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32) {
-/******/ 							if(wasmImportedFuncCache62 === undefined) wasmImportedFuncCache62 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache62["__wbg_drawElementsInstanced_7fe064b9d2fd80e2"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32);
-/******/ 						},
-/******/ 						"__wbg_readPixels_afc61e5c4223bc17": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32) {
-/******/ 							if(wasmImportedFuncCache63 === undefined) wasmImportedFuncCache63 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache63["__wbg_readPixels_afc61e5c4223bc17"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32);
-/******/ 						},
-/******/ 						"__wbg_texImage2D_8e3d1e2fc4b9cf89": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32,p8i32,p9i32,p10i32) {
-/******/ 							if(wasmImportedFuncCache64 === undefined) wasmImportedFuncCache64 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache64["__wbg_texImage2D_8e3d1e2fc4b9cf89"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32,p8i32,p9i32,p10i32);
-/******/ 						},
-/******/ 						"__wbg_texImage2D_ea4f44f738393ea2": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32) {
-/******/ 							if(wasmImportedFuncCache65 === undefined) wasmImportedFuncCache65 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache65["__wbg_texImage2D_ea4f44f738393ea2"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32);
-/******/ 						},
-/******/ 						"__wbg_texSubImage2D_3225e265581d1641": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32,p8i32,p9i32) {
-/******/ 							if(wasmImportedFuncCache66 === undefined) wasmImportedFuncCache66 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache66["__wbg_texSubImage2D_3225e265581d1641"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32,p8i32,p9i32);
-/******/ 						},
-/******/ 						"__wbg_texSubImage2D_8b067c86c6104f51": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32) {
-/******/ 							if(wasmImportedFuncCache67 === undefined) wasmImportedFuncCache67 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache67["__wbg_texSubImage2D_8b067c86c6104f51"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32);
-/******/ 						},
-/******/ 						"__wbg_uniform1fv_d082f50338e583d3": function(p0i32,p1i32,p2i32,p3i32) {
-/******/ 							if(wasmImportedFuncCache68 === undefined) wasmImportedFuncCache68 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache68["__wbg_uniform1fv_d082f50338e583d3"](p0i32,p1i32,p2i32,p3i32);
-/******/ 						},
-/******/ 						"__wbg_uniformMatrix2fv_12f7ba152bd6acd9": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
-/******/ 							if(wasmImportedFuncCache69 === undefined) wasmImportedFuncCache69 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache69["__wbg_uniformMatrix2fv_12f7ba152bd6acd9"](p0i32,p1i32,p2i32,p3i32,p4i32);
-/******/ 						},
-/******/ 						"__wbg_uniformMatrix4fv_8752c8df4a82f43a": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
-/******/ 							if(wasmImportedFuncCache70 === undefined) wasmImportedFuncCache70 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache70["__wbg_uniformMatrix4fv_8752c8df4a82f43a"](p0i32,p1i32,p2i32,p3i32,p4i32);
-/******/ 						},
-/******/ 						"__wbg_vertexAttribDivisor_15b55770388d87bb": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache71 === undefined) wasmImportedFuncCache71 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache71["__wbg_vertexAttribDivisor_15b55770388d87bb"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_activeTexture_e07e910acea70faa": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache72 === undefined) wasmImportedFuncCache72 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache72["__wbg_activeTexture_e07e910acea70faa"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_attachShader_2e252ab2fda53d9b": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache73 === undefined) wasmImportedFuncCache73 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache73["__wbg_attachShader_2e252ab2fda53d9b"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_bindBuffer_612af2c0d1623df9": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache74 === undefined) wasmImportedFuncCache74 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache74["__wbg_bindBuffer_612af2c0d1623df9"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_bindFramebuffer_f79f98a252b25421": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache75 === undefined) wasmImportedFuncCache75 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache75["__wbg_bindFramebuffer_f79f98a252b25421"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_bindTexture_5de299363180ad48": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache76 === undefined) wasmImportedFuncCache76 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache76["__wbg_bindTexture_5de299363180ad48"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_blendEquation_3ddbe96827ea563c": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache77 === undefined) wasmImportedFuncCache77 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache77["__wbg_blendEquation_3ddbe96827ea563c"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_blendFunc_a1fda75b5cf06b09": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache78 === undefined) wasmImportedFuncCache78 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache78["__wbg_blendFunc_a1fda75b5cf06b09"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_blendFuncSeparate_be76c74e24fb8c4b": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
-/******/ 							if(wasmImportedFuncCache79 === undefined) wasmImportedFuncCache79 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache79["__wbg_blendFuncSeparate_be76c74e24fb8c4b"](p0i32,p1i32,p2i32,p3i32,p4i32);
-/******/ 						},
-/******/ 						"__wbg_clear_4c5eed385310e256": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache80 === undefined) wasmImportedFuncCache80 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache80["__wbg_clear_4c5eed385310e256"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_clearColor_d9d486c5ff20404c": function(p0i32,p1f32,p2f32,p3f32,p4f32) {
-/******/ 							if(wasmImportedFuncCache81 === undefined) wasmImportedFuncCache81 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache81["__wbg_clearColor_d9d486c5ff20404c"](p0i32,p1f32,p2f32,p3f32,p4f32);
-/******/ 						},
-/******/ 						"__wbg_compileShader_e224e94272352503": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache82 === undefined) wasmImportedFuncCache82 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache82["__wbg_compileShader_e224e94272352503"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_createBuffer_564dc1c3c3f058b7": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache83 === undefined) wasmImportedFuncCache83 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache83["__wbg_createBuffer_564dc1c3c3f058b7"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_createFramebuffer_ca860b7155b412f2": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache84 === undefined) wasmImportedFuncCache84 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache84["__wbg_createFramebuffer_ca860b7155b412f2"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_createProgram_e9fa1d7669773667": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache85 === undefined) wasmImportedFuncCache85 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache85["__wbg_createProgram_e9fa1d7669773667"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_createShader_03233922e9b5ebf2": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache86 === undefined) wasmImportedFuncCache86 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache86["__wbg_createShader_03233922e9b5ebf2"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_createTexture_7ee50a5b223f0511": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache87 === undefined) wasmImportedFuncCache87 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache87["__wbg_createTexture_7ee50a5b223f0511"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_cullFace_caa43c3b77438004": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache88 === undefined) wasmImportedFuncCache88 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache88["__wbg_cullFace_caa43c3b77438004"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_deleteBuffer_50cb909fb6b297dd": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache89 === undefined) wasmImportedFuncCache89 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache89["__wbg_deleteBuffer_50cb909fb6b297dd"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_deleteFramebuffer_72ef4c95df2569e4": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache90 === undefined) wasmImportedFuncCache90 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache90["__wbg_deleteFramebuffer_72ef4c95df2569e4"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_deleteTexture_b4643da89823c0c1": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache91 === undefined) wasmImportedFuncCache91 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache91["__wbg_deleteTexture_b4643da89823c0c1"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_disable_e61fb08d6c7131e4": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache92 === undefined) wasmImportedFuncCache92 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache92["__wbg_disable_e61fb08d6c7131e4"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_disableVertexAttribArray_4e8dd2973a2f796d": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache93 === undefined) wasmImportedFuncCache93 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache93["__wbg_disableVertexAttribArray_4e8dd2973a2f796d"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_drawArrays_aaa2fa80ca85e04c": function(p0i32,p1i32,p2i32,p3i32) {
-/******/ 							if(wasmImportedFuncCache94 === undefined) wasmImportedFuncCache94 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache94["__wbg_drawArrays_aaa2fa80ca85e04c"](p0i32,p1i32,p2i32,p3i32);
-/******/ 						},
-/******/ 						"__wbg_drawElements_8f3cfd28610fd46e": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
-/******/ 							if(wasmImportedFuncCache95 === undefined) wasmImportedFuncCache95 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache95["__wbg_drawElements_8f3cfd28610fd46e"](p0i32,p1i32,p2i32,p3i32,p4i32);
-/******/ 						},
-/******/ 						"__wbg_enable_8e888a63831a3fe5": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache96 === undefined) wasmImportedFuncCache96 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache96["__wbg_enable_8e888a63831a3fe5"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_enableVertexAttribArray_d1b2636395bdaa7a": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache97 === undefined) wasmImportedFuncCache97 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache97["__wbg_enableVertexAttribArray_d1b2636395bdaa7a"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_framebufferTexture2D_ceadbfd128a6e565": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32) {
-/******/ 							if(wasmImportedFuncCache98 === undefined) wasmImportedFuncCache98 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache98["__wbg_framebufferTexture2D_ceadbfd128a6e565"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32);
-/******/ 						},
-/******/ 						"__wbg_getActiveUniform_52a765a9f0c6963c": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache99 === undefined) wasmImportedFuncCache99 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache99["__wbg_getActiveUniform_52a765a9f0c6963c"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_getAttribLocation_7f79c73e983e47cd": function(p0i32,p1i32,p2i32,p3i32) {
-/******/ 							if(wasmImportedFuncCache100 === undefined) wasmImportedFuncCache100 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache100["__wbg_getAttribLocation_7f79c73e983e47cd"](p0i32,p1i32,p2i32,p3i32);
-/******/ 						},
-/******/ 						"__wbg_getExtension_aa055f67731688a2": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache101 === undefined) wasmImportedFuncCache101 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache101["__wbg_getExtension_aa055f67731688a2"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_getProgramInfoLog_dbd8d8cedcc8cdcc": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache102 === undefined) wasmImportedFuncCache102 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache102["__wbg_getProgramInfoLog_dbd8d8cedcc8cdcc"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_getProgramParameter_4b9d43902599c2d2": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache103 === undefined) wasmImportedFuncCache103 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache103["__wbg_getProgramParameter_4b9d43902599c2d2"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_getShaderInfoLog_5aab05280bd0fe1b": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache104 === undefined) wasmImportedFuncCache104 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache104["__wbg_getShaderInfoLog_5aab05280bd0fe1b"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_getShaderParameter_e5f7e371d4eec000": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache105 === undefined) wasmImportedFuncCache105 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache105["__wbg_getShaderParameter_e5f7e371d4eec000"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_getUniformLocation_9541edb0d39d1646": function(p0i32,p1i32,p2i32,p3i32) {
-/******/ 							if(wasmImportedFuncCache106 === undefined) wasmImportedFuncCache106 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache106["__wbg_getUniformLocation_9541edb0d39d1646"](p0i32,p1i32,p2i32,p3i32);
-/******/ 						},
-/******/ 						"__wbg_linkProgram_116382e2dc17af64": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache107 === undefined) wasmImportedFuncCache107 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache107["__wbg_linkProgram_116382e2dc17af64"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_scissor_826e824cb569eebc": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
-/******/ 							if(wasmImportedFuncCache108 === undefined) wasmImportedFuncCache108 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache108["__wbg_scissor_826e824cb569eebc"](p0i32,p1i32,p2i32,p3i32,p4i32);
-/******/ 						},
-/******/ 						"__wbg_shaderSource_0066bb6817bf9e88": function(p0i32,p1i32,p2i32,p3i32) {
-/******/ 							if(wasmImportedFuncCache109 === undefined) wasmImportedFuncCache109 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache109["__wbg_shaderSource_0066bb6817bf9e88"](p0i32,p1i32,p2i32,p3i32);
-/******/ 						},
-/******/ 						"__wbg_texParameteri_52fb3e85a6d2c636": function(p0i32,p1i32,p2i32,p3i32) {
-/******/ 							if(wasmImportedFuncCache110 === undefined) wasmImportedFuncCache110 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache110["__wbg_texParameteri_52fb3e85a6d2c636"](p0i32,p1i32,p2i32,p3i32);
-/******/ 						},
-/******/ 						"__wbg_uniform1f_96a968d4f5cb18de": function(p0i32,p1i32,p2f32) {
-/******/ 							if(wasmImportedFuncCache111 === undefined) wasmImportedFuncCache111 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache111["__wbg_uniform1f_96a968d4f5cb18de"](p0i32,p1i32,p2f32);
-/******/ 						},
-/******/ 						"__wbg_uniform1i_a6ce351ee8cef296": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache112 === undefined) wasmImportedFuncCache112 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache112["__wbg_uniform1i_a6ce351ee8cef296"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_uniform2f_84c79c4f8bb2428e": function(p0i32,p1i32,p2f32,p3f32) {
-/******/ 							if(wasmImportedFuncCache113 === undefined) wasmImportedFuncCache113 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache113["__wbg_uniform2f_84c79c4f8bb2428e"](p0i32,p1i32,p2f32,p3f32);
-/******/ 						},
-/******/ 						"__wbg_uniform3f_236679e1bca8660b": function(p0i32,p1i32,p2f32,p3f32,p4f32) {
-/******/ 							if(wasmImportedFuncCache114 === undefined) wasmImportedFuncCache114 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache114["__wbg_uniform3f_236679e1bca8660b"](p0i32,p1i32,p2f32,p3f32,p4f32);
-/******/ 						},
-/******/ 						"__wbg_uniform4f_0ff24ef1f3ab8946": function(p0i32,p1i32,p2f32,p3f32,p4f32,p5f32) {
-/******/ 							if(wasmImportedFuncCache115 === undefined) wasmImportedFuncCache115 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache115["__wbg_uniform4f_0ff24ef1f3ab8946"](p0i32,p1i32,p2f32,p3f32,p4f32,p5f32);
-/******/ 						},
-/******/ 						"__wbg_useProgram_de22d1e01c430663": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache116 === undefined) wasmImportedFuncCache116 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache116["__wbg_useProgram_de22d1e01c430663"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_vertexAttribPointer_4e139167926d5080": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32) {
-/******/ 							if(wasmImportedFuncCache117 === undefined) wasmImportedFuncCache117 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache117["__wbg_vertexAttribPointer_4e139167926d5080"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32);
-/******/ 						},
-/******/ 						"__wbg_viewport_caffbaa3e8b9568b": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
-/******/ 							if(wasmImportedFuncCache118 === undefined) wasmImportedFuncCache118 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache118["__wbg_viewport_caffbaa3e8b9568b"](p0i32,p1i32,p2i32,p3i32,p4i32);
-/******/ 						},
-/******/ 						"__wbg_getPropertyValue_fd6ae3726bda9d7f": function(p0i32,p1i32,p2i32,p3i32) {
-/******/ 							if(wasmImportedFuncCache119 === undefined) wasmImportedFuncCache119 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache119["__wbg_getPropertyValue_fd6ae3726bda9d7f"](p0i32,p1i32,p2i32,p3i32);
-/******/ 						},
-/******/ 						"__wbg_setProperty_ebb06e7fa941d6a8": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
-/******/ 							if(wasmImportedFuncCache120 === undefined) wasmImportedFuncCache120 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache120["__wbg_setProperty_ebb06e7fa941d6a8"](p0i32,p1i32,p2i32,p3i32,p4i32);
-/******/ 						},
-/******/ 						"__wbg_scrollTop_5ebd5c6591748d6e": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache121 === undefined) wasmImportedFuncCache121 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache121["__wbg_scrollTop_5ebd5c6591748d6e"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_hidden_f7a620ec4ab18ce5": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache122 === undefined) wasmImportedFuncCache122 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache122["__wbg_hidden_f7a620ec4ab18ce5"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_sethidden_fdaefd7e7da7e4c0": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache123 === undefined) wasmImportedFuncCache123 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache123["__wbg_sethidden_fdaefd7e7da7e4c0"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_style_16f5dd9624687c8f": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache124 === undefined) wasmImportedFuncCache124 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache124["__wbg_style_16f5dd9624687c8f"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_offsetTop_45111254e7b26a1f": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache125 === undefined) wasmImportedFuncCache125 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache125["__wbg_offsetTop_45111254e7b26a1f"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_offsetLeft_be5393bf9eec5766": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache126 === undefined) wasmImportedFuncCache126 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache126["__wbg_offsetLeft_be5393bf9eec5766"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_offsetWidth_bc683e2f57ea2d6b": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache127 === undefined) wasmImportedFuncCache127 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache127["__wbg_offsetWidth_bc683e2f57ea2d6b"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_setonload_9235de4503eb82c8": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache128 === undefined) wasmImportedFuncCache128 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache128["__wbg_setonload_9235de4503eb82c8"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_setonerror_939f617c2b40758c": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache129 === undefined) wasmImportedFuncCache129 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache129["__wbg_setonerror_939f617c2b40758c"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_blur_2156876090506146": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache130 === undefined) wasmImportedFuncCache130 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache130["__wbg_blur_2156876090506146"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_focus_4434360545ac99cf": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache131 === undefined) wasmImportedFuncCache131 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache131["__wbg_focus_4434360545ac99cf"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_body_7538539844356c1c": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache132 === undefined) wasmImportedFuncCache132 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache132["__wbg_body_7538539844356c1c"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_createElement_d017b8d2af99bab9": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache133 === undefined) wasmImportedFuncCache133 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache133["__wbg_createElement_d017b8d2af99bab9"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_getElementById_b30e88aff96f66a1": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache134 === undefined) wasmImportedFuncCache134 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache134["__wbg_getElementById_b30e88aff96f66a1"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_instanceof_HtmlCanvasElement_a6157e470d06b638": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache135 === undefined) wasmImportedFuncCache135 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache135["__wbg_instanceof_HtmlCanvasElement_a6157e470d06b638"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_width_cfa982e2a6ad6297": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache136 === undefined) wasmImportedFuncCache136 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache136["__wbg_width_cfa982e2a6ad6297"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_setwidth_362e8db8cbadbe96": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache137 === undefined) wasmImportedFuncCache137 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache137["__wbg_setwidth_362e8db8cbadbe96"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_height_1b399500ca683487": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache138 === undefined) wasmImportedFuncCache138 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache138["__wbg_height_1b399500ca683487"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_setheight_28f53831182cc410": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache139 === undefined) wasmImportedFuncCache139 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache139["__wbg_setheight_28f53831182cc410"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_getContext_10d5c2a4cc0737c8": function(p0i32,p1i32,p2i32,p3i32) {
-/******/ 							if(wasmImportedFuncCache140 === undefined) wasmImportedFuncCache140 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache140["__wbg_getContext_10d5c2a4cc0737c8"](p0i32,p1i32,p2i32,p3i32);
-/******/ 						},
-/******/ 						"__wbg_top_a24b8b81afea659b": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache141 === undefined) wasmImportedFuncCache141 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache141["__wbg_top_a24b8b81afea659b"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_left_0e681cb8fd277739": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache142 === undefined) wasmImportedFuncCache142 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache142["__wbg_left_0e681cb8fd277739"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_userAgent_3f63af8b4fe2331c": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache143 === undefined) wasmImportedFuncCache143 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache143["__wbg_userAgent_3f63af8b4fe2331c"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_responseURL_a3e549a88db1c1f7": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache144 === undefined) wasmImportedFuncCache144 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache144["__wbg_responseURL_a3e549a88db1c1f7"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_setresponseType_e5326d926ee8e787": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache145 === undefined) wasmImportedFuncCache145 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache145["__wbg_setresponseType_e5326d926ee8e787"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_response_8b12ac238727ae0e": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache146 === undefined) wasmImportedFuncCache146 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache146["__wbg_response_8b12ac238727ae0e"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_new_08dfde0f90155eb7": function() {
-/******/ 							if(wasmImportedFuncCache147 === undefined) wasmImportedFuncCache147 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache147["__wbg_new_08dfde0f90155eb7"]();
-/******/ 						},
-/******/ 						"__wbg_open_7190f43b39e7f488": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32) {
-/******/ 							if(wasmImportedFuncCache148 === undefined) wasmImportedFuncCache148 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache148["__wbg_open_7190f43b39e7f488"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32);
-/******/ 						},
-/******/ 						"__wbg_send_84c8dd943b775f78": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache149 === undefined) wasmImportedFuncCache149 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache149["__wbg_send_84c8dd943b775f78"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_deltaX_df228181f4d1a561": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache150 === undefined) wasmImportedFuncCache150 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache150["__wbg_deltaX_df228181f4d1a561"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_deltaY_afa6edde136e1500": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache151 === undefined) wasmImportedFuncCache151 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache151["__wbg_deltaY_afa6edde136e1500"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_deltaMode_ed9d7974a0c11323": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache152 === undefined) wasmImportedFuncCache152 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache152["__wbg_deltaMode_ed9d7974a0c11323"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_data_9562112603a9aa89": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache153 === undefined) wasmImportedFuncCache153 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache153["__wbg_data_9562112603a9aa89"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_type_e32f387f5584c765": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache154 === undefined) wasmImportedFuncCache154 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache154["__wbg_type_e32f387f5584c765"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_preventDefault_fa00541ff125b78c": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache155 === undefined) wasmImportedFuncCache155 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache155["__wbg_preventDefault_fa00541ff125b78c"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_stopPropagation_da586180676fa914": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache156 === undefined) wasmImportedFuncCache156 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache156["__wbg_stopPropagation_da586180676fa914"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_id_79dca31d8297faf1": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache157 === undefined) wasmImportedFuncCache157 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache157["__wbg_id_79dca31d8297faf1"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_setid_73be37238eaa05be": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache158 === undefined) wasmImportedFuncCache158 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache158["__wbg_setid_73be37238eaa05be"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_scrollLeft_e8aba47a94d12290": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache159 === undefined) wasmImportedFuncCache159 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache159["__wbg_scrollLeft_e8aba47a94d12290"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_getBoundingClientRect_534c1b96b6e612d3": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache160 === undefined) wasmImportedFuncCache160 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache160["__wbg_getBoundingClientRect_534c1b96b6e612d3"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_getElementsByClassName_8a7d00ed3eaf1522": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache161 === undefined) wasmImportedFuncCache161 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache161["__wbg_getElementsByClassName_8a7d00ed3eaf1522"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_keyCode_8a05b1390fced3c8": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache162 === undefined) wasmImportedFuncCache162 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache162["__wbg_keyCode_8a05b1390fced3c8"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_altKey_773e7f8151c49bb1": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache163 === undefined) wasmImportedFuncCache163 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache163["__wbg_altKey_773e7f8151c49bb1"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_ctrlKey_8c7ff99be598479e": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache164 === undefined) wasmImportedFuncCache164 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache164["__wbg_ctrlKey_8c7ff99be598479e"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_shiftKey_894b631364d8db13": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache165 === undefined) wasmImportedFuncCache165 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache165["__wbg_shiftKey_894b631364d8db13"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_metaKey_99a7d3732e1b7856": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache166 === undefined) wasmImportedFuncCache166 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache166["__wbg_metaKey_99a7d3732e1b7856"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_isComposing_b892666abf384da9": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache167 === undefined) wasmImportedFuncCache167 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache167["__wbg_isComposing_b892666abf384da9"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_key_7f10b1291a923361": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache168 === undefined) wasmImportedFuncCache168 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache168["__wbg_key_7f10b1291a923361"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_length_a2882c668bdf6488": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache169 === undefined) wasmImportedFuncCache169 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache169["__wbg_length_a2882c668bdf6488"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_get_1c01a7682a9775bb": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache170 === undefined) wasmImportedFuncCache170 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache170["__wbg_get_1c01a7682a9775bb"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_appendChild_3fe5090c665d3bb4": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache171 === undefined) wasmImportedFuncCache171 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache171["__wbg_appendChild_3fe5090c665d3bb4"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_now_5fa0ca001e042f8a": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache172 === undefined) wasmImportedFuncCache172 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache172["__wbg_now_5fa0ca001e042f8a"](p0i32);
-/******/ 						},
 /******/ 						"__wbg_length_01a613025b5ffd74": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache173 === undefined) wasmImportedFuncCache173 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache173["__wbg_length_01a613025b5ffd74"](p0i32);
+/******/ 							if(wasmImportedFuncCache11 === undefined) wasmImportedFuncCache11 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache11["__wbg_length_01a613025b5ffd74"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_item_b192ab411bbfbb09": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache174 === undefined) wasmImportedFuncCache174 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache174["__wbg_item_b192ab411bbfbb09"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache12 === undefined) wasmImportedFuncCache12 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache12["__wbg_item_b192ab411bbfbb09"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_get_a765dab923455e0d": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache175 === undefined) wasmImportedFuncCache175 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache175["__wbg_get_a765dab923455e0d"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache13 === undefined) wasmImportedFuncCache13 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache13["__wbg_get_a765dab923455e0d"](p0i32,p1i32);
 /******/ 						},
-/******/ 						"__wbg_error_ca520cb687b085a1": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache176 === undefined) wasmImportedFuncCache176 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache176["__wbg_error_ca520cb687b085a1"](p0i32);
+/******/ 						"__wbg_setonerror_d665b35adb3552fb": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache14 === undefined) wasmImportedFuncCache14 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache14["__wbg_setonerror_d665b35adb3552fb"](p0i32,p1i32);
 /******/ 						},
-/******/ 						"__wbg_log_fbd13631356d44e4": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache177 === undefined) wasmImportedFuncCache177 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache177["__wbg_log_fbd13631356d44e4"](p0i32);
+/******/ 						"__wbg_setonload_18033df8ec5db791": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache15 === undefined) wasmImportedFuncCache15 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache15["__wbg_setonload_18033df8ec5db791"](p0i32,p1i32);
 /******/ 						},
-/******/ 						"__wbg_warn_97f10a6b0dbb8c5c": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache178 === undefined) wasmImportedFuncCache178 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache178["__wbg_warn_97f10a6b0dbb8c5c"](p0i32);
+/******/ 						"__wbg_deltaX_df228181f4d1a561": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache16 === undefined) wasmImportedFuncCache16 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache16["__wbg_deltaX_df228181f4d1a561"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_deltaY_afa6edde136e1500": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache17 === undefined) wasmImportedFuncCache17 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache17["__wbg_deltaY_afa6edde136e1500"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_deltaMode_ed9d7974a0c11323": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache18 === undefined) wasmImportedFuncCache18 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache18["__wbg_deltaMode_ed9d7974a0c11323"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_touches_7397ce4df4dceded": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache179 === undefined) wasmImportedFuncCache179 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache179["__wbg_touches_7397ce4df4dceded"](p0i32);
+/******/ 							if(wasmImportedFuncCache19 === undefined) wasmImportedFuncCache19 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache19["__wbg_touches_7397ce4df4dceded"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_changedTouches_363278e8a9a95419": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache180 === undefined) wasmImportedFuncCache180 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache180["__wbg_changedTouches_363278e8a9a95419"](p0i32);
+/******/ 							if(wasmImportedFuncCache20 === undefined) wasmImportedFuncCache20 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache20["__wbg_changedTouches_363278e8a9a95419"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_getPropertyValue_fd6ae3726bda9d7f": function(p0i32,p1i32,p2i32,p3i32) {
+/******/ 							if(wasmImportedFuncCache21 === undefined) wasmImportedFuncCache21 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache21["__wbg_getPropertyValue_fd6ae3726bda9d7f"](p0i32,p1i32,p2i32,p3i32);
+/******/ 						},
+/******/ 						"__wbg_setProperty_ebb06e7fa941d6a8": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
+/******/ 							if(wasmImportedFuncCache22 === undefined) wasmImportedFuncCache22 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache22["__wbg_setProperty_ebb06e7fa941d6a8"](p0i32,p1i32,p2i32,p3i32,p4i32);
+/******/ 						},
+/******/ 						"__wbg_id_79dca31d8297faf1": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache23 === undefined) wasmImportedFuncCache23 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache23["__wbg_id_79dca31d8297faf1"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_setid_73be37238eaa05be": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache24 === undefined) wasmImportedFuncCache24 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache24["__wbg_setid_73be37238eaa05be"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_scrollLeft_e8aba47a94d12290": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache25 === undefined) wasmImportedFuncCache25 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache25["__wbg_scrollLeft_e8aba47a94d12290"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_getBoundingClientRect_534c1b96b6e612d3": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache26 === undefined) wasmImportedFuncCache26 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache26["__wbg_getBoundingClientRect_534c1b96b6e612d3"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_getElementsByClassName_8a7d00ed3eaf1522": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache27 === undefined) wasmImportedFuncCache27 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache27["__wbg_getElementsByClassName_8a7d00ed3eaf1522"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_clientX_849ccdf456d662ac": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache28 === undefined) wasmImportedFuncCache28 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache28["__wbg_clientX_849ccdf456d662ac"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_clientY_1aaff30fe0cd0876": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache29 === undefined) wasmImportedFuncCache29 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache29["__wbg_clientY_1aaff30fe0cd0876"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_ctrlKey_4e536bedb069129f": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache30 === undefined) wasmImportedFuncCache30 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache30["__wbg_ctrlKey_4e536bedb069129f"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_metaKey_0b396e35a4941247": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache31 === undefined) wasmImportedFuncCache31 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache31["__wbg_metaKey_0b396e35a4941247"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_button_a18f33eb55774d89": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache32 === undefined) wasmImportedFuncCache32 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache32["__wbg_button_a18f33eb55774d89"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_data_9562112603a9aa89": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache33 === undefined) wasmImportedFuncCache33 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache33["__wbg_data_9562112603a9aa89"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_size_20c167ba9040b895": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache34 === undefined) wasmImportedFuncCache34 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache34["__wbg_size_20c167ba9040b895"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_arrayBuffer_8b5364ee9b393098": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache35 === undefined) wasmImportedFuncCache35 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache35["__wbg_arrayBuffer_8b5364ee9b393098"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_name_4ada8b70ffadb5c0": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache36 === undefined) wasmImportedFuncCache36 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache36["__wbg_name_4ada8b70ffadb5c0"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_addEventListener_6bdba88519fdc1c9": function(p0i32,p1i32,p2i32,p3i32) {
+/******/ 							if(wasmImportedFuncCache37 === undefined) wasmImportedFuncCache37 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache37["__wbg_addEventListener_6bdba88519fdc1c9"](p0i32,p1i32,p2i32,p3i32);
+/******/ 						},
+/******/ 						"__wbg_items_d571f433ef73ee49": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache38 === undefined) wasmImportedFuncCache38 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache38["__wbg_items_d571f433ef73ee49"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_files_a4192b4f5967317b": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache39 === undefined) wasmImportedFuncCache39 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache39["__wbg_files_a4192b4f5967317b"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_type_e32f387f5584c765": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache40 === undefined) wasmImportedFuncCache40 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache40["__wbg_type_e32f387f5584c765"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_preventDefault_fa00541ff125b78c": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache41 === undefined) wasmImportedFuncCache41 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache41["__wbg_preventDefault_fa00541ff125b78c"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_stopPropagation_da586180676fa914": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache42 === undefined) wasmImportedFuncCache42 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache42["__wbg_stopPropagation_da586180676fa914"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_name_9a61dbbdbfb2d0de": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache43 === undefined) wasmImportedFuncCache43 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache43["__wbg_name_9a61dbbdbfb2d0de"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_lastModified_0de23a8c5214f2fb": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache44 === undefined) wasmImportedFuncCache44 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache44["__wbg_lastModified_0de23a8c5214f2fb"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_now_5fa0ca001e042f8a": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache45 === undefined) wasmImportedFuncCache45 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache45["__wbg_now_5fa0ca001e042f8a"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_dataTransfer_bc4c0501385a0c8e": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache46 === undefined) wasmImportedFuncCache46 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache46["__wbg_dataTransfer_bc4c0501385a0c8e"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_body_7538539844356c1c": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache47 === undefined) wasmImportedFuncCache47 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache47["__wbg_body_7538539844356c1c"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_createElement_d017b8d2af99bab9": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache48 === undefined) wasmImportedFuncCache48 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache48["__wbg_createElement_d017b8d2af99bab9"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_getElementById_b30e88aff96f66a1": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache49 === undefined) wasmImportedFuncCache49 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache49["__wbg_getElementById_b30e88aff96f66a1"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_appendChild_3fe5090c665d3bb4": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache50 === undefined) wasmImportedFuncCache50 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache50["__wbg_appendChild_3fe5090c665d3bb4"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_length_41b205f6892bf9d9": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache51 === undefined) wasmImportedFuncCache51 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache51["__wbg_length_41b205f6892bf9d9"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_get_bdec89fd60d07530": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache52 === undefined) wasmImportedFuncCache52 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache52["__wbg_get_bdec89fd60d07530"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_top_a24b8b81afea659b": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache53 === undefined) wasmImportedFuncCache53 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache53["__wbg_top_a24b8b81afea659b"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_left_0e681cb8fd277739": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache54 === undefined) wasmImportedFuncCache54 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache54["__wbg_left_0e681cb8fd277739"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_setresponseType_e5326d926ee8e787": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache55 === undefined) wasmImportedFuncCache55 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache55["__wbg_setresponseType_e5326d926ee8e787"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_response_8b12ac238727ae0e": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache56 === undefined) wasmImportedFuncCache56 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache56["__wbg_response_8b12ac238727ae0e"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_new_08dfde0f90155eb7": function() {
+/******/ 							if(wasmImportedFuncCache57 === undefined) wasmImportedFuncCache57 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache57["__wbg_new_08dfde0f90155eb7"]();
+/******/ 						},
+/******/ 						"__wbg_open_7190f43b39e7f488": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32) {
+/******/ 							if(wasmImportedFuncCache58 === undefined) wasmImportedFuncCache58 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache58["__wbg_open_7190f43b39e7f488"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32);
+/******/ 						},
+/******/ 						"__wbg_send_84c8dd943b775f78": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache59 === undefined) wasmImportedFuncCache59 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache59["__wbg_send_84c8dd943b775f78"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_getwithindex_5caaba1b5b3e6e18": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache60 === undefined) wasmImportedFuncCache60 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache60["__wbg_getwithindex_5caaba1b5b3e6e18"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_length_a2882c668bdf6488": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache61 === undefined) wasmImportedFuncCache61 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache61["__wbg_length_a2882c668bdf6488"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_get_1c01a7682a9775bb": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache62 === undefined) wasmImportedFuncCache62 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache62["__wbg_get_1c01a7682a9775bb"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_setsrc_b0a1ac4dd261ae2d": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache63 === undefined) wasmImportedFuncCache63 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache63["__wbg_setsrc_b0a1ac4dd261ae2d"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_setcrossOrigin_07e0e4935571a4c5": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache64 === undefined) wasmImportedFuncCache64 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache64["__wbg_setcrossOrigin_07e0e4935571a4c5"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_width_6c4cad65073b3852": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache65 === undefined) wasmImportedFuncCache65 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache65["__wbg_width_6c4cad65073b3852"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_height_133772b066cfc559": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache66 === undefined) wasmImportedFuncCache66 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache66["__wbg_height_133772b066cfc559"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_new_da67f111e299956e": function() {
+/******/ 							if(wasmImportedFuncCache67 === undefined) wasmImportedFuncCache67 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache67["__wbg_new_da67f111e299956e"]();
+/******/ 						},
+/******/ 						"__wbg_instanceof_Window_434ce1849eb4e0fc": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache68 === undefined) wasmImportedFuncCache68 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache68["__wbg_instanceof_Window_434ce1849eb4e0fc"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_document_5edd43643d1060d9": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache69 === undefined) wasmImportedFuncCache69 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache69["__wbg_document_5edd43643d1060d9"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_navigator_0e0588c949560476": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache70 === undefined) wasmImportedFuncCache70 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache70["__wbg_navigator_0e0588c949560476"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_innerWidth_405786923c1d2641": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache71 === undefined) wasmImportedFuncCache71 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache71["__wbg_innerWidth_405786923c1d2641"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_innerHeight_25d3be0d129329c3": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache72 === undefined) wasmImportedFuncCache72 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache72["__wbg_innerHeight_25d3be0d129329c3"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_devicePixelRatio_9632545370d525ae": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache73 === undefined) wasmImportedFuncCache73 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache73["__wbg_devicePixelRatio_9632545370d525ae"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_performance_bbca4ccfaef860b2": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache74 === undefined) wasmImportedFuncCache74 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache74["__wbg_performance_bbca4ccfaef860b2"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_open_67fbcd7373a90ddc": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
+/******/ 							if(wasmImportedFuncCache75 === undefined) wasmImportedFuncCache75 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache75["__wbg_open_67fbcd7373a90ddc"](p0i32,p1i32,p2i32,p3i32,p4i32);
+/******/ 						},
+/******/ 						"__wbg_requestAnimationFrame_0c71cd3c6779a371": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache76 === undefined) wasmImportedFuncCache76 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache76["__wbg_requestAnimationFrame_0c71cd3c6779a371"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_setTimeout_1c75092906446b91": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache77 === undefined) wasmImportedFuncCache77 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache77["__wbg_setTimeout_1c75092906446b91"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_error_ca520cb687b085a1": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache78 === undefined) wasmImportedFuncCache78 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache78["__wbg_error_ca520cb687b085a1"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_log_fbd13631356d44e4": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache79 === undefined) wasmImportedFuncCache79 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache79["__wbg_log_fbd13631356d44e4"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_warn_97f10a6b0dbb8c5c": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache80 === undefined) wasmImportedFuncCache80 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache80["__wbg_warn_97f10a6b0dbb8c5c"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_keyCode_8a05b1390fced3c8": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache81 === undefined) wasmImportedFuncCache81 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache81["__wbg_keyCode_8a05b1390fced3c8"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_altKey_773e7f8151c49bb1": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache82 === undefined) wasmImportedFuncCache82 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache82["__wbg_altKey_773e7f8151c49bb1"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_ctrlKey_8c7ff99be598479e": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache83 === undefined) wasmImportedFuncCache83 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache83["__wbg_ctrlKey_8c7ff99be598479e"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_shiftKey_894b631364d8db13": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache84 === undefined) wasmImportedFuncCache84 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache84["__wbg_shiftKey_894b631364d8db13"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_metaKey_99a7d3732e1b7856": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache85 === undefined) wasmImportedFuncCache85 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache85["__wbg_metaKey_99a7d3732e1b7856"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_isComposing_b892666abf384da9": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache86 === undefined) wasmImportedFuncCache86 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache86["__wbg_isComposing_b892666abf384da9"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_key_7f10b1291a923361": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache87 === undefined) wasmImportedFuncCache87 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache87["__wbg_key_7f10b1291a923361"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_scrollTop_5ebd5c6591748d6e": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache88 === undefined) wasmImportedFuncCache88 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache88["__wbg_scrollTop_5ebd5c6591748d6e"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_hidden_f7a620ec4ab18ce5": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache89 === undefined) wasmImportedFuncCache89 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache89["__wbg_hidden_f7a620ec4ab18ce5"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_sethidden_fdaefd7e7da7e4c0": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache90 === undefined) wasmImportedFuncCache90 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache90["__wbg_sethidden_fdaefd7e7da7e4c0"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_style_16f5dd9624687c8f": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache91 === undefined) wasmImportedFuncCache91 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache91["__wbg_style_16f5dd9624687c8f"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_offsetTop_45111254e7b26a1f": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache92 === undefined) wasmImportedFuncCache92 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache92["__wbg_offsetTop_45111254e7b26a1f"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_offsetLeft_be5393bf9eec5766": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache93 === undefined) wasmImportedFuncCache93 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache93["__wbg_offsetLeft_be5393bf9eec5766"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_offsetWidth_bc683e2f57ea2d6b": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache94 === undefined) wasmImportedFuncCache94 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache94["__wbg_offsetWidth_bc683e2f57ea2d6b"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_setonload_9235de4503eb82c8": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache95 === undefined) wasmImportedFuncCache95 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache95["__wbg_setonload_9235de4503eb82c8"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_setonerror_939f617c2b40758c": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache96 === undefined) wasmImportedFuncCache96 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache96["__wbg_setonerror_939f617c2b40758c"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_blur_2156876090506146": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache97 === undefined) wasmImportedFuncCache97 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache97["__wbg_blur_2156876090506146"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_focus_4434360545ac99cf": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache98 === undefined) wasmImportedFuncCache98 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache98["__wbg_focus_4434360545ac99cf"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_instanceof_WebGl2RenderingContext_df519ebc1fd4a55f": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache99 === undefined) wasmImportedFuncCache99 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache99["__wbg_instanceof_WebGl2RenderingContext_df519ebc1fd4a55f"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_canvas_1396c967596541f8": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache100 === undefined) wasmImportedFuncCache100 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache100["__wbg_canvas_1396c967596541f8"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_bindVertexArray_8020efc46272d6b1": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache101 === undefined) wasmImportedFuncCache101 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache101["__wbg_bindVertexArray_8020efc46272d6b1"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_bufferData_17b90d9499ee7889": function(p0i32,p1i32,p2i32,p3i32) {
+/******/ 							if(wasmImportedFuncCache102 === undefined) wasmImportedFuncCache102 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache102["__wbg_bufferData_17b90d9499ee7889"](p0i32,p1i32,p2i32,p3i32);
+/******/ 						},
+/******/ 						"__wbg_bufferSubData_ebe7e7da307cfecb": function(p0i32,p1i32,p2i32,p3i32) {
+/******/ 							if(wasmImportedFuncCache103 === undefined) wasmImportedFuncCache103 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache103["__wbg_bufferSubData_ebe7e7da307cfecb"](p0i32,p1i32,p2i32,p3i32);
+/******/ 						},
+/******/ 						"__wbg_createVertexArray_ccfd68f784dda58d": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache104 === undefined) wasmImportedFuncCache104 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache104["__wbg_createVertexArray_ccfd68f784dda58d"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_deleteVertexArray_431b44dad4d908dc": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache105 === undefined) wasmImportedFuncCache105 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache105["__wbg_deleteVertexArray_431b44dad4d908dc"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_drawElementsInstanced_7fe064b9d2fd80e2": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32) {
+/******/ 							if(wasmImportedFuncCache106 === undefined) wasmImportedFuncCache106 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache106["__wbg_drawElementsInstanced_7fe064b9d2fd80e2"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32);
+/******/ 						},
+/******/ 						"__wbg_readPixels_afc61e5c4223bc17": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32) {
+/******/ 							if(wasmImportedFuncCache107 === undefined) wasmImportedFuncCache107 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache107["__wbg_readPixels_afc61e5c4223bc17"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32);
+/******/ 						},
+/******/ 						"__wbg_texImage2D_8e3d1e2fc4b9cf89": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32,p8i32,p9i32,p10i32) {
+/******/ 							if(wasmImportedFuncCache108 === undefined) wasmImportedFuncCache108 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache108["__wbg_texImage2D_8e3d1e2fc4b9cf89"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32,p8i32,p9i32,p10i32);
+/******/ 						},
+/******/ 						"__wbg_texImage2D_ea4f44f738393ea2": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32) {
+/******/ 							if(wasmImportedFuncCache109 === undefined) wasmImportedFuncCache109 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache109["__wbg_texImage2D_ea4f44f738393ea2"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32);
+/******/ 						},
+/******/ 						"__wbg_texSubImage2D_3225e265581d1641": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32,p8i32,p9i32) {
+/******/ 							if(wasmImportedFuncCache110 === undefined) wasmImportedFuncCache110 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache110["__wbg_texSubImage2D_3225e265581d1641"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32,p8i32,p9i32);
+/******/ 						},
+/******/ 						"__wbg_texSubImage2D_8b067c86c6104f51": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32) {
+/******/ 							if(wasmImportedFuncCache111 === undefined) wasmImportedFuncCache111 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache111["__wbg_texSubImage2D_8b067c86c6104f51"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32);
+/******/ 						},
+/******/ 						"__wbg_uniform1fv_d082f50338e583d3": function(p0i32,p1i32,p2i32,p3i32) {
+/******/ 							if(wasmImportedFuncCache112 === undefined) wasmImportedFuncCache112 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache112["__wbg_uniform1fv_d082f50338e583d3"](p0i32,p1i32,p2i32,p3i32);
+/******/ 						},
+/******/ 						"__wbg_uniformMatrix2fv_12f7ba152bd6acd9": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
+/******/ 							if(wasmImportedFuncCache113 === undefined) wasmImportedFuncCache113 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache113["__wbg_uniformMatrix2fv_12f7ba152bd6acd9"](p0i32,p1i32,p2i32,p3i32,p4i32);
+/******/ 						},
+/******/ 						"__wbg_uniformMatrix4fv_8752c8df4a82f43a": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
+/******/ 							if(wasmImportedFuncCache114 === undefined) wasmImportedFuncCache114 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache114["__wbg_uniformMatrix4fv_8752c8df4a82f43a"](p0i32,p1i32,p2i32,p3i32,p4i32);
+/******/ 						},
+/******/ 						"__wbg_vertexAttribDivisor_15b55770388d87bb": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache115 === undefined) wasmImportedFuncCache115 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache115["__wbg_vertexAttribDivisor_15b55770388d87bb"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_activeTexture_e07e910acea70faa": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache116 === undefined) wasmImportedFuncCache116 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache116["__wbg_activeTexture_e07e910acea70faa"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_attachShader_2e252ab2fda53d9b": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache117 === undefined) wasmImportedFuncCache117 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache117["__wbg_attachShader_2e252ab2fda53d9b"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_bindBuffer_612af2c0d1623df9": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache118 === undefined) wasmImportedFuncCache118 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache118["__wbg_bindBuffer_612af2c0d1623df9"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_bindFramebuffer_f79f98a252b25421": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache119 === undefined) wasmImportedFuncCache119 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache119["__wbg_bindFramebuffer_f79f98a252b25421"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_bindTexture_5de299363180ad48": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache120 === undefined) wasmImportedFuncCache120 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache120["__wbg_bindTexture_5de299363180ad48"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_blendEquation_3ddbe96827ea563c": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache121 === undefined) wasmImportedFuncCache121 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache121["__wbg_blendEquation_3ddbe96827ea563c"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_blendFunc_a1fda75b5cf06b09": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache122 === undefined) wasmImportedFuncCache122 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache122["__wbg_blendFunc_a1fda75b5cf06b09"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_blendFuncSeparate_be76c74e24fb8c4b": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
+/******/ 							if(wasmImportedFuncCache123 === undefined) wasmImportedFuncCache123 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache123["__wbg_blendFuncSeparate_be76c74e24fb8c4b"](p0i32,p1i32,p2i32,p3i32,p4i32);
+/******/ 						},
+/******/ 						"__wbg_clear_4c5eed385310e256": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache124 === undefined) wasmImportedFuncCache124 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache124["__wbg_clear_4c5eed385310e256"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_clearColor_d9d486c5ff20404c": function(p0i32,p1f32,p2f32,p3f32,p4f32) {
+/******/ 							if(wasmImportedFuncCache125 === undefined) wasmImportedFuncCache125 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache125["__wbg_clearColor_d9d486c5ff20404c"](p0i32,p1f32,p2f32,p3f32,p4f32);
+/******/ 						},
+/******/ 						"__wbg_compileShader_e224e94272352503": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache126 === undefined) wasmImportedFuncCache126 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache126["__wbg_compileShader_e224e94272352503"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_createBuffer_564dc1c3c3f058b7": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache127 === undefined) wasmImportedFuncCache127 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache127["__wbg_createBuffer_564dc1c3c3f058b7"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_createFramebuffer_ca860b7155b412f2": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache128 === undefined) wasmImportedFuncCache128 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache128["__wbg_createFramebuffer_ca860b7155b412f2"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_createProgram_e9fa1d7669773667": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache129 === undefined) wasmImportedFuncCache129 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache129["__wbg_createProgram_e9fa1d7669773667"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_createShader_03233922e9b5ebf2": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache130 === undefined) wasmImportedFuncCache130 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache130["__wbg_createShader_03233922e9b5ebf2"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_createTexture_7ee50a5b223f0511": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache131 === undefined) wasmImportedFuncCache131 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache131["__wbg_createTexture_7ee50a5b223f0511"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_cullFace_caa43c3b77438004": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache132 === undefined) wasmImportedFuncCache132 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache132["__wbg_cullFace_caa43c3b77438004"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_deleteBuffer_50cb909fb6b297dd": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache133 === undefined) wasmImportedFuncCache133 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache133["__wbg_deleteBuffer_50cb909fb6b297dd"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_deleteFramebuffer_72ef4c95df2569e4": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache134 === undefined) wasmImportedFuncCache134 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache134["__wbg_deleteFramebuffer_72ef4c95df2569e4"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_deleteTexture_b4643da89823c0c1": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache135 === undefined) wasmImportedFuncCache135 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache135["__wbg_deleteTexture_b4643da89823c0c1"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_disable_e61fb08d6c7131e4": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache136 === undefined) wasmImportedFuncCache136 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache136["__wbg_disable_e61fb08d6c7131e4"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_disableVertexAttribArray_4e8dd2973a2f796d": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache137 === undefined) wasmImportedFuncCache137 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache137["__wbg_disableVertexAttribArray_4e8dd2973a2f796d"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_drawArrays_aaa2fa80ca85e04c": function(p0i32,p1i32,p2i32,p3i32) {
+/******/ 							if(wasmImportedFuncCache138 === undefined) wasmImportedFuncCache138 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache138["__wbg_drawArrays_aaa2fa80ca85e04c"](p0i32,p1i32,p2i32,p3i32);
+/******/ 						},
+/******/ 						"__wbg_drawElements_8f3cfd28610fd46e": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
+/******/ 							if(wasmImportedFuncCache139 === undefined) wasmImportedFuncCache139 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache139["__wbg_drawElements_8f3cfd28610fd46e"](p0i32,p1i32,p2i32,p3i32,p4i32);
+/******/ 						},
+/******/ 						"__wbg_enable_8e888a63831a3fe5": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache140 === undefined) wasmImportedFuncCache140 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache140["__wbg_enable_8e888a63831a3fe5"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_enableVertexAttribArray_d1b2636395bdaa7a": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache141 === undefined) wasmImportedFuncCache141 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache141["__wbg_enableVertexAttribArray_d1b2636395bdaa7a"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_framebufferTexture2D_ceadbfd128a6e565": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32) {
+/******/ 							if(wasmImportedFuncCache142 === undefined) wasmImportedFuncCache142 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache142["__wbg_framebufferTexture2D_ceadbfd128a6e565"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32);
+/******/ 						},
+/******/ 						"__wbg_getActiveUniform_52a765a9f0c6963c": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache143 === undefined) wasmImportedFuncCache143 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache143["__wbg_getActiveUniform_52a765a9f0c6963c"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_getAttribLocation_7f79c73e983e47cd": function(p0i32,p1i32,p2i32,p3i32) {
+/******/ 							if(wasmImportedFuncCache144 === undefined) wasmImportedFuncCache144 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache144["__wbg_getAttribLocation_7f79c73e983e47cd"](p0i32,p1i32,p2i32,p3i32);
+/******/ 						},
+/******/ 						"__wbg_getExtension_aa055f67731688a2": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache145 === undefined) wasmImportedFuncCache145 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache145["__wbg_getExtension_aa055f67731688a2"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_getProgramInfoLog_dbd8d8cedcc8cdcc": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache146 === undefined) wasmImportedFuncCache146 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache146["__wbg_getProgramInfoLog_dbd8d8cedcc8cdcc"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_getProgramParameter_4b9d43902599c2d2": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache147 === undefined) wasmImportedFuncCache147 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache147["__wbg_getProgramParameter_4b9d43902599c2d2"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_getShaderInfoLog_5aab05280bd0fe1b": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache148 === undefined) wasmImportedFuncCache148 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache148["__wbg_getShaderInfoLog_5aab05280bd0fe1b"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_getShaderParameter_e5f7e371d4eec000": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache149 === undefined) wasmImportedFuncCache149 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache149["__wbg_getShaderParameter_e5f7e371d4eec000"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_getUniformLocation_9541edb0d39d1646": function(p0i32,p1i32,p2i32,p3i32) {
+/******/ 							if(wasmImportedFuncCache150 === undefined) wasmImportedFuncCache150 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache150["__wbg_getUniformLocation_9541edb0d39d1646"](p0i32,p1i32,p2i32,p3i32);
+/******/ 						},
+/******/ 						"__wbg_linkProgram_116382e2dc17af64": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache151 === undefined) wasmImportedFuncCache151 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache151["__wbg_linkProgram_116382e2dc17af64"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_scissor_826e824cb569eebc": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
+/******/ 							if(wasmImportedFuncCache152 === undefined) wasmImportedFuncCache152 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache152["__wbg_scissor_826e824cb569eebc"](p0i32,p1i32,p2i32,p3i32,p4i32);
+/******/ 						},
+/******/ 						"__wbg_shaderSource_0066bb6817bf9e88": function(p0i32,p1i32,p2i32,p3i32) {
+/******/ 							if(wasmImportedFuncCache153 === undefined) wasmImportedFuncCache153 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache153["__wbg_shaderSource_0066bb6817bf9e88"](p0i32,p1i32,p2i32,p3i32);
+/******/ 						},
+/******/ 						"__wbg_texParameteri_52fb3e85a6d2c636": function(p0i32,p1i32,p2i32,p3i32) {
+/******/ 							if(wasmImportedFuncCache154 === undefined) wasmImportedFuncCache154 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache154["__wbg_texParameteri_52fb3e85a6d2c636"](p0i32,p1i32,p2i32,p3i32);
+/******/ 						},
+/******/ 						"__wbg_uniform1f_96a968d4f5cb18de": function(p0i32,p1i32,p2f32) {
+/******/ 							if(wasmImportedFuncCache155 === undefined) wasmImportedFuncCache155 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache155["__wbg_uniform1f_96a968d4f5cb18de"](p0i32,p1i32,p2f32);
+/******/ 						},
+/******/ 						"__wbg_uniform1i_a6ce351ee8cef296": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache156 === undefined) wasmImportedFuncCache156 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache156["__wbg_uniform1i_a6ce351ee8cef296"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_uniform2f_84c79c4f8bb2428e": function(p0i32,p1i32,p2f32,p3f32) {
+/******/ 							if(wasmImportedFuncCache157 === undefined) wasmImportedFuncCache157 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache157["__wbg_uniform2f_84c79c4f8bb2428e"](p0i32,p1i32,p2f32,p3f32);
+/******/ 						},
+/******/ 						"__wbg_uniform3f_236679e1bca8660b": function(p0i32,p1i32,p2f32,p3f32,p4f32) {
+/******/ 							if(wasmImportedFuncCache158 === undefined) wasmImportedFuncCache158 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache158["__wbg_uniform3f_236679e1bca8660b"](p0i32,p1i32,p2f32,p3f32,p4f32);
+/******/ 						},
+/******/ 						"__wbg_uniform4f_0ff24ef1f3ab8946": function(p0i32,p1i32,p2f32,p3f32,p4f32,p5f32) {
+/******/ 							if(wasmImportedFuncCache159 === undefined) wasmImportedFuncCache159 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache159["__wbg_uniform4f_0ff24ef1f3ab8946"](p0i32,p1i32,p2f32,p3f32,p4f32,p5f32);
+/******/ 						},
+/******/ 						"__wbg_useProgram_de22d1e01c430663": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache160 === undefined) wasmImportedFuncCache160 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache160["__wbg_useProgram_de22d1e01c430663"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_vertexAttribPointer_4e139167926d5080": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32) {
+/******/ 							if(wasmImportedFuncCache161 === undefined) wasmImportedFuncCache161 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache161["__wbg_vertexAttribPointer_4e139167926d5080"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32);
+/******/ 						},
+/******/ 						"__wbg_viewport_caffbaa3e8b9568b": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
+/******/ 							if(wasmImportedFuncCache162 === undefined) wasmImportedFuncCache162 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache162["__wbg_viewport_caffbaa3e8b9568b"](p0i32,p1i32,p2i32,p3i32,p4i32);
+/******/ 						},
+/******/ 						"__wbg_userAgent_3f63af8b4fe2331c": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache163 === undefined) wasmImportedFuncCache163 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache163["__wbg_userAgent_3f63af8b4fe2331c"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_identifier_afa8b01d4d901685": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache164 === undefined) wasmImportedFuncCache164 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache164["__wbg_identifier_afa8b01d4d901685"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_pageX_e0c8221ecfdb73d0": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache165 === undefined) wasmImportedFuncCache165 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache165["__wbg_pageX_e0c8221ecfdb73d0"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_pageY_32100ad7039a744e": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache166 === undefined) wasmImportedFuncCache166 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache166["__wbg_pageY_32100ad7039a744e"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_force_8e51e1fec066aade": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache167 === undefined) wasmImportedFuncCache167 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache167["__wbg_force_8e51e1fec066aade"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_instanceof_HtmlInputElement_8969541a2a0bded0": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache168 === undefined) wasmImportedFuncCache168 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache168["__wbg_instanceof_HtmlInputElement_8969541a2a0bded0"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_setautofocus_a2ae37091dfbe4af": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache169 === undefined) wasmImportedFuncCache169 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache169["__wbg_setautofocus_a2ae37091dfbe4af"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_setsize_90d1034a7a757a50": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache170 === undefined) wasmImportedFuncCache170 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache170["__wbg_setsize_90d1034a7a757a50"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_value_fc1c354d1a0e9714": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache171 === undefined) wasmImportedFuncCache171 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache171["__wbg_value_fc1c354d1a0e9714"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_setvalue_ce4a23f487065c07": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache172 === undefined) wasmImportedFuncCache172 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache172["__wbg_setvalue_ce4a23f487065c07"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_type_8bc3e57acd2158c9": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache173 === undefined) wasmImportedFuncCache173 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache173["__wbg_type_8bc3e57acd2158c9"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_instanceof_HtmlCanvasElement_a6157e470d06b638": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache174 === undefined) wasmImportedFuncCache174 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache174["__wbg_instanceof_HtmlCanvasElement_a6157e470d06b638"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_width_cfa982e2a6ad6297": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache175 === undefined) wasmImportedFuncCache175 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache175["__wbg_width_cfa982e2a6ad6297"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_setwidth_362e8db8cbadbe96": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache176 === undefined) wasmImportedFuncCache176 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache176["__wbg_setwidth_362e8db8cbadbe96"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_height_1b399500ca683487": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache177 === undefined) wasmImportedFuncCache177 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache177["__wbg_height_1b399500ca683487"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_setheight_28f53831182cc410": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache178 === undefined) wasmImportedFuncCache178 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache178["__wbg_setheight_28f53831182cc410"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_getContext_10d5c2a4cc0737c8": function(p0i32,p1i32,p2i32,p3i32) {
+/******/ 							if(wasmImportedFuncCache179 === undefined) wasmImportedFuncCache179 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache179["__wbg_getContext_10d5c2a4cc0737c8"](p0i32,p1i32,p2i32,p3i32);
 /******/ 						},
 /******/ 						"__wbindgen_is_undefined": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache181 === undefined) wasmImportedFuncCache181 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache181["__wbindgen_is_undefined"](p0i32);
+/******/ 							if(wasmImportedFuncCache180 === undefined) wasmImportedFuncCache180 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache180["__wbindgen_is_undefined"](p0i32);
 /******/ 						},
-/******/ 						"__wbg_buffer_5e74a88a1424a2e0": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache182 === undefined) wasmImportedFuncCache182 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache182["__wbg_buffer_5e74a88a1424a2e0"](p0i32);
+/******/ 						"__wbg_parse_e3e7e590474b89d2": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache181 === undefined) wasmImportedFuncCache181 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache181["__wbg_parse_e3e7e590474b89d2"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_get_f45dff51f52d7222": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache183 === undefined) wasmImportedFuncCache183 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache183["__wbg_get_f45dff51f52d7222"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache182 === undefined) wasmImportedFuncCache182 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache182["__wbg_get_f45dff51f52d7222"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_length_7b60f47bde714631": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache184 === undefined) wasmImportedFuncCache184 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache184["__wbg_length_7b60f47bde714631"](p0i32);
+/******/ 							if(wasmImportedFuncCache183 === undefined) wasmImportedFuncCache183 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache183["__wbg_length_7b60f47bde714631"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_newnoargs_f579424187aa1717": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache185 === undefined) wasmImportedFuncCache185 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache185["__wbg_newnoargs_f579424187aa1717"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache184 === undefined) wasmImportedFuncCache184 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache184["__wbg_newnoargs_f579424187aa1717"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_call_89558c3e96703ca1": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache186 === undefined) wasmImportedFuncCache186 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache186["__wbg_call_89558c3e96703ca1"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache185 === undefined) wasmImportedFuncCache185 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache185["__wbg_call_89558c3e96703ca1"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_isArray_8480ed76e5369634": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache187 === undefined) wasmImportedFuncCache187 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache187["__wbg_isArray_8480ed76e5369634"](p0i32);
+/******/ 							if(wasmImportedFuncCache186 === undefined) wasmImportedFuncCache186 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache186["__wbg_isArray_8480ed76e5369634"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_resolve_4f8f547f26b30b27": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache188 === undefined) wasmImportedFuncCache188 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache188["__wbg_resolve_4f8f547f26b30b27"](p0i32);
+/******/ 							if(wasmImportedFuncCache187 === undefined) wasmImportedFuncCache187 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache187["__wbg_resolve_4f8f547f26b30b27"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_then_a6860c82b90816ca": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache189 === undefined) wasmImportedFuncCache189 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache189["__wbg_then_a6860c82b90816ca"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache188 === undefined) wasmImportedFuncCache188 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache188["__wbg_then_a6860c82b90816ca"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_then_58a04e42527f52c6": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache190 === undefined) wasmImportedFuncCache190 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache190["__wbg_then_58a04e42527f52c6"](p0i32,p1i32,p2i32);
+/******/ 							if(wasmImportedFuncCache189 === undefined) wasmImportedFuncCache189 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache189["__wbg_then_58a04e42527f52c6"](p0i32,p1i32,p2i32);
 /******/ 						},
 /******/ 						"__wbg_self_e23d74ae45fb17d1": function() {
-/******/ 							if(wasmImportedFuncCache191 === undefined) wasmImportedFuncCache191 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache191["__wbg_self_e23d74ae45fb17d1"]();
+/******/ 							if(wasmImportedFuncCache190 === undefined) wasmImportedFuncCache190 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache190["__wbg_self_e23d74ae45fb17d1"]();
 /******/ 						},
 /******/ 						"__wbg_window_b4be7f48b24ac56e": function() {
-/******/ 							if(wasmImportedFuncCache192 === undefined) wasmImportedFuncCache192 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache192["__wbg_window_b4be7f48b24ac56e"]();
+/******/ 							if(wasmImportedFuncCache191 === undefined) wasmImportedFuncCache191 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache191["__wbg_window_b4be7f48b24ac56e"]();
 /******/ 						},
 /******/ 						"__wbg_globalThis_d61b1f48a57191ae": function() {
-/******/ 							if(wasmImportedFuncCache193 === undefined) wasmImportedFuncCache193 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache193["__wbg_globalThis_d61b1f48a57191ae"]();
+/******/ 							if(wasmImportedFuncCache192 === undefined) wasmImportedFuncCache192 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache192["__wbg_globalThis_d61b1f48a57191ae"]();
 /******/ 						},
 /******/ 						"__wbg_global_e7669da72fd7f239": function() {
+/******/ 							if(wasmImportedFuncCache193 === undefined) wasmImportedFuncCache193 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache193["__wbg_global_e7669da72fd7f239"]();
+/******/ 						},
+/******/ 						"__wbg_buffer_5e74a88a1424a2e0": function(p0i32) {
 /******/ 							if(wasmImportedFuncCache194 === undefined) wasmImportedFuncCache194 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache194["__wbg_global_e7669da72fd7f239"]();
+/******/ 							return wasmImportedFuncCache194["__wbg_buffer_5e74a88a1424a2e0"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_newwithbyteoffsetandlength_fa38811f43e9099d": function(p0i32,p1i32,p2i32) {
 /******/ 							if(wasmImportedFuncCache195 === undefined) wasmImportedFuncCache195 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
@@ -18569,81 +18636,77 @@ let SpatialVector = (function () {
 /******/ 							if(wasmImportedFuncCache216 === undefined) wasmImportedFuncCache216 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
 /******/ 							return wasmImportedFuncCache216["__wbg_subarray_e729e242fb317565"](p0i32,p1i32,p2i32);
 /******/ 						},
-/******/ 						"__wbg_parse_e3e7e590474b89d2": function(p0i32,p1i32) {
+/******/ 						"__wbg_new_693216e109162396": function() {
 /******/ 							if(wasmImportedFuncCache217 === undefined) wasmImportedFuncCache217 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache217["__wbg_parse_e3e7e590474b89d2"](p0i32,p1i32);
+/******/ 							return wasmImportedFuncCache217["__wbg_new_693216e109162396"]();
 /******/ 						},
-/******/ 						"__wbg_new_59cb74e423758ede": function() {
+/******/ 						"__wbg_stack_0ddaca5d1abfb52f": function(p0i32,p1i32) {
 /******/ 							if(wasmImportedFuncCache218 === undefined) wasmImportedFuncCache218 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache218["__wbg_new_59cb74e423758ede"]();
+/******/ 							return wasmImportedFuncCache218["__wbg_stack_0ddaca5d1abfb52f"](p0i32,p1i32);
 /******/ 						},
-/******/ 						"__wbg_stack_558ba5917b466edd": function(p0i32,p1i32) {
+/******/ 						"__wbg_error_09919627ac0992f5": function(p0i32,p1i32) {
 /******/ 							if(wasmImportedFuncCache219 === undefined) wasmImportedFuncCache219 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache219["__wbg_stack_558ba5917b466edd"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_error_4bb6c2a97407129a": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache220 === undefined) wasmImportedFuncCache220 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache220["__wbg_error_4bb6c2a97407129a"](p0i32,p1i32);
+/******/ 							return wasmImportedFuncCache219["__wbg_error_09919627ac0992f5"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbindgen_debug_string": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache221 === undefined) wasmImportedFuncCache221 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache221["__wbindgen_debug_string"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache220 === undefined) wasmImportedFuncCache220 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache220["__wbindgen_debug_string"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbindgen_throw": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache222 === undefined) wasmImportedFuncCache222 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache222["__wbindgen_throw"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache221 === undefined) wasmImportedFuncCache221 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache221["__wbindgen_throw"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbindgen_memory": function() {
+/******/ 							if(wasmImportedFuncCache222 === undefined) wasmImportedFuncCache222 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache222["__wbindgen_memory"]();
+/******/ 						},
+/******/ 						"__wbindgen_closure_wrapper316": function(p0i32,p1i32,p2i32) {
 /******/ 							if(wasmImportedFuncCache223 === undefined) wasmImportedFuncCache223 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache223["__wbindgen_memory"]();
+/******/ 							return wasmImportedFuncCache223["__wbindgen_closure_wrapper316"](p0i32,p1i32,p2i32);
 /******/ 						},
-/******/ 						"__wbindgen_closure_wrapper330": function(p0i32,p1i32,p2i32) {
+/******/ 						"__wbindgen_closure_wrapper318": function(p0i32,p1i32,p2i32) {
 /******/ 							if(wasmImportedFuncCache224 === undefined) wasmImportedFuncCache224 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache224["__wbindgen_closure_wrapper330"](p0i32,p1i32,p2i32);
+/******/ 							return wasmImportedFuncCache224["__wbindgen_closure_wrapper318"](p0i32,p1i32,p2i32);
 /******/ 						},
-/******/ 						"__wbindgen_closure_wrapper332": function(p0i32,p1i32,p2i32) {
+/******/ 						"__wbindgen_closure_wrapper2446": function(p0i32,p1i32,p2i32) {
 /******/ 							if(wasmImportedFuncCache225 === undefined) wasmImportedFuncCache225 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache225["__wbindgen_closure_wrapper332"](p0i32,p1i32,p2i32);
+/******/ 							return wasmImportedFuncCache225["__wbindgen_closure_wrapper2446"](p0i32,p1i32,p2i32);
 /******/ 						},
-/******/ 						"__wbindgen_closure_wrapper2457": function(p0i32,p1i32,p2i32) {
+/******/ 						"__wbindgen_closure_wrapper2448": function(p0i32,p1i32,p2i32) {
 /******/ 							if(wasmImportedFuncCache226 === undefined) wasmImportedFuncCache226 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache226["__wbindgen_closure_wrapper2457"](p0i32,p1i32,p2i32);
+/******/ 							return wasmImportedFuncCache226["__wbindgen_closure_wrapper2448"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbindgen_closure_wrapper2450": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache227 === undefined) wasmImportedFuncCache227 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache227["__wbindgen_closure_wrapper2450"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbindgen_closure_wrapper2452": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache228 === undefined) wasmImportedFuncCache228 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache228["__wbindgen_closure_wrapper2452"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbindgen_closure_wrapper2454": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache229 === undefined) wasmImportedFuncCache229 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache229["__wbindgen_closure_wrapper2454"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbindgen_closure_wrapper2456": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache230 === undefined) wasmImportedFuncCache230 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache230["__wbindgen_closure_wrapper2456"](p0i32,p1i32,p2i32);
 /******/ 						},
 /******/ 						"__wbindgen_closure_wrapper2458": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache227 === undefined) wasmImportedFuncCache227 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache227["__wbindgen_closure_wrapper2458"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbindgen_closure_wrapper2461": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache228 === undefined) wasmImportedFuncCache228 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache228["__wbindgen_closure_wrapper2461"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbindgen_closure_wrapper2463": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache229 === undefined) wasmImportedFuncCache229 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache229["__wbindgen_closure_wrapper2463"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbindgen_closure_wrapper2465": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache230 === undefined) wasmImportedFuncCache230 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache230["__wbindgen_closure_wrapper2465"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbindgen_closure_wrapper2467": function(p0i32,p1i32,p2i32) {
 /******/ 							if(wasmImportedFuncCache231 === undefined) wasmImportedFuncCache231 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache231["__wbindgen_closure_wrapper2467"](p0i32,p1i32,p2i32);
+/******/ 							return wasmImportedFuncCache231["__wbindgen_closure_wrapper2458"](p0i32,p1i32,p2i32);
 /******/ 						},
-/******/ 						"__wbindgen_closure_wrapper2469": function(p0i32,p1i32,p2i32) {
+/******/ 						"__wbindgen_closure_wrapper2460": function(p0i32,p1i32,p2i32) {
 /******/ 							if(wasmImportedFuncCache232 === undefined) wasmImportedFuncCache232 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache232["__wbindgen_closure_wrapper2469"](p0i32,p1i32,p2i32);
+/******/ 							return wasmImportedFuncCache232["__wbindgen_closure_wrapper2460"](p0i32,p1i32,p2i32);
 /******/ 						},
-/******/ 						"__wbindgen_closure_wrapper2471": function(p0i32,p1i32,p2i32) {
+/******/ 						"__wbindgen_closure_wrapper2462": function(p0i32,p1i32,p2i32) {
 /******/ 							if(wasmImportedFuncCache233 === undefined) wasmImportedFuncCache233 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache233["__wbindgen_closure_wrapper2471"](p0i32,p1i32,p2i32);
+/******/ 							return wasmImportedFuncCache233["__wbindgen_closure_wrapper2462"](p0i32,p1i32,p2i32);
 /******/ 						},
-/******/ 						"__wbindgen_closure_wrapper2473": function(p0i32,p1i32,p2i32) {
+/******/ 						"__wbindgen_closure_wrapper2524": function(p0i32,p1i32,p2i32) {
 /******/ 							if(wasmImportedFuncCache234 === undefined) wasmImportedFuncCache234 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache234["__wbindgen_closure_wrapper2473"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbindgen_closure_wrapper2571": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache235 === undefined) wasmImportedFuncCache235 = __webpack_require__.c["./src/core/pkg-webgl2/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache235["__wbindgen_closure_wrapper2571"](p0i32,p1i32,p2i32);
+/******/ 							return wasmImportedFuncCache234["__wbindgen_closure_wrapper2524"](p0i32,p1i32,p2i32);
 /******/ 						}
 /******/ 					}
 /******/ 				};
@@ -18651,893 +18714,889 @@ let SpatialVector = (function () {
 /******/ 			"./src/core/pkg-webgl1/index_bg.wasm": function() {
 /******/ 				return {
 /******/ 					"./index_bg.js": {
+/******/ 						"__wbindgen_object_drop_ref": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache235 === undefined) wasmImportedFuncCache235 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache235["__wbindgen_object_drop_ref"](p0i32);
+/******/ 						},
 /******/ 						"__wbindgen_string_new": function(p0i32,p1i32) {
 /******/ 							if(wasmImportedFuncCache236 === undefined) wasmImportedFuncCache236 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
 /******/ 							return wasmImportedFuncCache236["__wbindgen_string_new"](p0i32,p1i32);
 /******/ 						},
-/******/ 						"__wbindgen_object_drop_ref": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache237 === undefined) wasmImportedFuncCache237 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache237["__wbindgen_object_drop_ref"](p0i32);
-/******/ 						},
 /******/ 						"__wbindgen_object_clone_ref": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache238 === undefined) wasmImportedFuncCache238 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache238["__wbindgen_object_clone_ref"](p0i32);
+/******/ 							if(wasmImportedFuncCache237 === undefined) wasmImportedFuncCache237 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache237["__wbindgen_object_clone_ref"](p0i32);
 /******/ 						},
-/******/ 						"__wbindgen_cb_drop": function(p0i32) {
+/******/ 						"__wbindgen_json_parse": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache238 === undefined) wasmImportedFuncCache238 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache238["__wbindgen_json_parse"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbindgen_json_serialize": function(p0i32,p1i32) {
 /******/ 							if(wasmImportedFuncCache239 === undefined) wasmImportedFuncCache239 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache239["__wbindgen_cb_drop"](p0i32);
+/******/ 							return wasmImportedFuncCache239["__wbindgen_json_serialize"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbindgen_number_get": function(p0i32,p1i32) {
 /******/ 							if(wasmImportedFuncCache240 === undefined) wasmImportedFuncCache240 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
 /******/ 							return wasmImportedFuncCache240["__wbindgen_number_get"](p0i32,p1i32);
 /******/ 						},
-/******/ 						"__wbindgen_json_parse": function(p0i32,p1i32) {
+/******/ 						"__wbindgen_cb_drop": function(p0i32) {
 /******/ 							if(wasmImportedFuncCache241 === undefined) wasmImportedFuncCache241 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache241["__wbindgen_json_parse"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbindgen_json_serialize": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache242 === undefined) wasmImportedFuncCache242 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache242["__wbindgen_json_serialize"](p0i32,p1i32);
+/******/ 							return wasmImportedFuncCache241["__wbindgen_cb_drop"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_fetchSurveyMetadata_3d518f6be78ba7d4": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache243 === undefined) wasmImportedFuncCache243 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache243["__wbg_fetchSurveyMetadata_3d518f6be78ba7d4"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache242 === undefined) wasmImportedFuncCache242 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache242["__wbg_fetchSurveyMetadata_3d518f6be78ba7d4"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbindgen_boolean_get": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache244 === undefined) wasmImportedFuncCache244 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache244["__wbindgen_boolean_get"](p0i32);
+/******/ 							if(wasmImportedFuncCache243 === undefined) wasmImportedFuncCache243 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache243["__wbindgen_boolean_get"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_log_a39f164b49616cb0": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache245 === undefined) wasmImportedFuncCache245 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache245["__wbg_log_a39f164b49616cb0"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_instanceof_HtmlCanvasElement_a6157e470d06b638": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache246 === undefined) wasmImportedFuncCache246 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache246["__wbg_instanceof_HtmlCanvasElement_a6157e470d06b638"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_width_cfa982e2a6ad6297": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache247 === undefined) wasmImportedFuncCache247 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache247["__wbg_width_cfa982e2a6ad6297"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_setwidth_362e8db8cbadbe96": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache248 === undefined) wasmImportedFuncCache248 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache248["__wbg_setwidth_362e8db8cbadbe96"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_height_1b399500ca683487": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache249 === undefined) wasmImportedFuncCache249 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache249["__wbg_height_1b399500ca683487"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_setheight_28f53831182cc410": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache250 === undefined) wasmImportedFuncCache250 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache250["__wbg_setheight_28f53831182cc410"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_getContext_10d5c2a4cc0737c8": function(p0i32,p1i32,p2i32,p3i32) {
-/******/ 							if(wasmImportedFuncCache251 === undefined) wasmImportedFuncCache251 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache251["__wbg_getContext_10d5c2a4cc0737c8"](p0i32,p1i32,p2i32,p3i32);
-/******/ 						},
-/******/ 						"__wbg_touches_7397ce4df4dceded": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache252 === undefined) wasmImportedFuncCache252 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache252["__wbg_touches_7397ce4df4dceded"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_changedTouches_363278e8a9a95419": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache253 === undefined) wasmImportedFuncCache253 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache253["__wbg_changedTouches_363278e8a9a95419"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_type_e32f387f5584c765": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache254 === undefined) wasmImportedFuncCache254 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache254["__wbg_type_e32f387f5584c765"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_preventDefault_fa00541ff125b78c": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache255 === undefined) wasmImportedFuncCache255 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache255["__wbg_preventDefault_fa00541ff125b78c"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_stopPropagation_da586180676fa914": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache256 === undefined) wasmImportedFuncCache256 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache256["__wbg_stopPropagation_da586180676fa914"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_keyCode_8a05b1390fced3c8": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache257 === undefined) wasmImportedFuncCache257 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache257["__wbg_keyCode_8a05b1390fced3c8"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_altKey_773e7f8151c49bb1": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache258 === undefined) wasmImportedFuncCache258 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache258["__wbg_altKey_773e7f8151c49bb1"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_ctrlKey_8c7ff99be598479e": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache259 === undefined) wasmImportedFuncCache259 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache259["__wbg_ctrlKey_8c7ff99be598479e"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_shiftKey_894b631364d8db13": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache260 === undefined) wasmImportedFuncCache260 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache260["__wbg_shiftKey_894b631364d8db13"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_metaKey_99a7d3732e1b7856": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache261 === undefined) wasmImportedFuncCache261 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache261["__wbg_metaKey_99a7d3732e1b7856"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_isComposing_b892666abf384da9": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache262 === undefined) wasmImportedFuncCache262 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache262["__wbg_isComposing_b892666abf384da9"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_key_7f10b1291a923361": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache263 === undefined) wasmImportedFuncCache263 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache263["__wbg_key_7f10b1291a923361"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_setsrc_b0a1ac4dd261ae2d": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache264 === undefined) wasmImportedFuncCache264 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache264["__wbg_setsrc_b0a1ac4dd261ae2d"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_setcrossOrigin_07e0e4935571a4c5": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache265 === undefined) wasmImportedFuncCache265 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache265["__wbg_setcrossOrigin_07e0e4935571a4c5"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_width_6c4cad65073b3852": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache266 === undefined) wasmImportedFuncCache266 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache266["__wbg_width_6c4cad65073b3852"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_height_133772b066cfc559": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache267 === undefined) wasmImportedFuncCache267 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache267["__wbg_height_133772b066cfc559"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_new_da67f111e299956e": function() {
-/******/ 							if(wasmImportedFuncCache268 === undefined) wasmImportedFuncCache268 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache268["__wbg_new_da67f111e299956e"]();
-/******/ 						},
-/******/ 						"__wbg_type_8bc3e57acd2158c9": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache269 === undefined) wasmImportedFuncCache269 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache269["__wbg_type_8bc3e57acd2158c9"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_userAgent_3f63af8b4fe2331c": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache270 === undefined) wasmImportedFuncCache270 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache270["__wbg_userAgent_3f63af8b4fe2331c"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_name_9a61dbbdbfb2d0de": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache271 === undefined) wasmImportedFuncCache271 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache271["__wbg_name_9a61dbbdbfb2d0de"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_lastModified_0de23a8c5214f2fb": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache272 === undefined) wasmImportedFuncCache272 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache272["__wbg_lastModified_0de23a8c5214f2fb"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_name_4ada8b70ffadb5c0": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache273 === undefined) wasmImportedFuncCache273 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache273["__wbg_name_4ada8b70ffadb5c0"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_error_ca520cb687b085a1": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache274 === undefined) wasmImportedFuncCache274 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache274["__wbg_error_ca520cb687b085a1"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_log_fbd13631356d44e4": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache275 === undefined) wasmImportedFuncCache275 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache275["__wbg_log_fbd13631356d44e4"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_warn_97f10a6b0dbb8c5c": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache276 === undefined) wasmImportedFuncCache276 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache276["__wbg_warn_97f10a6b0dbb8c5c"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_deltaX_df228181f4d1a561": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache277 === undefined) wasmImportedFuncCache277 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache277["__wbg_deltaX_df228181f4d1a561"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_deltaY_afa6edde136e1500": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache278 === undefined) wasmImportedFuncCache278 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache278["__wbg_deltaY_afa6edde136e1500"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_deltaMode_ed9d7974a0c11323": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache279 === undefined) wasmImportedFuncCache279 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache279["__wbg_deltaMode_ed9d7974a0c11323"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_setonerror_d665b35adb3552fb": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache280 === undefined) wasmImportedFuncCache280 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache280["__wbg_setonerror_d665b35adb3552fb"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_setonload_18033df8ec5db791": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache281 === undefined) wasmImportedFuncCache281 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache281["__wbg_setonload_18033df8ec5db791"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_addEventListener_6bdba88519fdc1c9": function(p0i32,p1i32,p2i32,p3i32) {
-/******/ 							if(wasmImportedFuncCache282 === undefined) wasmImportedFuncCache282 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache282["__wbg_addEventListener_6bdba88519fdc1c9"](p0i32,p1i32,p2i32,p3i32);
-/******/ 						},
-/******/ 						"__wbg_size_20c167ba9040b895": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache283 === undefined) wasmImportedFuncCache283 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache283["__wbg_size_20c167ba9040b895"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_arrayBuffer_8b5364ee9b393098": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache284 === undefined) wasmImportedFuncCache284 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache284["__wbg_arrayBuffer_8b5364ee9b393098"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_items_d571f433ef73ee49": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache285 === undefined) wasmImportedFuncCache285 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache285["__wbg_items_d571f433ef73ee49"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_files_a4192b4f5967317b": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache286 === undefined) wasmImportedFuncCache286 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache286["__wbg_files_a4192b4f5967317b"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_body_7538539844356c1c": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache287 === undefined) wasmImportedFuncCache287 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache287["__wbg_body_7538539844356c1c"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_createElement_d017b8d2af99bab9": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache288 === undefined) wasmImportedFuncCache288 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache288["__wbg_createElement_d017b8d2af99bab9"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_getElementById_b30e88aff96f66a1": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache289 === undefined) wasmImportedFuncCache289 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache289["__wbg_getElementById_b30e88aff96f66a1"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_data_9562112603a9aa89": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache290 === undefined) wasmImportedFuncCache290 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache290["__wbg_data_9562112603a9aa89"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_instanceof_HtmlInputElement_8969541a2a0bded0": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache291 === undefined) wasmImportedFuncCache291 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache291["__wbg_instanceof_HtmlInputElement_8969541a2a0bded0"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_setautofocus_a2ae37091dfbe4af": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache292 === undefined) wasmImportedFuncCache292 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache292["__wbg_setautofocus_a2ae37091dfbe4af"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_setsize_90d1034a7a757a50": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache293 === undefined) wasmImportedFuncCache293 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache293["__wbg_setsize_90d1034a7a757a50"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_value_fc1c354d1a0e9714": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache294 === undefined) wasmImportedFuncCache294 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache294["__wbg_value_fc1c354d1a0e9714"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_setvalue_ce4a23f487065c07": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache295 === undefined) wasmImportedFuncCache295 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache295["__wbg_setvalue_ce4a23f487065c07"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_now_5fa0ca001e042f8a": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache296 === undefined) wasmImportedFuncCache296 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache296["__wbg_now_5fa0ca001e042f8a"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_appendChild_3fe5090c665d3bb4": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache297 === undefined) wasmImportedFuncCache297 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache297["__wbg_appendChild_3fe5090c665d3bb4"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_top_a24b8b81afea659b": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache298 === undefined) wasmImportedFuncCache298 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache298["__wbg_top_a24b8b81afea659b"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_left_0e681cb8fd277739": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache299 === undefined) wasmImportedFuncCache299 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache299["__wbg_left_0e681cb8fd277739"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_identifier_afa8b01d4d901685": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache300 === undefined) wasmImportedFuncCache300 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache300["__wbg_identifier_afa8b01d4d901685"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_pageX_e0c8221ecfdb73d0": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache301 === undefined) wasmImportedFuncCache301 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache301["__wbg_pageX_e0c8221ecfdb73d0"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_pageY_32100ad7039a744e": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache302 === undefined) wasmImportedFuncCache302 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache302["__wbg_pageY_32100ad7039a744e"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_force_8e51e1fec066aade": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache303 === undefined) wasmImportedFuncCache303 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache303["__wbg_force_8e51e1fec066aade"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_getPropertyValue_fd6ae3726bda9d7f": function(p0i32,p1i32,p2i32,p3i32) {
-/******/ 							if(wasmImportedFuncCache304 === undefined) wasmImportedFuncCache304 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache304["__wbg_getPropertyValue_fd6ae3726bda9d7f"](p0i32,p1i32,p2i32,p3i32);
-/******/ 						},
-/******/ 						"__wbg_setProperty_ebb06e7fa941d6a8": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
-/******/ 							if(wasmImportedFuncCache305 === undefined) wasmImportedFuncCache305 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache305["__wbg_setProperty_ebb06e7fa941d6a8"](p0i32,p1i32,p2i32,p3i32,p4i32);
-/******/ 						},
-/******/ 						"__wbg_getwithindex_5caaba1b5b3e6e18": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache306 === undefined) wasmImportedFuncCache306 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache306["__wbg_getwithindex_5caaba1b5b3e6e18"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache244 === undefined) wasmImportedFuncCache244 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache244["__wbg_log_a39f164b49616cb0"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_instanceof_Window_434ce1849eb4e0fc": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache307 === undefined) wasmImportedFuncCache307 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache307["__wbg_instanceof_Window_434ce1849eb4e0fc"](p0i32);
+/******/ 							if(wasmImportedFuncCache245 === undefined) wasmImportedFuncCache245 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache245["__wbg_instanceof_Window_434ce1849eb4e0fc"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_document_5edd43643d1060d9": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache308 === undefined) wasmImportedFuncCache308 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache308["__wbg_document_5edd43643d1060d9"](p0i32);
+/******/ 							if(wasmImportedFuncCache246 === undefined) wasmImportedFuncCache246 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache246["__wbg_document_5edd43643d1060d9"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_navigator_0e0588c949560476": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache309 === undefined) wasmImportedFuncCache309 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache309["__wbg_navigator_0e0588c949560476"](p0i32);
+/******/ 							if(wasmImportedFuncCache247 === undefined) wasmImportedFuncCache247 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache247["__wbg_navigator_0e0588c949560476"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_innerWidth_405786923c1d2641": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache310 === undefined) wasmImportedFuncCache310 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache310["__wbg_innerWidth_405786923c1d2641"](p0i32);
+/******/ 							if(wasmImportedFuncCache248 === undefined) wasmImportedFuncCache248 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache248["__wbg_innerWidth_405786923c1d2641"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_innerHeight_25d3be0d129329c3": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache311 === undefined) wasmImportedFuncCache311 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache311["__wbg_innerHeight_25d3be0d129329c3"](p0i32);
+/******/ 							if(wasmImportedFuncCache249 === undefined) wasmImportedFuncCache249 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache249["__wbg_innerHeight_25d3be0d129329c3"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_devicePixelRatio_9632545370d525ae": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache312 === undefined) wasmImportedFuncCache312 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache312["__wbg_devicePixelRatio_9632545370d525ae"](p0i32);
+/******/ 							if(wasmImportedFuncCache250 === undefined) wasmImportedFuncCache250 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache250["__wbg_devicePixelRatio_9632545370d525ae"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_performance_bbca4ccfaef860b2": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache313 === undefined) wasmImportedFuncCache313 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache313["__wbg_performance_bbca4ccfaef860b2"](p0i32);
+/******/ 							if(wasmImportedFuncCache251 === undefined) wasmImportedFuncCache251 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache251["__wbg_performance_bbca4ccfaef860b2"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_open_67fbcd7373a90ddc": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
-/******/ 							if(wasmImportedFuncCache314 === undefined) wasmImportedFuncCache314 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache314["__wbg_open_67fbcd7373a90ddc"](p0i32,p1i32,p2i32,p3i32,p4i32);
+/******/ 							if(wasmImportedFuncCache252 === undefined) wasmImportedFuncCache252 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache252["__wbg_open_67fbcd7373a90ddc"](p0i32,p1i32,p2i32,p3i32,p4i32);
 /******/ 						},
 /******/ 						"__wbg_requestAnimationFrame_0c71cd3c6779a371": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache315 === undefined) wasmImportedFuncCache315 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache315["__wbg_requestAnimationFrame_0c71cd3c6779a371"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache253 === undefined) wasmImportedFuncCache253 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache253["__wbg_requestAnimationFrame_0c71cd3c6779a371"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_setTimeout_1c75092906446b91": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache316 === undefined) wasmImportedFuncCache316 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache316["__wbg_setTimeout_1c75092906446b91"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_length_01a613025b5ffd74": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache317 === undefined) wasmImportedFuncCache317 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache317["__wbg_length_01a613025b5ffd74"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_item_b192ab411bbfbb09": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache318 === undefined) wasmImportedFuncCache318 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache318["__wbg_item_b192ab411bbfbb09"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_get_a765dab923455e0d": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache319 === undefined) wasmImportedFuncCache319 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache319["__wbg_get_a765dab923455e0d"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_length_a2882c668bdf6488": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache320 === undefined) wasmImportedFuncCache320 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache320["__wbg_length_a2882c668bdf6488"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_get_1c01a7682a9775bb": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache321 === undefined) wasmImportedFuncCache321 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache321["__wbg_get_1c01a7682a9775bb"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_id_79dca31d8297faf1": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache322 === undefined) wasmImportedFuncCache322 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache322["__wbg_id_79dca31d8297faf1"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_setid_73be37238eaa05be": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache323 === undefined) wasmImportedFuncCache323 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache323["__wbg_setid_73be37238eaa05be"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_scrollLeft_e8aba47a94d12290": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache324 === undefined) wasmImportedFuncCache324 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache324["__wbg_scrollLeft_e8aba47a94d12290"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_getBoundingClientRect_534c1b96b6e612d3": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache325 === undefined) wasmImportedFuncCache325 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache325["__wbg_getBoundingClientRect_534c1b96b6e612d3"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_getElementsByClassName_8a7d00ed3eaf1522": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache326 === undefined) wasmImportedFuncCache326 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache326["__wbg_getElementsByClassName_8a7d00ed3eaf1522"](p0i32,p1i32,p2i32);
+/******/ 							if(wasmImportedFuncCache254 === undefined) wasmImportedFuncCache254 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache254["__wbg_setTimeout_1c75092906446b91"](p0i32,p1i32,p2i32);
 /******/ 						},
 /******/ 						"__wbg_length_41b205f6892bf9d9": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache327 === undefined) wasmImportedFuncCache327 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache327["__wbg_length_41b205f6892bf9d9"](p0i32);
+/******/ 							if(wasmImportedFuncCache255 === undefined) wasmImportedFuncCache255 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache255["__wbg_length_41b205f6892bf9d9"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_get_bdec89fd60d07530": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache328 === undefined) wasmImportedFuncCache328 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache328["__wbg_get_bdec89fd60d07530"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache256 === undefined) wasmImportedFuncCache256 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache256["__wbg_get_bdec89fd60d07530"](p0i32,p1i32);
 /******/ 						},
-/******/ 						"__wbg_dataTransfer_bc4c0501385a0c8e": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache329 === undefined) wasmImportedFuncCache329 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache329["__wbg_dataTransfer_bc4c0501385a0c8e"](p0i32);
+/******/ 						"__wbg_body_7538539844356c1c": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache257 === undefined) wasmImportedFuncCache257 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache257["__wbg_body_7538539844356c1c"](p0i32);
 /******/ 						},
-/******/ 						"__wbg_drawElementsInstancedANGLE_e184bb1bad14df88": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32) {
-/******/ 							if(wasmImportedFuncCache330 === undefined) wasmImportedFuncCache330 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache330["__wbg_drawElementsInstancedANGLE_e184bb1bad14df88"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32);
+/******/ 						"__wbg_createElement_d017b8d2af99bab9": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache258 === undefined) wasmImportedFuncCache258 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache258["__wbg_createElement_d017b8d2af99bab9"](p0i32,p1i32,p2i32);
 /******/ 						},
-/******/ 						"__wbg_vertexAttribDivisorANGLE_2dc41a79843a435c": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache331 === undefined) wasmImportedFuncCache331 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache331["__wbg_vertexAttribDivisorANGLE_2dc41a79843a435c"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_scrollTop_5ebd5c6591748d6e": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache332 === undefined) wasmImportedFuncCache332 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache332["__wbg_scrollTop_5ebd5c6591748d6e"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_hidden_f7a620ec4ab18ce5": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache333 === undefined) wasmImportedFuncCache333 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache333["__wbg_hidden_f7a620ec4ab18ce5"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_sethidden_fdaefd7e7da7e4c0": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache334 === undefined) wasmImportedFuncCache334 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache334["__wbg_sethidden_fdaefd7e7da7e4c0"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_style_16f5dd9624687c8f": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache335 === undefined) wasmImportedFuncCache335 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache335["__wbg_style_16f5dd9624687c8f"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_offsetTop_45111254e7b26a1f": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache336 === undefined) wasmImportedFuncCache336 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache336["__wbg_offsetTop_45111254e7b26a1f"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_offsetLeft_be5393bf9eec5766": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache337 === undefined) wasmImportedFuncCache337 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache337["__wbg_offsetLeft_be5393bf9eec5766"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_offsetWidth_bc683e2f57ea2d6b": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache338 === undefined) wasmImportedFuncCache338 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache338["__wbg_offsetWidth_bc683e2f57ea2d6b"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_setonload_9235de4503eb82c8": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache339 === undefined) wasmImportedFuncCache339 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache339["__wbg_setonload_9235de4503eb82c8"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_setonerror_939f617c2b40758c": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache340 === undefined) wasmImportedFuncCache340 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache340["__wbg_setonerror_939f617c2b40758c"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_blur_2156876090506146": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache341 === undefined) wasmImportedFuncCache341 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache341["__wbg_blur_2156876090506146"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_focus_4434360545ac99cf": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache342 === undefined) wasmImportedFuncCache342 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache342["__wbg_focus_4434360545ac99cf"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_responseURL_a3e549a88db1c1f7": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache343 === undefined) wasmImportedFuncCache343 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache343["__wbg_responseURL_a3e549a88db1c1f7"](p0i32,p1i32);
+/******/ 						"__wbg_getElementById_b30e88aff96f66a1": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache259 === undefined) wasmImportedFuncCache259 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache259["__wbg_getElementById_b30e88aff96f66a1"](p0i32,p1i32,p2i32);
 /******/ 						},
 /******/ 						"__wbg_setresponseType_e5326d926ee8e787": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache344 === undefined) wasmImportedFuncCache344 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache344["__wbg_setresponseType_e5326d926ee8e787"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache260 === undefined) wasmImportedFuncCache260 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache260["__wbg_setresponseType_e5326d926ee8e787"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_response_8b12ac238727ae0e": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache345 === undefined) wasmImportedFuncCache345 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache345["__wbg_response_8b12ac238727ae0e"](p0i32);
+/******/ 							if(wasmImportedFuncCache261 === undefined) wasmImportedFuncCache261 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache261["__wbg_response_8b12ac238727ae0e"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_new_08dfde0f90155eb7": function() {
-/******/ 							if(wasmImportedFuncCache346 === undefined) wasmImportedFuncCache346 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache346["__wbg_new_08dfde0f90155eb7"]();
+/******/ 							if(wasmImportedFuncCache262 === undefined) wasmImportedFuncCache262 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache262["__wbg_new_08dfde0f90155eb7"]();
 /******/ 						},
 /******/ 						"__wbg_open_7190f43b39e7f488": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32) {
-/******/ 							if(wasmImportedFuncCache347 === undefined) wasmImportedFuncCache347 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache347["__wbg_open_7190f43b39e7f488"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32);
+/******/ 							if(wasmImportedFuncCache263 === undefined) wasmImportedFuncCache263 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache263["__wbg_open_7190f43b39e7f488"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32);
 /******/ 						},
 /******/ 						"__wbg_send_84c8dd943b775f78": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache348 === undefined) wasmImportedFuncCache348 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache348["__wbg_send_84c8dd943b775f78"](p0i32);
+/******/ 							if(wasmImportedFuncCache264 === undefined) wasmImportedFuncCache264 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache264["__wbg_send_84c8dd943b775f78"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_keyCode_8a05b1390fced3c8": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache265 === undefined) wasmImportedFuncCache265 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache265["__wbg_keyCode_8a05b1390fced3c8"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_altKey_773e7f8151c49bb1": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache266 === undefined) wasmImportedFuncCache266 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache266["__wbg_altKey_773e7f8151c49bb1"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_ctrlKey_8c7ff99be598479e": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache267 === undefined) wasmImportedFuncCache267 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache267["__wbg_ctrlKey_8c7ff99be598479e"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_shiftKey_894b631364d8db13": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache268 === undefined) wasmImportedFuncCache268 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache268["__wbg_shiftKey_894b631364d8db13"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_metaKey_99a7d3732e1b7856": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache269 === undefined) wasmImportedFuncCache269 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache269["__wbg_metaKey_99a7d3732e1b7856"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_isComposing_b892666abf384da9": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache270 === undefined) wasmImportedFuncCache270 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache270["__wbg_isComposing_b892666abf384da9"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_key_7f10b1291a923361": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache271 === undefined) wasmImportedFuncCache271 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache271["__wbg_key_7f10b1291a923361"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_error_ca520cb687b085a1": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache272 === undefined) wasmImportedFuncCache272 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache272["__wbg_error_ca520cb687b085a1"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_log_fbd13631356d44e4": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache273 === undefined) wasmImportedFuncCache273 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache273["__wbg_log_fbd13631356d44e4"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_warn_97f10a6b0dbb8c5c": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache274 === undefined) wasmImportedFuncCache274 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache274["__wbg_warn_97f10a6b0dbb8c5c"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_length_01a613025b5ffd74": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache275 === undefined) wasmImportedFuncCache275 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache275["__wbg_length_01a613025b5ffd74"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_item_b192ab411bbfbb09": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache276 === undefined) wasmImportedFuncCache276 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache276["__wbg_item_b192ab411bbfbb09"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_get_a765dab923455e0d": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache277 === undefined) wasmImportedFuncCache277 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache277["__wbg_get_a765dab923455e0d"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_getPropertyValue_fd6ae3726bda9d7f": function(p0i32,p1i32,p2i32,p3i32) {
+/******/ 							if(wasmImportedFuncCache278 === undefined) wasmImportedFuncCache278 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache278["__wbg_getPropertyValue_fd6ae3726bda9d7f"](p0i32,p1i32,p2i32,p3i32);
+/******/ 						},
+/******/ 						"__wbg_setProperty_ebb06e7fa941d6a8": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
+/******/ 							if(wasmImportedFuncCache279 === undefined) wasmImportedFuncCache279 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache279["__wbg_setProperty_ebb06e7fa941d6a8"](p0i32,p1i32,p2i32,p3i32,p4i32);
 /******/ 						},
 /******/ 						"__wbg_clientX_849ccdf456d662ac": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache349 === undefined) wasmImportedFuncCache349 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache349["__wbg_clientX_849ccdf456d662ac"](p0i32);
+/******/ 							if(wasmImportedFuncCache280 === undefined) wasmImportedFuncCache280 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache280["__wbg_clientX_849ccdf456d662ac"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_clientY_1aaff30fe0cd0876": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache350 === undefined) wasmImportedFuncCache350 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache350["__wbg_clientY_1aaff30fe0cd0876"](p0i32);
+/******/ 							if(wasmImportedFuncCache281 === undefined) wasmImportedFuncCache281 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache281["__wbg_clientY_1aaff30fe0cd0876"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_ctrlKey_4e536bedb069129f": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache351 === undefined) wasmImportedFuncCache351 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache351["__wbg_ctrlKey_4e536bedb069129f"](p0i32);
+/******/ 							if(wasmImportedFuncCache282 === undefined) wasmImportedFuncCache282 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache282["__wbg_ctrlKey_4e536bedb069129f"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_metaKey_0b396e35a4941247": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache352 === undefined) wasmImportedFuncCache352 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache352["__wbg_metaKey_0b396e35a4941247"](p0i32);
+/******/ 							if(wasmImportedFuncCache283 === undefined) wasmImportedFuncCache283 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache283["__wbg_metaKey_0b396e35a4941247"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_button_a18f33eb55774d89": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache353 === undefined) wasmImportedFuncCache353 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache353["__wbg_button_a18f33eb55774d89"](p0i32);
+/******/ 							if(wasmImportedFuncCache284 === undefined) wasmImportedFuncCache284 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache284["__wbg_button_a18f33eb55774d89"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_userAgent_3f63af8b4fe2331c": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache285 === undefined) wasmImportedFuncCache285 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache285["__wbg_userAgent_3f63af8b4fe2331c"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_identifier_afa8b01d4d901685": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache286 === undefined) wasmImportedFuncCache286 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache286["__wbg_identifier_afa8b01d4d901685"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_pageX_e0c8221ecfdb73d0": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache287 === undefined) wasmImportedFuncCache287 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache287["__wbg_pageX_e0c8221ecfdb73d0"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_pageY_32100ad7039a744e": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache288 === undefined) wasmImportedFuncCache288 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache288["__wbg_pageY_32100ad7039a744e"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_force_8e51e1fec066aade": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache289 === undefined) wasmImportedFuncCache289 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache289["__wbg_force_8e51e1fec066aade"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_scrollTop_5ebd5c6591748d6e": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache290 === undefined) wasmImportedFuncCache290 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache290["__wbg_scrollTop_5ebd5c6591748d6e"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_hidden_f7a620ec4ab18ce5": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache291 === undefined) wasmImportedFuncCache291 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache291["__wbg_hidden_f7a620ec4ab18ce5"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_sethidden_fdaefd7e7da7e4c0": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache292 === undefined) wasmImportedFuncCache292 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache292["__wbg_sethidden_fdaefd7e7da7e4c0"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_style_16f5dd9624687c8f": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache293 === undefined) wasmImportedFuncCache293 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache293["__wbg_style_16f5dd9624687c8f"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_offsetTop_45111254e7b26a1f": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache294 === undefined) wasmImportedFuncCache294 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache294["__wbg_offsetTop_45111254e7b26a1f"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_offsetLeft_be5393bf9eec5766": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache295 === undefined) wasmImportedFuncCache295 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache295["__wbg_offsetLeft_be5393bf9eec5766"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_offsetWidth_bc683e2f57ea2d6b": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache296 === undefined) wasmImportedFuncCache296 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache296["__wbg_offsetWidth_bc683e2f57ea2d6b"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_setonload_9235de4503eb82c8": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache297 === undefined) wasmImportedFuncCache297 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache297["__wbg_setonload_9235de4503eb82c8"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_setonerror_939f617c2b40758c": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache298 === undefined) wasmImportedFuncCache298 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache298["__wbg_setonerror_939f617c2b40758c"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_blur_2156876090506146": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache299 === undefined) wasmImportedFuncCache299 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache299["__wbg_blur_2156876090506146"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_focus_4434360545ac99cf": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache300 === undefined) wasmImportedFuncCache300 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache300["__wbg_focus_4434360545ac99cf"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_deltaX_df228181f4d1a561": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache301 === undefined) wasmImportedFuncCache301 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache301["__wbg_deltaX_df228181f4d1a561"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_deltaY_afa6edde136e1500": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache302 === undefined) wasmImportedFuncCache302 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache302["__wbg_deltaY_afa6edde136e1500"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_deltaMode_ed9d7974a0c11323": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache303 === undefined) wasmImportedFuncCache303 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache303["__wbg_deltaMode_ed9d7974a0c11323"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_drawElementsInstancedANGLE_e184bb1bad14df88": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32) {
+/******/ 							if(wasmImportedFuncCache304 === undefined) wasmImportedFuncCache304 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache304["__wbg_drawElementsInstancedANGLE_e184bb1bad14df88"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32);
+/******/ 						},
+/******/ 						"__wbg_vertexAttribDivisorANGLE_2dc41a79843a435c": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache305 === undefined) wasmImportedFuncCache305 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache305["__wbg_vertexAttribDivisorANGLE_2dc41a79843a435c"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_length_a2882c668bdf6488": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache306 === undefined) wasmImportedFuncCache306 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache306["__wbg_length_a2882c668bdf6488"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_get_1c01a7682a9775bb": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache307 === undefined) wasmImportedFuncCache307 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache307["__wbg_get_1c01a7682a9775bb"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_id_79dca31d8297faf1": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache308 === undefined) wasmImportedFuncCache308 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache308["__wbg_id_79dca31d8297faf1"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_setid_73be37238eaa05be": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache309 === undefined) wasmImportedFuncCache309 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache309["__wbg_setid_73be37238eaa05be"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_scrollLeft_e8aba47a94d12290": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache310 === undefined) wasmImportedFuncCache310 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache310["__wbg_scrollLeft_e8aba47a94d12290"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_getBoundingClientRect_534c1b96b6e612d3": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache311 === undefined) wasmImportedFuncCache311 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache311["__wbg_getBoundingClientRect_534c1b96b6e612d3"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_getElementsByClassName_8a7d00ed3eaf1522": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache312 === undefined) wasmImportedFuncCache312 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache312["__wbg_getElementsByClassName_8a7d00ed3eaf1522"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_touches_7397ce4df4dceded": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache313 === undefined) wasmImportedFuncCache313 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache313["__wbg_touches_7397ce4df4dceded"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_changedTouches_363278e8a9a95419": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache314 === undefined) wasmImportedFuncCache314 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache314["__wbg_changedTouches_363278e8a9a95419"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_type_8bc3e57acd2158c9": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache315 === undefined) wasmImportedFuncCache315 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache315["__wbg_type_8bc3e57acd2158c9"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_data_9562112603a9aa89": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache316 === undefined) wasmImportedFuncCache316 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache316["__wbg_data_9562112603a9aa89"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_items_d571f433ef73ee49": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache317 === undefined) wasmImportedFuncCache317 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache317["__wbg_items_d571f433ef73ee49"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_files_a4192b4f5967317b": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache318 === undefined) wasmImportedFuncCache318 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache318["__wbg_files_a4192b4f5967317b"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_top_a24b8b81afea659b": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache319 === undefined) wasmImportedFuncCache319 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache319["__wbg_top_a24b8b81afea659b"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_left_0e681cb8fd277739": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache320 === undefined) wasmImportedFuncCache320 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache320["__wbg_left_0e681cb8fd277739"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_setsrc_b0a1ac4dd261ae2d": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache321 === undefined) wasmImportedFuncCache321 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache321["__wbg_setsrc_b0a1ac4dd261ae2d"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_setcrossOrigin_07e0e4935571a4c5": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache322 === undefined) wasmImportedFuncCache322 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache322["__wbg_setcrossOrigin_07e0e4935571a4c5"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_width_6c4cad65073b3852": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache323 === undefined) wasmImportedFuncCache323 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache323["__wbg_width_6c4cad65073b3852"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_height_133772b066cfc559": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache324 === undefined) wasmImportedFuncCache324 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache324["__wbg_height_133772b066cfc559"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_new_da67f111e299956e": function() {
+/******/ 							if(wasmImportedFuncCache325 === undefined) wasmImportedFuncCache325 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache325["__wbg_new_da67f111e299956e"]();
+/******/ 						},
+/******/ 						"__wbg_instanceof_HtmlInputElement_8969541a2a0bded0": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache326 === undefined) wasmImportedFuncCache326 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache326["__wbg_instanceof_HtmlInputElement_8969541a2a0bded0"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_setautofocus_a2ae37091dfbe4af": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache327 === undefined) wasmImportedFuncCache327 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache327["__wbg_setautofocus_a2ae37091dfbe4af"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_setsize_90d1034a7a757a50": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache328 === undefined) wasmImportedFuncCache328 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache328["__wbg_setsize_90d1034a7a757a50"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_value_fc1c354d1a0e9714": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache329 === undefined) wasmImportedFuncCache329 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache329["__wbg_value_fc1c354d1a0e9714"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_setvalue_ce4a23f487065c07": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache330 === undefined) wasmImportedFuncCache330 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache330["__wbg_setvalue_ce4a23f487065c07"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_now_5fa0ca001e042f8a": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache331 === undefined) wasmImportedFuncCache331 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache331["__wbg_now_5fa0ca001e042f8a"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_name_9a61dbbdbfb2d0de": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache332 === undefined) wasmImportedFuncCache332 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache332["__wbg_name_9a61dbbdbfb2d0de"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_lastModified_0de23a8c5214f2fb": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache333 === undefined) wasmImportedFuncCache333 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache333["__wbg_lastModified_0de23a8c5214f2fb"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_dataTransfer_bc4c0501385a0c8e": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache334 === undefined) wasmImportedFuncCache334 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache334["__wbg_dataTransfer_bc4c0501385a0c8e"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_size_20c167ba9040b895": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache335 === undefined) wasmImportedFuncCache335 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache335["__wbg_size_20c167ba9040b895"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_arrayBuffer_8b5364ee9b393098": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache336 === undefined) wasmImportedFuncCache336 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache336["__wbg_arrayBuffer_8b5364ee9b393098"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_appendChild_3fe5090c665d3bb4": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache337 === undefined) wasmImportedFuncCache337 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache337["__wbg_appendChild_3fe5090c665d3bb4"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_type_e32f387f5584c765": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache338 === undefined) wasmImportedFuncCache338 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache338["__wbg_type_e32f387f5584c765"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_preventDefault_fa00541ff125b78c": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache339 === undefined) wasmImportedFuncCache339 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache339["__wbg_preventDefault_fa00541ff125b78c"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_stopPropagation_da586180676fa914": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache340 === undefined) wasmImportedFuncCache340 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache340["__wbg_stopPropagation_da586180676fa914"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_getwithindex_5caaba1b5b3e6e18": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache341 === undefined) wasmImportedFuncCache341 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache341["__wbg_getwithindex_5caaba1b5b3e6e18"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_setonerror_d665b35adb3552fb": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache342 === undefined) wasmImportedFuncCache342 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache342["__wbg_setonerror_d665b35adb3552fb"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_setonload_18033df8ec5db791": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache343 === undefined) wasmImportedFuncCache343 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache343["__wbg_setonload_18033df8ec5db791"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_name_4ada8b70ffadb5c0": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache344 === undefined) wasmImportedFuncCache344 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache344["__wbg_name_4ada8b70ffadb5c0"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_instanceof_HtmlCanvasElement_a6157e470d06b638": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache345 === undefined) wasmImportedFuncCache345 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache345["__wbg_instanceof_HtmlCanvasElement_a6157e470d06b638"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_width_cfa982e2a6ad6297": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache346 === undefined) wasmImportedFuncCache346 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache346["__wbg_width_cfa982e2a6ad6297"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_setwidth_362e8db8cbadbe96": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache347 === undefined) wasmImportedFuncCache347 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache347["__wbg_setwidth_362e8db8cbadbe96"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_height_1b399500ca683487": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache348 === undefined) wasmImportedFuncCache348 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache348["__wbg_height_1b399500ca683487"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_setheight_28f53831182cc410": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache349 === undefined) wasmImportedFuncCache349 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache349["__wbg_setheight_28f53831182cc410"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_getContext_10d5c2a4cc0737c8": function(p0i32,p1i32,p2i32,p3i32) {
+/******/ 							if(wasmImportedFuncCache350 === undefined) wasmImportedFuncCache350 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache350["__wbg_getContext_10d5c2a4cc0737c8"](p0i32,p1i32,p2i32,p3i32);
+/******/ 						},
+/******/ 						"__wbg_addEventListener_6bdba88519fdc1c9": function(p0i32,p1i32,p2i32,p3i32) {
+/******/ 							if(wasmImportedFuncCache351 === undefined) wasmImportedFuncCache351 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache351["__wbg_addEventListener_6bdba88519fdc1c9"](p0i32,p1i32,p2i32,p3i32);
 /******/ 						},
 /******/ 						"__wbg_instanceof_WebGlRenderingContext_2be4c068bf5f8362": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache354 === undefined) wasmImportedFuncCache354 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache354["__wbg_instanceof_WebGlRenderingContext_2be4c068bf5f8362"](p0i32);
+/******/ 							if(wasmImportedFuncCache352 === undefined) wasmImportedFuncCache352 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache352["__wbg_instanceof_WebGlRenderingContext_2be4c068bf5f8362"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_canvas_d0b58be124e596e3": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache355 === undefined) wasmImportedFuncCache355 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache355["__wbg_canvas_d0b58be124e596e3"](p0i32);
+/******/ 							if(wasmImportedFuncCache353 === undefined) wasmImportedFuncCache353 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache353["__wbg_canvas_d0b58be124e596e3"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_bufferData_85d635f32a990208": function(p0i32,p1i32,p2i32,p3i32) {
-/******/ 							if(wasmImportedFuncCache356 === undefined) wasmImportedFuncCache356 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache356["__wbg_bufferData_85d635f32a990208"](p0i32,p1i32,p2i32,p3i32);
+/******/ 							if(wasmImportedFuncCache354 === undefined) wasmImportedFuncCache354 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache354["__wbg_bufferData_85d635f32a990208"](p0i32,p1i32,p2i32,p3i32);
 /******/ 						},
 /******/ 						"__wbg_bufferSubData_3a944e1fdad0cd9a": function(p0i32,p1i32,p2i32,p3i32) {
-/******/ 							if(wasmImportedFuncCache357 === undefined) wasmImportedFuncCache357 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache357["__wbg_bufferSubData_3a944e1fdad0cd9a"](p0i32,p1i32,p2i32,p3i32);
+/******/ 							if(wasmImportedFuncCache355 === undefined) wasmImportedFuncCache355 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache355["__wbg_bufferSubData_3a944e1fdad0cd9a"](p0i32,p1i32,p2i32,p3i32);
 /******/ 						},
 /******/ 						"__wbg_readPixels_3692eaca9dfc7c0c": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32) {
-/******/ 							if(wasmImportedFuncCache358 === undefined) wasmImportedFuncCache358 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache358["__wbg_readPixels_3692eaca9dfc7c0c"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32);
+/******/ 							if(wasmImportedFuncCache356 === undefined) wasmImportedFuncCache356 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache356["__wbg_readPixels_3692eaca9dfc7c0c"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32);
 /******/ 						},
 /******/ 						"__wbg_texImage2D_d26bd916ff0956a1": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32,p8i32,p9i32,p10i32) {
-/******/ 							if(wasmImportedFuncCache359 === undefined) wasmImportedFuncCache359 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache359["__wbg_texImage2D_d26bd916ff0956a1"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32,p8i32,p9i32,p10i32);
+/******/ 							if(wasmImportedFuncCache357 === undefined) wasmImportedFuncCache357 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache357["__wbg_texImage2D_d26bd916ff0956a1"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32,p8i32,p9i32,p10i32);
 /******/ 						},
 /******/ 						"__wbg_texImage2D_b46a9b691e69d90b": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32) {
-/******/ 							if(wasmImportedFuncCache360 === undefined) wasmImportedFuncCache360 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache360["__wbg_texImage2D_b46a9b691e69d90b"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32);
+/******/ 							if(wasmImportedFuncCache358 === undefined) wasmImportedFuncCache358 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache358["__wbg_texImage2D_b46a9b691e69d90b"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32);
 /******/ 						},
 /******/ 						"__wbg_texSubImage2D_d907a4c940fd6e41": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32,p8i32,p9i32) {
-/******/ 							if(wasmImportedFuncCache361 === undefined) wasmImportedFuncCache361 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache361["__wbg_texSubImage2D_d907a4c940fd6e41"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32,p8i32,p9i32);
+/******/ 							if(wasmImportedFuncCache359 === undefined) wasmImportedFuncCache359 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache359["__wbg_texSubImage2D_d907a4c940fd6e41"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32,p8i32,p9i32);
 /******/ 						},
 /******/ 						"__wbg_texSubImage2D_d9dc0ffd91998f0d": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32) {
-/******/ 							if(wasmImportedFuncCache362 === undefined) wasmImportedFuncCache362 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache362["__wbg_texSubImage2D_d9dc0ffd91998f0d"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32);
+/******/ 							if(wasmImportedFuncCache360 === undefined) wasmImportedFuncCache360 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache360["__wbg_texSubImage2D_d9dc0ffd91998f0d"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32,p7i32);
 /******/ 						},
 /******/ 						"__wbg_uniform1fv_e6a2134edff4f2e9": function(p0i32,p1i32,p2i32,p3i32) {
-/******/ 							if(wasmImportedFuncCache363 === undefined) wasmImportedFuncCache363 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache363["__wbg_uniform1fv_e6a2134edff4f2e9"](p0i32,p1i32,p2i32,p3i32);
+/******/ 							if(wasmImportedFuncCache361 === undefined) wasmImportedFuncCache361 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache361["__wbg_uniform1fv_e6a2134edff4f2e9"](p0i32,p1i32,p2i32,p3i32);
 /******/ 						},
 /******/ 						"__wbg_uniformMatrix2fv_aaa4e0f7c15bca04": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
-/******/ 							if(wasmImportedFuncCache364 === undefined) wasmImportedFuncCache364 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache364["__wbg_uniformMatrix2fv_aaa4e0f7c15bca04"](p0i32,p1i32,p2i32,p3i32,p4i32);
+/******/ 							if(wasmImportedFuncCache362 === undefined) wasmImportedFuncCache362 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache362["__wbg_uniformMatrix2fv_aaa4e0f7c15bca04"](p0i32,p1i32,p2i32,p3i32,p4i32);
 /******/ 						},
 /******/ 						"__wbg_uniformMatrix4fv_f07c6caf5a563616": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
-/******/ 							if(wasmImportedFuncCache365 === undefined) wasmImportedFuncCache365 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache365["__wbg_uniformMatrix4fv_f07c6caf5a563616"](p0i32,p1i32,p2i32,p3i32,p4i32);
+/******/ 							if(wasmImportedFuncCache363 === undefined) wasmImportedFuncCache363 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache363["__wbg_uniformMatrix4fv_f07c6caf5a563616"](p0i32,p1i32,p2i32,p3i32,p4i32);
 /******/ 						},
 /******/ 						"__wbg_activeTexture_74ed11a5c5d5af90": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache366 === undefined) wasmImportedFuncCache366 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache366["__wbg_activeTexture_74ed11a5c5d5af90"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache364 === undefined) wasmImportedFuncCache364 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache364["__wbg_activeTexture_74ed11a5c5d5af90"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_attachShader_55dbe770f3ee32ca": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache367 === undefined) wasmImportedFuncCache367 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache367["__wbg_attachShader_55dbe770f3ee32ca"](p0i32,p1i32,p2i32);
+/******/ 							if(wasmImportedFuncCache365 === undefined) wasmImportedFuncCache365 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache365["__wbg_attachShader_55dbe770f3ee32ca"](p0i32,p1i32,p2i32);
 /******/ 						},
 /******/ 						"__wbg_bindBuffer_29d52e7bc48650c3": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache368 === undefined) wasmImportedFuncCache368 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache368["__wbg_bindBuffer_29d52e7bc48650c3"](p0i32,p1i32,p2i32);
+/******/ 							if(wasmImportedFuncCache366 === undefined) wasmImportedFuncCache366 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache366["__wbg_bindBuffer_29d52e7bc48650c3"](p0i32,p1i32,p2i32);
 /******/ 						},
 /******/ 						"__wbg_bindFramebuffer_bd35ddd23765c7b6": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache369 === undefined) wasmImportedFuncCache369 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache369["__wbg_bindFramebuffer_bd35ddd23765c7b6"](p0i32,p1i32,p2i32);
+/******/ 							if(wasmImportedFuncCache367 === undefined) wasmImportedFuncCache367 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache367["__wbg_bindFramebuffer_bd35ddd23765c7b6"](p0i32,p1i32,p2i32);
 /******/ 						},
 /******/ 						"__wbg_bindTexture_198c816345baca83": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache370 === undefined) wasmImportedFuncCache370 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache370["__wbg_bindTexture_198c816345baca83"](p0i32,p1i32,p2i32);
+/******/ 							if(wasmImportedFuncCache368 === undefined) wasmImportedFuncCache368 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache368["__wbg_bindTexture_198c816345baca83"](p0i32,p1i32,p2i32);
 /******/ 						},
 /******/ 						"__wbg_blendEquation_09d56f3be6f914f5": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache371 === undefined) wasmImportedFuncCache371 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache371["__wbg_blendEquation_09d56f3be6f914f5"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache369 === undefined) wasmImportedFuncCache369 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache369["__wbg_blendEquation_09d56f3be6f914f5"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_blendFunc_c8f1e0fb4467f57c": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache372 === undefined) wasmImportedFuncCache372 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache372["__wbg_blendFunc_c8f1e0fb4467f57c"](p0i32,p1i32,p2i32);
+/******/ 							if(wasmImportedFuncCache370 === undefined) wasmImportedFuncCache370 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache370["__wbg_blendFunc_c8f1e0fb4467f57c"](p0i32,p1i32,p2i32);
 /******/ 						},
 /******/ 						"__wbg_blendFuncSeparate_494b1dae028cb9a9": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
-/******/ 							if(wasmImportedFuncCache373 === undefined) wasmImportedFuncCache373 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache373["__wbg_blendFuncSeparate_494b1dae028cb9a9"](p0i32,p1i32,p2i32,p3i32,p4i32);
+/******/ 							if(wasmImportedFuncCache371 === undefined) wasmImportedFuncCache371 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache371["__wbg_blendFuncSeparate_494b1dae028cb9a9"](p0i32,p1i32,p2i32,p3i32,p4i32);
 /******/ 						},
 /******/ 						"__wbg_clear_2af1271959ec83d7": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache374 === undefined) wasmImportedFuncCache374 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache374["__wbg_clear_2af1271959ec83d7"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache372 === undefined) wasmImportedFuncCache372 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache372["__wbg_clear_2af1271959ec83d7"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_clearColor_51c4f69c743c3252": function(p0i32,p1f32,p2f32,p3f32,p4f32) {
-/******/ 							if(wasmImportedFuncCache375 === undefined) wasmImportedFuncCache375 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache375["__wbg_clearColor_51c4f69c743c3252"](p0i32,p1f32,p2f32,p3f32,p4f32);
+/******/ 							if(wasmImportedFuncCache373 === undefined) wasmImportedFuncCache373 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache373["__wbg_clearColor_51c4f69c743c3252"](p0i32,p1f32,p2f32,p3f32,p4f32);
 /******/ 						},
 /******/ 						"__wbg_compileShader_3b5f9ef4c67a0777": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache376 === undefined) wasmImportedFuncCache376 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache376["__wbg_compileShader_3b5f9ef4c67a0777"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache374 === undefined) wasmImportedFuncCache374 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache374["__wbg_compileShader_3b5f9ef4c67a0777"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_createBuffer_c40f37e1348bb91f": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache377 === undefined) wasmImportedFuncCache377 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache377["__wbg_createBuffer_c40f37e1348bb91f"](p0i32);
+/******/ 							if(wasmImportedFuncCache375 === undefined) wasmImportedFuncCache375 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache375["__wbg_createBuffer_c40f37e1348bb91f"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_createFramebuffer_410b12a5cc5a8f13": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache378 === undefined) wasmImportedFuncCache378 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache378["__wbg_createFramebuffer_410b12a5cc5a8f13"](p0i32);
+/******/ 							if(wasmImportedFuncCache376 === undefined) wasmImportedFuncCache376 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache376["__wbg_createFramebuffer_410b12a5cc5a8f13"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_createProgram_245520da1fb9e47b": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache379 === undefined) wasmImportedFuncCache379 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache379["__wbg_createProgram_245520da1fb9e47b"](p0i32);
+/******/ 							if(wasmImportedFuncCache377 === undefined) wasmImportedFuncCache377 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache377["__wbg_createProgram_245520da1fb9e47b"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_createShader_4d8818a13cb825b3": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache380 === undefined) wasmImportedFuncCache380 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache380["__wbg_createShader_4d8818a13cb825b3"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache378 === undefined) wasmImportedFuncCache378 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache378["__wbg_createShader_4d8818a13cb825b3"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_createTexture_f3a6a715d6bada45": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache381 === undefined) wasmImportedFuncCache381 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache381["__wbg_createTexture_f3a6a715d6bada45"](p0i32);
+/******/ 							if(wasmImportedFuncCache379 === undefined) wasmImportedFuncCache379 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache379["__wbg_createTexture_f3a6a715d6bada45"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_cullFace_c6fb8a7309c36a38": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache382 === undefined) wasmImportedFuncCache382 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache382["__wbg_cullFace_c6fb8a7309c36a38"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache380 === undefined) wasmImportedFuncCache380 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache380["__wbg_cullFace_c6fb8a7309c36a38"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_deleteBuffer_c708688b9e1b3518": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache383 === undefined) wasmImportedFuncCache383 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache383["__wbg_deleteBuffer_c708688b9e1b3518"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache381 === undefined) wasmImportedFuncCache381 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache381["__wbg_deleteBuffer_c708688b9e1b3518"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_deleteFramebuffer_ca006f8649d4550a": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache384 === undefined) wasmImportedFuncCache384 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache384["__wbg_deleteFramebuffer_ca006f8649d4550a"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache382 === undefined) wasmImportedFuncCache382 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache382["__wbg_deleteFramebuffer_ca006f8649d4550a"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_deleteTexture_9159fb5927ed32c0": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache385 === undefined) wasmImportedFuncCache385 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache385["__wbg_deleteTexture_9159fb5927ed32c0"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache383 === undefined) wasmImportedFuncCache383 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache383["__wbg_deleteTexture_9159fb5927ed32c0"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_disable_2b63b75dc6c27537": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache386 === undefined) wasmImportedFuncCache386 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache386["__wbg_disable_2b63b75dc6c27537"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache384 === undefined) wasmImportedFuncCache384 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache384["__wbg_disable_2b63b75dc6c27537"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_disableVertexAttribArray_aa8458b40dd08914": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache387 === undefined) wasmImportedFuncCache387 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache387["__wbg_disableVertexAttribArray_aa8458b40dd08914"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache385 === undefined) wasmImportedFuncCache385 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache385["__wbg_disableVertexAttribArray_aa8458b40dd08914"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_drawArrays_22c88d644a33fd59": function(p0i32,p1i32,p2i32,p3i32) {
-/******/ 							if(wasmImportedFuncCache388 === undefined) wasmImportedFuncCache388 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache388["__wbg_drawArrays_22c88d644a33fd59"](p0i32,p1i32,p2i32,p3i32);
+/******/ 							if(wasmImportedFuncCache386 === undefined) wasmImportedFuncCache386 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache386["__wbg_drawArrays_22c88d644a33fd59"](p0i32,p1i32,p2i32,p3i32);
 /******/ 						},
 /******/ 						"__wbg_drawElements_6e26500a25ecf478": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
-/******/ 							if(wasmImportedFuncCache389 === undefined) wasmImportedFuncCache389 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache389["__wbg_drawElements_6e26500a25ecf478"](p0i32,p1i32,p2i32,p3i32,p4i32);
+/******/ 							if(wasmImportedFuncCache387 === undefined) wasmImportedFuncCache387 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache387["__wbg_drawElements_6e26500a25ecf478"](p0i32,p1i32,p2i32,p3i32,p4i32);
 /******/ 						},
 /******/ 						"__wbg_enable_8f6dd779ccb8e1de": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache390 === undefined) wasmImportedFuncCache390 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache390["__wbg_enable_8f6dd779ccb8e1de"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache388 === undefined) wasmImportedFuncCache388 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache388["__wbg_enable_8f6dd779ccb8e1de"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_enableVertexAttribArray_4ed5f91d0718bee1": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache391 === undefined) wasmImportedFuncCache391 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache391["__wbg_enableVertexAttribArray_4ed5f91d0718bee1"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache389 === undefined) wasmImportedFuncCache389 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache389["__wbg_enableVertexAttribArray_4ed5f91d0718bee1"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_framebufferTexture2D_31643260e5b0b294": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32) {
-/******/ 							if(wasmImportedFuncCache392 === undefined) wasmImportedFuncCache392 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache392["__wbg_framebufferTexture2D_31643260e5b0b294"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32);
+/******/ 							if(wasmImportedFuncCache390 === undefined) wasmImportedFuncCache390 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache390["__wbg_framebufferTexture2D_31643260e5b0b294"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32);
 /******/ 						},
 /******/ 						"__wbg_getActiveUniform_3851244f8fc5db53": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache393 === undefined) wasmImportedFuncCache393 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache393["__wbg_getActiveUniform_3851244f8fc5db53"](p0i32,p1i32,p2i32);
+/******/ 							if(wasmImportedFuncCache391 === undefined) wasmImportedFuncCache391 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache391["__wbg_getActiveUniform_3851244f8fc5db53"](p0i32,p1i32,p2i32);
 /******/ 						},
 /******/ 						"__wbg_getAttribLocation_da5df7094096113d": function(p0i32,p1i32,p2i32,p3i32) {
-/******/ 							if(wasmImportedFuncCache394 === undefined) wasmImportedFuncCache394 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache394["__wbg_getAttribLocation_da5df7094096113d"](p0i32,p1i32,p2i32,p3i32);
+/******/ 							if(wasmImportedFuncCache392 === undefined) wasmImportedFuncCache392 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache392["__wbg_getAttribLocation_da5df7094096113d"](p0i32,p1i32,p2i32,p3i32);
 /******/ 						},
 /******/ 						"__wbg_getExtension_c6ceee3244ee7f20": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache395 === undefined) wasmImportedFuncCache395 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache395["__wbg_getExtension_c6ceee3244ee7f20"](p0i32,p1i32,p2i32);
+/******/ 							if(wasmImportedFuncCache393 === undefined) wasmImportedFuncCache393 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache393["__wbg_getExtension_c6ceee3244ee7f20"](p0i32,p1i32,p2i32);
 /******/ 						},
 /******/ 						"__wbg_getProgramInfoLog_c253042b64e86027": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache396 === undefined) wasmImportedFuncCache396 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache396["__wbg_getProgramInfoLog_c253042b64e86027"](p0i32,p1i32,p2i32);
+/******/ 							if(wasmImportedFuncCache394 === undefined) wasmImportedFuncCache394 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache394["__wbg_getProgramInfoLog_c253042b64e86027"](p0i32,p1i32,p2i32);
 /******/ 						},
 /******/ 						"__wbg_getProgramParameter_4f698af0dda0a2d4": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache397 === undefined) wasmImportedFuncCache397 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache397["__wbg_getProgramParameter_4f698af0dda0a2d4"](p0i32,p1i32,p2i32);
+/******/ 							if(wasmImportedFuncCache395 === undefined) wasmImportedFuncCache395 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache395["__wbg_getProgramParameter_4f698af0dda0a2d4"](p0i32,p1i32,p2i32);
 /******/ 						},
 /******/ 						"__wbg_getShaderInfoLog_584794e3bcf1e19b": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache398 === undefined) wasmImportedFuncCache398 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache398["__wbg_getShaderInfoLog_584794e3bcf1e19b"](p0i32,p1i32,p2i32);
+/******/ 							if(wasmImportedFuncCache396 === undefined) wasmImportedFuncCache396 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache396["__wbg_getShaderInfoLog_584794e3bcf1e19b"](p0i32,p1i32,p2i32);
 /******/ 						},
 /******/ 						"__wbg_getShaderParameter_64b1ffe576e5fa25": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache399 === undefined) wasmImportedFuncCache399 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache399["__wbg_getShaderParameter_64b1ffe576e5fa25"](p0i32,p1i32,p2i32);
+/******/ 							if(wasmImportedFuncCache397 === undefined) wasmImportedFuncCache397 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache397["__wbg_getShaderParameter_64b1ffe576e5fa25"](p0i32,p1i32,p2i32);
 /******/ 						},
 /******/ 						"__wbg_getUniformLocation_703972f150a46500": function(p0i32,p1i32,p2i32,p3i32) {
-/******/ 							if(wasmImportedFuncCache400 === undefined) wasmImportedFuncCache400 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache400["__wbg_getUniformLocation_703972f150a46500"](p0i32,p1i32,p2i32,p3i32);
+/******/ 							if(wasmImportedFuncCache398 === undefined) wasmImportedFuncCache398 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache398["__wbg_getUniformLocation_703972f150a46500"](p0i32,p1i32,p2i32,p3i32);
 /******/ 						},
 /******/ 						"__wbg_linkProgram_5fdd57237c761833": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache401 === undefined) wasmImportedFuncCache401 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache401["__wbg_linkProgram_5fdd57237c761833"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache399 === undefined) wasmImportedFuncCache399 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache399["__wbg_linkProgram_5fdd57237c761833"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_scissor_fb094c7db856e2a7": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
-/******/ 							if(wasmImportedFuncCache402 === undefined) wasmImportedFuncCache402 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache402["__wbg_scissor_fb094c7db856e2a7"](p0i32,p1i32,p2i32,p3i32,p4i32);
+/******/ 							if(wasmImportedFuncCache400 === undefined) wasmImportedFuncCache400 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache400["__wbg_scissor_fb094c7db856e2a7"](p0i32,p1i32,p2i32,p3i32,p4i32);
 /******/ 						},
 /******/ 						"__wbg_shaderSource_173ab97288934a60": function(p0i32,p1i32,p2i32,p3i32) {
-/******/ 							if(wasmImportedFuncCache403 === undefined) wasmImportedFuncCache403 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache403["__wbg_shaderSource_173ab97288934a60"](p0i32,p1i32,p2i32,p3i32);
+/******/ 							if(wasmImportedFuncCache401 === undefined) wasmImportedFuncCache401 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache401["__wbg_shaderSource_173ab97288934a60"](p0i32,p1i32,p2i32,p3i32);
 /******/ 						},
 /******/ 						"__wbg_texParameteri_caec5468f2a850c3": function(p0i32,p1i32,p2i32,p3i32) {
-/******/ 							if(wasmImportedFuncCache404 === undefined) wasmImportedFuncCache404 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache404["__wbg_texParameteri_caec5468f2a850c3"](p0i32,p1i32,p2i32,p3i32);
+/******/ 							if(wasmImportedFuncCache402 === undefined) wasmImportedFuncCache402 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache402["__wbg_texParameteri_caec5468f2a850c3"](p0i32,p1i32,p2i32,p3i32);
 /******/ 						},
 /******/ 						"__wbg_uniform1f_258478814234cf9c": function(p0i32,p1i32,p2f32) {
-/******/ 							if(wasmImportedFuncCache405 === undefined) wasmImportedFuncCache405 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache405["__wbg_uniform1f_258478814234cf9c"](p0i32,p1i32,p2f32);
+/******/ 							if(wasmImportedFuncCache403 === undefined) wasmImportedFuncCache403 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache403["__wbg_uniform1f_258478814234cf9c"](p0i32,p1i32,p2f32);
 /******/ 						},
 /******/ 						"__wbg_uniform1i_a0275676828a22b6": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache406 === undefined) wasmImportedFuncCache406 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache406["__wbg_uniform1i_a0275676828a22b6"](p0i32,p1i32,p2i32);
+/******/ 							if(wasmImportedFuncCache404 === undefined) wasmImportedFuncCache404 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache404["__wbg_uniform1i_a0275676828a22b6"](p0i32,p1i32,p2i32);
 /******/ 						},
 /******/ 						"__wbg_uniform2f_b0af46ba675f2c0d": function(p0i32,p1i32,p2f32,p3f32) {
-/******/ 							if(wasmImportedFuncCache407 === undefined) wasmImportedFuncCache407 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache407["__wbg_uniform2f_b0af46ba675f2c0d"](p0i32,p1i32,p2f32,p3f32);
+/******/ 							if(wasmImportedFuncCache405 === undefined) wasmImportedFuncCache405 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache405["__wbg_uniform2f_b0af46ba675f2c0d"](p0i32,p1i32,p2f32,p3f32);
 /******/ 						},
 /******/ 						"__wbg_uniform3f_65416973a351fbab": function(p0i32,p1i32,p2f32,p3f32,p4f32) {
-/******/ 							if(wasmImportedFuncCache408 === undefined) wasmImportedFuncCache408 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache408["__wbg_uniform3f_65416973a351fbab"](p0i32,p1i32,p2f32,p3f32,p4f32);
+/******/ 							if(wasmImportedFuncCache406 === undefined) wasmImportedFuncCache406 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache406["__wbg_uniform3f_65416973a351fbab"](p0i32,p1i32,p2f32,p3f32,p4f32);
 /******/ 						},
 /******/ 						"__wbg_uniform4f_e5d0a91bf98b35ad": function(p0i32,p1i32,p2f32,p3f32,p4f32,p5f32) {
-/******/ 							if(wasmImportedFuncCache409 === undefined) wasmImportedFuncCache409 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache409["__wbg_uniform4f_e5d0a91bf98b35ad"](p0i32,p1i32,p2f32,p3f32,p4f32,p5f32);
+/******/ 							if(wasmImportedFuncCache407 === undefined) wasmImportedFuncCache407 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache407["__wbg_uniform4f_e5d0a91bf98b35ad"](p0i32,p1i32,p2f32,p3f32,p4f32,p5f32);
 /******/ 						},
 /******/ 						"__wbg_useProgram_d5898a40ebe88916": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache410 === undefined) wasmImportedFuncCache410 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache410["__wbg_useProgram_d5898a40ebe88916"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache408 === undefined) wasmImportedFuncCache408 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache408["__wbg_useProgram_d5898a40ebe88916"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbg_vertexAttribPointer_0d097efa33e3f45f": function(p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32) {
-/******/ 							if(wasmImportedFuncCache411 === undefined) wasmImportedFuncCache411 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache411["__wbg_vertexAttribPointer_0d097efa33e3f45f"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32);
+/******/ 							if(wasmImportedFuncCache409 === undefined) wasmImportedFuncCache409 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache409["__wbg_vertexAttribPointer_0d097efa33e3f45f"](p0i32,p1i32,p2i32,p3i32,p4i32,p5i32,p6i32);
 /******/ 						},
 /******/ 						"__wbg_viewport_19577064127daf83": function(p0i32,p1i32,p2i32,p3i32,p4i32) {
-/******/ 							if(wasmImportedFuncCache412 === undefined) wasmImportedFuncCache412 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache412["__wbg_viewport_19577064127daf83"](p0i32,p1i32,p2i32,p3i32,p4i32);
+/******/ 							if(wasmImportedFuncCache410 === undefined) wasmImportedFuncCache410 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache410["__wbg_viewport_19577064127daf83"](p0i32,p1i32,p2i32,p3i32,p4i32);
 /******/ 						},
 /******/ 						"__wbindgen_is_undefined": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache413 === undefined) wasmImportedFuncCache413 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache413["__wbindgen_is_undefined"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_buffer_5e74a88a1424a2e0": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache414 === undefined) wasmImportedFuncCache414 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache414["__wbg_buffer_5e74a88a1424a2e0"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_get_f45dff51f52d7222": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache415 === undefined) wasmImportedFuncCache415 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache415["__wbg_get_f45dff51f52d7222"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_length_7b60f47bde714631": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache416 === undefined) wasmImportedFuncCache416 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache416["__wbg_length_7b60f47bde714631"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_newnoargs_f579424187aa1717": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache417 === undefined) wasmImportedFuncCache417 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache417["__wbg_newnoargs_f579424187aa1717"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_call_89558c3e96703ca1": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache418 === undefined) wasmImportedFuncCache418 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache418["__wbg_call_89558c3e96703ca1"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_isArray_8480ed76e5369634": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache419 === undefined) wasmImportedFuncCache419 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache419["__wbg_isArray_8480ed76e5369634"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_resolve_4f8f547f26b30b27": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache420 === undefined) wasmImportedFuncCache420 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache420["__wbg_resolve_4f8f547f26b30b27"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_then_a6860c82b90816ca": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache421 === undefined) wasmImportedFuncCache421 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache421["__wbg_then_a6860c82b90816ca"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_then_58a04e42527f52c6": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache422 === undefined) wasmImportedFuncCache422 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache422["__wbg_then_58a04e42527f52c6"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_self_e23d74ae45fb17d1": function() {
-/******/ 							if(wasmImportedFuncCache423 === undefined) wasmImportedFuncCache423 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache423["__wbg_self_e23d74ae45fb17d1"]();
-/******/ 						},
-/******/ 						"__wbg_window_b4be7f48b24ac56e": function() {
-/******/ 							if(wasmImportedFuncCache424 === undefined) wasmImportedFuncCache424 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache424["__wbg_window_b4be7f48b24ac56e"]();
-/******/ 						},
-/******/ 						"__wbg_globalThis_d61b1f48a57191ae": function() {
-/******/ 							if(wasmImportedFuncCache425 === undefined) wasmImportedFuncCache425 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache425["__wbg_globalThis_d61b1f48a57191ae"]();
-/******/ 						},
-/******/ 						"__wbg_global_e7669da72fd7f239": function() {
-/******/ 							if(wasmImportedFuncCache426 === undefined) wasmImportedFuncCache426 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache426["__wbg_global_e7669da72fd7f239"]();
-/******/ 						},
-/******/ 						"__wbg_newwithbyteoffsetandlength_278ec7532799393a": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache427 === undefined) wasmImportedFuncCache427 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache427["__wbg_newwithbyteoffsetandlength_278ec7532799393a"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_new_e3b800e570795b3c": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache428 === undefined) wasmImportedFuncCache428 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache428["__wbg_new_e3b800e570795b3c"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_set_5b8081e9d002f0df": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache429 === undefined) wasmImportedFuncCache429 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache429["__wbg_set_5b8081e9d002f0df"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_length_30803400a8f15c59": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache430 === undefined) wasmImportedFuncCache430 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache430["__wbg_length_30803400a8f15c59"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_newwithbyteoffsetandlength_bdb885cfc5e9bc43": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache431 === undefined) wasmImportedFuncCache431 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache431["__wbg_newwithbyteoffsetandlength_bdb885cfc5e9bc43"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_newwithbyteoffsetandlength_ad2916c6fa7d4c6f": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache432 === undefined) wasmImportedFuncCache432 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache432["__wbg_newwithbyteoffsetandlength_ad2916c6fa7d4c6f"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_new_f5438c0cea22a3aa": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache433 === undefined) wasmImportedFuncCache433 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache433["__wbg_new_f5438c0cea22a3aa"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_set_7cb6639737aebb39": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache434 === undefined) wasmImportedFuncCache434 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache434["__wbg_set_7cb6639737aebb39"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbg_length_44449d3b5928d07c": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache435 === undefined) wasmImportedFuncCache435 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache435["__wbg_length_44449d3b5928d07c"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_newwithlength_5f4ce114a24dfe1e": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache436 === undefined) wasmImportedFuncCache436 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache436["__wbg_newwithlength_5f4ce114a24dfe1e"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_newwithlength_747b31c525d823ec": function(p0i32) {
-/******/ 							if(wasmImportedFuncCache437 === undefined) wasmImportedFuncCache437 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache437["__wbg_newwithlength_747b31c525d823ec"](p0i32);
-/******/ 						},
-/******/ 						"__wbg_subarray_e729e242fb317565": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache438 === undefined) wasmImportedFuncCache438 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache438["__wbg_subarray_e729e242fb317565"](p0i32,p1i32,p2i32);
+/******/ 							if(wasmImportedFuncCache411 === undefined) wasmImportedFuncCache411 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache411["__wbindgen_is_undefined"](p0i32);
 /******/ 						},
 /******/ 						"__wbg_parse_e3e7e590474b89d2": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache412 === undefined) wasmImportedFuncCache412 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache412["__wbg_parse_e3e7e590474b89d2"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_get_f45dff51f52d7222": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache413 === undefined) wasmImportedFuncCache413 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache413["__wbg_get_f45dff51f52d7222"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_length_7b60f47bde714631": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache414 === undefined) wasmImportedFuncCache414 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache414["__wbg_length_7b60f47bde714631"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_newnoargs_f579424187aa1717": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache415 === undefined) wasmImportedFuncCache415 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache415["__wbg_newnoargs_f579424187aa1717"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_call_89558c3e96703ca1": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache416 === undefined) wasmImportedFuncCache416 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache416["__wbg_call_89558c3e96703ca1"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_isArray_8480ed76e5369634": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache417 === undefined) wasmImportedFuncCache417 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache417["__wbg_isArray_8480ed76e5369634"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_resolve_4f8f547f26b30b27": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache418 === undefined) wasmImportedFuncCache418 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache418["__wbg_resolve_4f8f547f26b30b27"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_then_a6860c82b90816ca": function(p0i32,p1i32) {
+/******/ 							if(wasmImportedFuncCache419 === undefined) wasmImportedFuncCache419 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache419["__wbg_then_a6860c82b90816ca"](p0i32,p1i32);
+/******/ 						},
+/******/ 						"__wbg_then_58a04e42527f52c6": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache420 === undefined) wasmImportedFuncCache420 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache420["__wbg_then_58a04e42527f52c6"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_self_e23d74ae45fb17d1": function() {
+/******/ 							if(wasmImportedFuncCache421 === undefined) wasmImportedFuncCache421 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache421["__wbg_self_e23d74ae45fb17d1"]();
+/******/ 						},
+/******/ 						"__wbg_window_b4be7f48b24ac56e": function() {
+/******/ 							if(wasmImportedFuncCache422 === undefined) wasmImportedFuncCache422 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache422["__wbg_window_b4be7f48b24ac56e"]();
+/******/ 						},
+/******/ 						"__wbg_globalThis_d61b1f48a57191ae": function() {
+/******/ 							if(wasmImportedFuncCache423 === undefined) wasmImportedFuncCache423 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache423["__wbg_globalThis_d61b1f48a57191ae"]();
+/******/ 						},
+/******/ 						"__wbg_global_e7669da72fd7f239": function() {
+/******/ 							if(wasmImportedFuncCache424 === undefined) wasmImportedFuncCache424 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache424["__wbg_global_e7669da72fd7f239"]();
+/******/ 						},
+/******/ 						"__wbg_buffer_5e74a88a1424a2e0": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache425 === undefined) wasmImportedFuncCache425 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache425["__wbg_buffer_5e74a88a1424a2e0"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_newwithbyteoffsetandlength_278ec7532799393a": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache426 === undefined) wasmImportedFuncCache426 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache426["__wbg_newwithbyteoffsetandlength_278ec7532799393a"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_new_e3b800e570795b3c": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache427 === undefined) wasmImportedFuncCache427 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache427["__wbg_new_e3b800e570795b3c"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_set_5b8081e9d002f0df": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache428 === undefined) wasmImportedFuncCache428 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache428["__wbg_set_5b8081e9d002f0df"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_length_30803400a8f15c59": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache429 === undefined) wasmImportedFuncCache429 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache429["__wbg_length_30803400a8f15c59"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_newwithbyteoffsetandlength_bdb885cfc5e9bc43": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache430 === undefined) wasmImportedFuncCache430 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache430["__wbg_newwithbyteoffsetandlength_bdb885cfc5e9bc43"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_newwithbyteoffsetandlength_ad2916c6fa7d4c6f": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache431 === undefined) wasmImportedFuncCache431 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache431["__wbg_newwithbyteoffsetandlength_ad2916c6fa7d4c6f"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_new_f5438c0cea22a3aa": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache432 === undefined) wasmImportedFuncCache432 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache432["__wbg_new_f5438c0cea22a3aa"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_set_7cb6639737aebb39": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache433 === undefined) wasmImportedFuncCache433 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache433["__wbg_set_7cb6639737aebb39"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_length_44449d3b5928d07c": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache434 === undefined) wasmImportedFuncCache434 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache434["__wbg_length_44449d3b5928d07c"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_newwithlength_5f4ce114a24dfe1e": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache435 === undefined) wasmImportedFuncCache435 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache435["__wbg_newwithlength_5f4ce114a24dfe1e"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_newwithlength_747b31c525d823ec": function(p0i32) {
+/******/ 							if(wasmImportedFuncCache436 === undefined) wasmImportedFuncCache436 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache436["__wbg_newwithlength_747b31c525d823ec"](p0i32);
+/******/ 						},
+/******/ 						"__wbg_subarray_e729e242fb317565": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache437 === undefined) wasmImportedFuncCache437 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache437["__wbg_subarray_e729e242fb317565"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbg_new_693216e109162396": function() {
+/******/ 							if(wasmImportedFuncCache438 === undefined) wasmImportedFuncCache438 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache438["__wbg_new_693216e109162396"]();
+/******/ 						},
+/******/ 						"__wbg_stack_0ddaca5d1abfb52f": function(p0i32,p1i32) {
 /******/ 							if(wasmImportedFuncCache439 === undefined) wasmImportedFuncCache439 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache439["__wbg_parse_e3e7e590474b89d2"](p0i32,p1i32);
+/******/ 							return wasmImportedFuncCache439["__wbg_stack_0ddaca5d1abfb52f"](p0i32,p1i32);
 /******/ 						},
-/******/ 						"__wbg_new_59cb74e423758ede": function() {
+/******/ 						"__wbg_error_09919627ac0992f5": function(p0i32,p1i32) {
 /******/ 							if(wasmImportedFuncCache440 === undefined) wasmImportedFuncCache440 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache440["__wbg_new_59cb74e423758ede"]();
-/******/ 						},
-/******/ 						"__wbg_stack_558ba5917b466edd": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache441 === undefined) wasmImportedFuncCache441 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache441["__wbg_stack_558ba5917b466edd"](p0i32,p1i32);
-/******/ 						},
-/******/ 						"__wbg_error_4bb6c2a97407129a": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache442 === undefined) wasmImportedFuncCache442 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache442["__wbg_error_4bb6c2a97407129a"](p0i32,p1i32);
+/******/ 							return wasmImportedFuncCache440["__wbg_error_09919627ac0992f5"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbindgen_debug_string": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache443 === undefined) wasmImportedFuncCache443 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache443["__wbindgen_debug_string"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache441 === undefined) wasmImportedFuncCache441 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache441["__wbindgen_debug_string"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbindgen_throw": function(p0i32,p1i32) {
-/******/ 							if(wasmImportedFuncCache444 === undefined) wasmImportedFuncCache444 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache444["__wbindgen_throw"](p0i32,p1i32);
+/******/ 							if(wasmImportedFuncCache442 === undefined) wasmImportedFuncCache442 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache442["__wbindgen_throw"](p0i32,p1i32);
 /******/ 						},
 /******/ 						"__wbindgen_memory": function() {
+/******/ 							if(wasmImportedFuncCache443 === undefined) wasmImportedFuncCache443 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache443["__wbindgen_memory"]();
+/******/ 						},
+/******/ 						"__wbindgen_closure_wrapper819": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache444 === undefined) wasmImportedFuncCache444 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache444["__wbindgen_closure_wrapper819"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbindgen_closure_wrapper821": function(p0i32,p1i32,p2i32) {
 /******/ 							if(wasmImportedFuncCache445 === undefined) wasmImportedFuncCache445 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache445["__wbindgen_memory"]();
-/******/ 						},
-/******/ 						"__wbindgen_closure_wrapper1458": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache446 === undefined) wasmImportedFuncCache446 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache446["__wbindgen_closure_wrapper1458"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbindgen_closure_wrapper1460": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache447 === undefined) wasmImportedFuncCache447 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache447["__wbindgen_closure_wrapper1460"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbindgen_closure_wrapper2297": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache448 === undefined) wasmImportedFuncCache448 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache448["__wbindgen_closure_wrapper2297"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbindgen_closure_wrapper2298": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache449 === undefined) wasmImportedFuncCache449 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache449["__wbindgen_closure_wrapper2298"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbindgen_closure_wrapper2300": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache450 === undefined) wasmImportedFuncCache450 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache450["__wbindgen_closure_wrapper2300"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbindgen_closure_wrapper2302": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache451 === undefined) wasmImportedFuncCache451 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache451["__wbindgen_closure_wrapper2302"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbindgen_closure_wrapper2304": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache452 === undefined) wasmImportedFuncCache452 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache452["__wbindgen_closure_wrapper2304"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbindgen_closure_wrapper2306": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache453 === undefined) wasmImportedFuncCache453 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache453["__wbindgen_closure_wrapper2306"](p0i32,p1i32,p2i32);
-/******/ 						},
-/******/ 						"__wbindgen_closure_wrapper2308": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache454 === undefined) wasmImportedFuncCache454 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache454["__wbindgen_closure_wrapper2308"](p0i32,p1i32,p2i32);
+/******/ 							return wasmImportedFuncCache445["__wbindgen_closure_wrapper821"](p0i32,p1i32,p2i32);
 /******/ 						},
 /******/ 						"__wbindgen_closure_wrapper2310": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache455 === undefined) wasmImportedFuncCache455 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache455["__wbindgen_closure_wrapper2310"](p0i32,p1i32,p2i32);
+/******/ 							if(wasmImportedFuncCache446 === undefined) wasmImportedFuncCache446 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache446["__wbindgen_closure_wrapper2310"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbindgen_closure_wrapper2311": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache447 === undefined) wasmImportedFuncCache447 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache447["__wbindgen_closure_wrapper2311"](p0i32,p1i32,p2i32);
 /******/ 						},
 /******/ 						"__wbindgen_closure_wrapper2313": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache456 === undefined) wasmImportedFuncCache456 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache456["__wbindgen_closure_wrapper2313"](p0i32,p1i32,p2i32);
+/******/ 							if(wasmImportedFuncCache448 === undefined) wasmImportedFuncCache448 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache448["__wbindgen_closure_wrapper2313"](p0i32,p1i32,p2i32);
 /******/ 						},
-/******/ 						"__wbindgen_closure_wrapper2456": function(p0i32,p1i32,p2i32) {
-/******/ 							if(wasmImportedFuncCache457 === undefined) wasmImportedFuncCache457 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
-/******/ 							return wasmImportedFuncCache457["__wbindgen_closure_wrapper2456"](p0i32,p1i32,p2i32);
+/******/ 						"__wbindgen_closure_wrapper2315": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache449 === undefined) wasmImportedFuncCache449 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache449["__wbindgen_closure_wrapper2315"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbindgen_closure_wrapper2317": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache450 === undefined) wasmImportedFuncCache450 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache450["__wbindgen_closure_wrapper2317"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbindgen_closure_wrapper2319": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache451 === undefined) wasmImportedFuncCache451 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache451["__wbindgen_closure_wrapper2319"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbindgen_closure_wrapper2321": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache452 === undefined) wasmImportedFuncCache452 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache452["__wbindgen_closure_wrapper2321"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbindgen_closure_wrapper2324": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache453 === undefined) wasmImportedFuncCache453 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache453["__wbindgen_closure_wrapper2324"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbindgen_closure_wrapper2326": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache454 === undefined) wasmImportedFuncCache454 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache454["__wbindgen_closure_wrapper2326"](p0i32,p1i32,p2i32);
+/******/ 						},
+/******/ 						"__wbindgen_closure_wrapper2411": function(p0i32,p1i32,p2i32) {
+/******/ 							if(wasmImportedFuncCache455 === undefined) wasmImportedFuncCache455 = __webpack_require__.c["./src/core/pkg-webgl1/index_bg.js"].exports;
+/******/ 							return wasmImportedFuncCache455["__wbindgen_closure_wrapper2411"](p0i32,p1i32,p2i32);
 /******/ 						}
 /******/ 					}
 /******/ 				};
@@ -19572,7 +19631,7 @@ let SpatialVector = (function () {
 /******/ 					promises.push(installedWasmModuleData);
 /******/ 				else {
 /******/ 					var importObject = wasmImportObjects[wasmModuleId]();
-/******/ 					var req = fetch(__webpack_require__.p + "" + {"vendors-node_modules_fxpineau_healpix_healpix_js":{"./node_modules/@fxpineau/healpix/healpix_bg.wasm":"d212f0148c6f29465e6f"},"src_core_pkg-webgl2_index_js":{"./src/core/pkg-webgl2/index_bg.wasm":"e539f9b3dae0b6b704e4"},"src_core_pkg-webgl1_index_js":{"./src/core/pkg-webgl1/index_bg.wasm":"ee9d458807c5505e0981"}}[chunkId][wasmModuleId] + ".module.wasm");
+/******/ 					var req = fetch(__webpack_require__.p + "" + {"vendors-node_modules_fxpineau_healpix_healpix_js":{"./node_modules/@fxpineau/healpix/healpix_bg.wasm":"d212f0148c6f29465e6f"},"src_core_pkg-webgl2_index_js":{"./src/core/pkg-webgl2/index_bg.wasm":"2bdabfcbe1451d6e0c9a"},"src_core_pkg-webgl1_index_js":{"./src/core/pkg-webgl1/index_bg.wasm":"431099a41f8572920111"}}[chunkId][wasmModuleId] + ".module.wasm");
 /******/ 					var promise;
 /******/ 					if(importObject && typeof importObject.then === 'function' && typeof WebAssembly.compileStreaming === 'function') {
 /******/ 						promise = Promise.all([WebAssembly.compileStreaming(req), importObject]).then(function(items) {
